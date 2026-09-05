@@ -14,7 +14,8 @@ Decisions: [0001](adr/0001-scope-v1-web-only.md) web only ·
 [0015](adr/0015-single-parent-domain.md) one parent domain ·
 [0016](adr/0016-n03-revocation-targets.md) revocation targets ·
 [0017](adr/0017-fail-closed-availability.md) accepted SPOF ·
-[0019](adr/0019-kill-switch-session-index.md) kill switch session index
+[0019](adr/0019-kill-switch-session-index.md) kill switch session index ·
+[0020](adr/0020-frontend-in-nginx-image.md) frontend packaging
 
 Sources for the technical claims: [`docs/07-references.md`](07-references.md).
 
@@ -141,6 +142,7 @@ updated together.
 | `GET /decide` | **nginx** (`auth_request`) | 200 / 401 / 403. No body. |
 | `GET /api/me` | frontend | The signed-in user: name, email, groups, admin flag |
 | `GET /api/apps` | frontend | Applications the user can reach (portal buttons) |
+| `POST /api/logout` | frontend | The caller's own kill switch, run **before** the sign-out redirect: session key (derived from the cookie it holds), cache entries, index entry ("Logout" below) |
 | `GET /api/admin/applications` | admin | Application list |
 | `POST/PATCH/DELETE /api/admin/applications` | admin | Defining applications |
 | `GET/POST/DELETE /api/admin/entitlements` | admin | AD group ↔ application mapping |
@@ -170,7 +172,7 @@ original request reaches the backend **only** through the headers nginx passes:
 | `X-Original-Method` | `$request_method` | Audit |
 | `X-Real-IP` | `$remote_addr` | Audit |
 | `X-Request-Id` | `$request_id` | Correlating the nginx access log with `audit_event` |
-| `Cookie` | from the client | The session cookie to forward to oauth2-proxy |
+| `Cookie` | from the client | The session cookie to forward to oauth2-proxy. The cache key hashes **only the `_oauth2_proxy` cookie's value**, never the whole header (`docs/05`, "Decision cache") |
 
 The application identity comes from the fixed `X-App-Slug` value in nginx's own
 configuration, **not from a client-controlled hostname**: because the subrequest
@@ -202,6 +204,10 @@ sit behind the login flow.
   login page in step 6, so that hostname is served by the same nginx and must be
   exempt for exactly the reason above. Easy to miss, because Keycloak is thought
   of as infrastructure rather than as something the user's browser visits.
+  Anonymous covers only the paths the login flow needs (`/realms/*`,
+  `/resources/*`): the `/admin` console and `/metrics` are **not proxied at
+  all** — an internet-facing Keycloak admin login page is attack surface
+  nothing here requires.
 - **The portal host (`portal.apps.<domain>`, ADR-0015) is open to every
   authenticated user.** Not through policy, but through a separate `location` in
   `00-auth.conf`. Otherwise an unauthorised user is redirected to `/denied`,
@@ -219,6 +225,9 @@ who could reach the portal could grant themselves entitlements.
 
 - Source of authority: a single `ADMIN_GROUP` from the environment (e.g. `OpenBerat-Admins`).
   If it is not in the user's `X-Auth-Request-Groups` list, 403.
+- That header is trustworthy only because nginx strips client-supplied
+  `X-Auth-*` on the portal host's `/api/*` location too, exactly as on the
+  protected applications (`docs/05`, "Header spoof protection").
 - The check is on the handler's first line, **independent of the decision cache** —
   losing admin rights does not wait for a TTL.
 - On every state-changing admin endpoint the `Origin` header must equal the
@@ -267,19 +276,27 @@ application
   id, slug, name, icon, upstream_url, external_hostname, enabled
 
 entitlement                       -- "who reaches what"
-  id, application_id,
+  id, application_id,             -- NULL = every application: the wildcard of
+                                  -- docs/05 rule 4. Dangerous, logged separately.
   subject_type ('ad_group' | 'user'),
   subject_id,                     -- AD group name (see warning below) or Keycloak sub
   effect ('allow' | 'deny'),
   path_pattern,                   -- empty = whole application; '/admin/*' = prefix
   expires_at                      -- NULL = no expiry
 
-audit_event                       -- append-only, partitioned by month on ts
+audit_event         -- append-only, partitioned by month on ts; one summary row
+                    -- per (cache entry, outcome) — "Audit granularity" above
   id, ts, actor_sub, actor_name,
-  application_id, path, decision, reason,
-  src_ip, user_agent, request_id
+  application_id, decision, reason,
+  count, first_seen, last_seen, distinct_path,
+  first_path, src_ip, request_id  -- of the FIRST request folded into the row;
+                                  -- the per-request stream is stdout (F-23)
   -- PK is (id, ts): Postgres requires the partition key in the primary key
   --                 of a partitioned table. Not a detail to discover in Phase 2.
+  -- 0001_init.sql also creates a DEFAULT partition: an INSERT with no matching
+  -- partition is an error, and audit writes happen off the request path — they
+  -- would fail silently. There is no user_agent column: a summary row has no
+  -- single one; the stdout stream carries it per request.
 ```
 
 For AD groups, `entitlement.subject_id` currently holds a **name**. This has a
@@ -338,6 +355,16 @@ Logout has the browser in hand, so step 1 knows which session to drop. The kill
 switch does not — the admin acts on a `sub`, and Redis is keyed by ticket. That
 is what the index in step 3 exists for; its order there is fixed (`docs/05`).
 
+Step 3 does not run by itself — an earlier version of this list named no caller,
+which made it a step nobody executes. The portal calls **`POST /api/logout`**
+(the `/api` contract) *before* starting the redirect chain: holding the very
+cookie it was called with, the backend deletes the oauth2-proxy session key,
+then this `sub`'s cache entries, then the index entry — the kill-switch order.
+Cache before session would let a request in the gap refill the cache from the
+still-live session; skipping the call entirely leaves a replayed cookie working
+for up to one cache TTL after "logout". The browser then walks steps 1–2, which
+clear the cookie and the IdP session.
+
 ## Availability: the price of fail-closed
 
 The system is deliberately fail-closed: no decision means no access. The
@@ -391,8 +418,21 @@ is the rehearsed break-glass below, not a promise of uptime.
                   └──────────────────┘
 ```
 
-**443 is the only published port.** Every other container publishes nothing and
-is reachable only on nginx's network — that isolation is v1's answer to the
+**443 is the only published port.** Every other container publishes nothing.
+Isolation is **two docker networks, not one** — a flat "everything on nginx's
+network" would put the protected applications next to Postgres, Redis and the
+backend, and a compromised application could then skip nginx entirely: post to
+`backend:8081/api/admin/*` with forged identity headers, read every
+oauth2-proxy session out of Redis, or read the entitlement table. On a flat
+network the `internal;` guard on `/decide` is no defence — that directive
+constrains nginx's own routing, not who can reach the backend's port.
+
+| Network | Members | Purpose |
+|---|---|---|
+| `edge` | nginx + the protected applications | The only thing an upstream can reach is nginx |
+| `core` | nginx + backend + oauth2-proxy + Keycloak + Postgres + Redis | The decision chain; no protected application is on it |
+
+nginx is the only member of both. This isolation is v1's answer to the
 upstream-bypass question (`docs/06`). Keycloak's `:8080` is reached by the
 browser *through* nginx, not directly; it needs TLS and a stable public hostname
 for the OIDC redirect to work at all.
@@ -401,8 +441,9 @@ for the OIDC redirect to work at all.
 
 ```
 backend/       Rust: /decide, /api, authorisation decision, audit  → Dockerfile
-frontend/      portal + admin UI                                   → Dockerfile
-nginx/         PEP configuration + static serving                  → Dockerfile
+frontend/      portal + admin UI — copied into the nginx image at
+               build (ADR-0020), no container of its own
+nginx/         PEP configuration + static serving + frontend files → Dockerfile
 keycloak/      realm export (LDAP federation)                      stock image
 oauth2-proxy/  authentication configuration                        stock image
 docker-compose.yml

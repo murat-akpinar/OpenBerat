@@ -80,6 +80,7 @@ answered and write the decision to `docs/adr/`.
 | Single point of failure | Accepted, with a rehearsed break-glass | [0017](adr/0017-fail-closed-availability.md) |
 | Outside contributions | DCO (`git commit -s`), no CLA | [0018](adr/0018-contributions-dco.md) |
 | Finding a user's oauth2-proxy session for the kill switch | The backend keeps a `sub → session` index in Redis | [0019](adr/0019-kill-switch-session-index.md) |
+| Frontend packaging | Static files copied into the nginx image at build; no frontend container | [0020](adr/0020-frontend-in-nginx-image.md) |
 | AD group strategy | `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` | `docs/03`, `docs/07` |
 
 ### 🔴 Needs an answer about the target environment
@@ -107,7 +108,9 @@ network and policy. Phase 1 exists partly to establish them.
 ### 🔴 Security, still open
 
 - [ ] **Can upstream applications be reached bypassing nginx?** Three answers:
-      (a) network isolation (the v1 default), (b) mTLS, (c) a **short-lived
+      (a) network isolation (the v1 default: upstreams on `edge` with nginx
+      alone, the decision chain on `core` — `docs/02`, "Deployment"), (b) mTLS,
+      (c) a **short-lived
       signed identity JWT** to the upstream plus a JWKS endpoint. (c) is the one
       that stands up to an audit, and it is a small piece of work.
       [ADR-0015](adr/0015-single-parent-domain.md) raised its priority: with a

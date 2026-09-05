@@ -47,11 +47,14 @@ other components are affected.
 
 ## Consequences
 
-- `frontend/Dockerfile` performs no build, it only packages the assets; they are
-  handed to the nginx image. No Node step in CI.
+- ~~`frontend/Dockerfile` performs no build, it only packages the assets.~~
+  **Revised by [ADR-0020](0020-frontend-in-nginx-image.md):** there is no
+  `frontend/Dockerfile` at all — the nginx image copies `frontend/src/` at
+  build. No Node step in CI either way.
 - Alpine.js version upgrades are manual and visible in the commit — a deliberate
   choice.
-- No sources are pulled from an external CDN (so `default-src 'self'` CSP can be
-  applied).
+- No sources are pulled from an external CDN. Whether the CSP can avoid
+  `unsafe-eval` depends on which Alpine.js build is vendored — the standard one
+  evaluates expressions with `new Function()` (`docs/07`, "Unverified").
 - No authorisation decision is made in the UI; hiding admin screens is a
   convenience, and `/api/admin/*` is separately authorised in the backend.

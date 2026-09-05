@@ -1,3 +1,11 @@
 # The whole stack: nginx + oauth2-proxy + redis + backend + postgres + keycloak
 #                  + samba-ad (lab, ADR-0010) + a sample application (lab)
 # Startup order and verification steps: TODO.md "Phase 1 — Lab"
+#
+# Two networks (docs/02 "Deployment"); nginx is the only member of both:
+#   edge: nginx + the protected sample applications. Nothing else — an upstream
+#         that can reach backend:8081, redis or postgres can skip nginx entirely,
+#         and `internal;` on /decide only constrains nginx's own routing.
+#   core: nginx + backend + oauth2-proxy + keycloak + postgres + redis + samba-ad.
+# No service publishes ports except nginx :443.
+# The frontend is not a service: its files are baked into the nginx image (ADR-0020).

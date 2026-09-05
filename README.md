@@ -101,9 +101,12 @@ The full sequence, the failure modes and the decision cache are in
 | Redis | 6379 | No |
 | Active Directory | 636 (LDAPS) | External, outbound only |
 
-Every container except nginx publishes nothing and sits only on nginx's network.
-That isolation is v1's answer to "can an upstream be reached bypassing the
-proxy?" — the question is still open in
+Every container except nginx publishes nothing, and the internal side is split
+into **two networks**: protected applications sit on `edge` with nginx alone,
+while the backend, oauth2-proxy, Keycloak, Postgres and Redis sit on `core` — so
+a compromised application cannot reach the decision chain or the session store
+directly. That isolation is v1's answer to "can an upstream be reached bypassing
+the proxy?" — the question is still open in
 [docs/06-requirements.md](docs/06-requirements.md), where a signed identity JWT
 is the stronger answer.
 
@@ -139,7 +142,7 @@ identity is Keycloak — all three are off the shelf and configured, not written
 | [docs/05-authz-model.md](docs/05-authz-model.md) | The authorisation model and decision rules |
 | [docs/06-requirements.md](docs/06-requirements.md) | Requirements and **open questions** |
 | [docs/07-references.md](docs/07-references.md) | **Sources** — the basis for the technical claims, verified defaults |
-| [docs/adr/](docs/adr/) | **Decisions taken** — 19 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets |
+| [docs/adr/](docs/adr/) | **Decisions taken** — 20 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — DCO sign-off, conventions, what gets rejected |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |
 | [TODO.md](TODO.md) | Roadmap |

@@ -17,9 +17,12 @@ authorisation decision. Reference pattern and verified details:
    user never reaches the login page.
 2. **`auth_request` is one per location.** The chain lives inside the backend
    (ADR-0002). Do not write a second `auth_request`; it silently overrides the first.
-3. **Strip incoming `X-Auth-*` headers.** In every protected location. Keep it in
-   a shared `include` file and pull it in everywhere — forget it in one place and
-   the entire system's security claim falls.
+3. **Strip incoming `X-Auth-*` headers.** In every protected location — **and in
+   the portal host's `/api/*` location**: the backend's admin check trusts
+   `X-Auth-Request-Groups`, so a client sending that header straight to
+   `/api/admin/*` must lose it before the backend sees it. Keep it in a shared
+   `include` file and pull it in everywhere — forget it in one place and the
+   entire system's security claim falls.
 4. **`proxy_pass_request_body off`** + `Content-Length ""` — no body goes to the subrequest.
 5. **`/decide` must not be reachable from outside** (`internal;`).
 6. **Pass the original request's details to `/decide`.** In the subrequest the URI
@@ -36,7 +39,9 @@ authorisation decision. Reference pattern and verified details:
 8. **`/oauth2/*` and Keycloak's host are anonymous.** Put either behind
    `auth_request` and nobody can log in — you would need to be authenticated in
    order to authenticate. Keycloak is the easy one to forget, because it looks
-   like infrastructure rather than a page the browser visits.
+   like infrastructure rather than a page the browser visits. Proxy only
+   `/realms/*` and `/resources/*` on the Keycloak host — never `/admin` (the
+   Keycloak admin console) or `/metrics`.
 9. **Timeout budget.** For `/decide`: `proxy_connect_timeout 1s; proxy_read_timeout 2s;`
    The default is 60 seconds; if the backend slows down, workers fill up and
    everything stops. `error_page 500 502 503 504 = @unavailable` → a local static
@@ -52,3 +57,9 @@ authorisation decision. Reference pattern and verified details:
    not write a test asserting otherwise.
 12. **`client_max_body_size`** defaults to 1m — applications that accept file
    uploads will return 413.
+13. **Strip the session cookie before proxying upstream.** The `_oauth2_proxy`
+   cookie is removed from the `Cookie` header (a `map` rewriting `$http_cookie`
+   in the shared include); the application's own cookies pass through. An
+   upstream that receives the session cookie is holding — and probably
+   access-logging — a credential valid for every host on `.apps.<domain>`
+   (ADR-0015, `docs/05`).

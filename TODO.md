@@ -28,6 +28,9 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
 - [x] ADR-0019 Kill switch: the backend keeps a `sub → session` index in Redis
       (the 5 s target of ADR-0016 was otherwise unimplementable — Redis is keyed
       by ticket, not by user). Rests on a Phase 1 verification
+- [x] ADR-0020 Frontend packaging: the static files are copied into the nginx
+      image at build; no frontend container — a named volume seeds only while
+      empty and would serve stale files after the first deploy
 
 **Phase 0 is closed.** Everything decidable from the design has been decided;
 what remains needs facts about the target environment and is tracked in
@@ -55,7 +58,11 @@ Verify the architecture actually works before writing code.
       an open question (`docs/06`)
 - [ ] `docker-compose.yml`: nginx + oauth2-proxy + redis + postgres + keycloak
       + samba-ad + one sample application + one WebSocket sample.
-      Upstream containers expose no `ports`, they sit only on nginx's network.
+      **Two networks** (`docs/02`, "Deployment"): the sample applications on
+      `edge` with nginx alone; backend, oauth2-proxy, Keycloak, Postgres and
+      Redis on `core`. Nothing publishes `ports` except nginx — a flat network
+      would let a compromised upstream reach `backend:8081` and the Redis
+      sessions directly.
 - [ ] **VERIFY (1):** does oauth2-proxy return `Set-Cookie` while performing
       `cookie_refresh` on `/oauth2/auth`? If the backend does not relay it the
       cookie is never refreshed and **ADR-0006 silently collapses** (`docs/07`)
@@ -104,10 +111,14 @@ has a first draft, and there is still not one line of code.
 - [ ] `backend/migrations/0001_init.sql`: application, entitlement, audit_event
       (`known_user` and `entitlement.conditions` are not in v1 — `docs/02` "Data model")
 - [ ] The `audit_event` schema **starts** with its summary columns: `count`,
-      `first_seen`, `last_seen`, `distinct_path`, `request_id`. The table is
-      partitioned by month and its PK is `(id, ts)` — Postgres requires the
-      partition key in the PK. Adding any of this later is a breaking change —
-      the audit record format is immutable (`docs/02`, CONTRIBUTING.md)
+      `first_seen`, `last_seen`, `distinct_path`, plus `first_path` / `src_ip` /
+      `request_id` taken from the first request folded into the row — and no
+      `user_agent` (`docs/02`, "Data model"). The table is partitioned by month
+      and its PK is `(id, ts)` — Postgres requires the partition key in the PK.
+      The migration also creates a **DEFAULT partition**: without one, an INSERT
+      for an uncovered month errors, and audit writes fail off the request
+      path — silently. Adding any of this later is a breaking change — the audit
+      record format is immutable (`docs/02`, CONTRIBUTING.md)
 - [ ] The backend applies `migrations/` itself on startup (sqlx runtime migrator)
       and **exits if a migration fails** rather than serving on an unknown schema.
       An operator should never have to run a migration by hand on first install
@@ -117,6 +128,8 @@ has a first draft, and there is still not one line of code.
 - [ ] **Test:** `/%61dmin/`, `//admin/`, `/x/../admin/`, `/admin` (no slash),
       `/adminx` → does the `/admin/*` deny rule hold in all of them
 - [ ] **Test:** double encoding (`%2561`) → DENY `malformed_uri`
+- [ ] **Test:** `%00`, control bytes, invalid UTF-8 after decoding → DENY
+      `malformed_uri` (NUL truncation — `docs/05`)
 - [ ] **Test:** default deny (no match means deny)
 - [ ] **Test:** deny overrides allow
 - [ ] **Test:** an expired entitlement is ignored
@@ -200,7 +213,11 @@ So the portal's data does not have to be filled in by hand with SQL.
 - [ ] Portal: reachable applications, buttons with icons
 - [ ] The "no access" page — where `error_page 403` lands
 - [ ] Empty state: "you have access to no applications"
-- [ ] `frontend/Dockerfile`, nginx static serving
+- [ ] Frontend files served by nginx — baked into the nginx image at build
+      (ADR-0020), no frontend container or volume
+- [ ] **VERIFY:** Alpine.js under a `default-src 'self'` CSP — the standard
+      build needs `unsafe-eval`; if it fails, vendor the CSP build or amend
+      ADR-0007 (`docs/07`)
 - [ ] Audit log viewing + filtering
 - [ ] `GET /api/admin/explain?user&host&path` — why the decision was made.
       `policy.rs` is already pure; the screen ops will use most
@@ -214,7 +231,9 @@ So the portal's data does not have to be filled in by hand with SQL.
       the index if they never hit `/decide` on this instance
 - [ ] **Test:** an **idle** WebSocket connection is cut within `proxy_read_timeout`
       (an active one is not — ADR-0016 excludes it, do not assert otherwise)
-- [ ] Logout: all three steps (`docs/02`, "Logout")
+- [ ] Logout: all three steps (`docs/02`, "Logout") — the backend step is
+      `POST /api/logout`, called **before** the sign-out redirect; reversed, a
+      request in the gap refills the cache from the still-live session
 
 ## Phase 6 — Hardening and packaging
 

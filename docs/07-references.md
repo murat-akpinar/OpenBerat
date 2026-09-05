@@ -126,6 +126,10 @@ Phase 1 lab:
       **[ADR-0019](adr/0019-kill-switch-session-index.md) rests on this claim**,
       and through it the 5 s kill-switch target in ADR-0016. If it is false the
       fallback is option C of that ADR and N-03 is revised.
+- [ ] Does the vendored Alpine.js run under a `default-src 'self'` CSP
+      **without** `unsafe-eval`? The standard build evaluates expressions with
+      `new Function()`; the CSP build restricts the expression syntax.
+      ADR-0007's CSP consequence rests on this.
 
 ## Licences (to be verified)
 

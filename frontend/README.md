@@ -15,3 +15,6 @@ The portal and admin UI. Served statically by nginx, taking its data from the
 
 **Technology (ADR-0007):** HTML + CSS + Alpine.js (a single file vendored into
 the repository). No build step, no npm, no CDN.
+
+**Packaging (ADR-0020):** no Dockerfile and no container here — the nginx image
+copies `frontend/src/` at build time.

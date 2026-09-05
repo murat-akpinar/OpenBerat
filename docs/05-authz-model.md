@@ -70,7 +70,10 @@ string skips **every** `path_pattern`-based deny rule:
 A single normalisation function runs before the decision:
 
 1. Drop the query string (cut at `?`)
-2. One round of percent-decoding. If a `%` remains afterwards (double encoding) → **DENY** `malformed_uri`
+2. One round of percent-decoding. If a `%` remains afterwards (double
+   encoding), or the decoded bytes are not valid UTF-8, or they contain a
+   control character (`%00` — NUL truncates the path inside some upstream
+   frameworks) → **DENY** `malformed_uri`
 3. Resolve `.` and `..` segments, collapse consecutive `/`
 4. Lowercase
 5. Match **at a segment boundary**: `/admin/*` → the prefix `/admin/`; `/adminx`
@@ -106,7 +109,10 @@ force this:
 So:
 
 - Key: `(cookie_hash, app_slug)` — both computable from the request alone.
-  - `cookie_hash`: SHA-256 of the session cookie
+  - `cookie_hash`: SHA-256 of the **`_oauth2_proxy` cookie's value only** —
+    never the whole `Cookie` header. Applications set cookies of their own on
+    the shared domain; hash the whole header and every app-cookie change is a
+    new key, and the hit rate N-01 depends on collapses.
   - Neither the path nor the query string is part of the key
 - Value:
   ```
@@ -193,10 +199,19 @@ repeated in every protected location** — forget it in one location and it is n
 just that application that falls, but the entire system's security claim. It
 belongs in a shared `include` file pulled in everywhere.
 
-The same applies to `/decide`: it must listen only on the network nginx can
-reach and must not be callable directly from outside. Otherwise, even if an
-attacker cannot produce an "allow" with their own identity headers, they can
-enumerate the policy table.
+The `Cookie` header gets the same treatment in the other direction: the
+`_oauth2_proxy` session cookie is **removed** before the request is proxied
+upstream (the application's own cookies pass through). The upstream has no use
+for it — identity arrives in the `X-Auth-*` headers — and an application that
+receives it is holding, and probably access-logging, a credential valid for
+every host on `.apps.<domain>` (ADR-0015).
+
+The same applies to `/decide`: the backend listens only on the `core` network,
+which no protected application joins (`docs/02`, "Deployment"). The `internal;`
+directive stops the *browser* reaching `/decide` through nginx; it does nothing
+about a container calling `backend:8081` directly — that is what the network
+split is for. Otherwise, even if an attacker cannot produce an "allow" with
+their own identity headers, they can enumerate the policy table.
 
 ```rust
 // --- Feature Start ---
@@ -211,7 +226,9 @@ Phase 3).
 
 **The uncovered side:** the upstream application cannot distinguish a request
 that **bypassed** nginx from the incoming headers. In v1 the basis is network
-isolation (upstream containers only on nginx's network, no `ports`). The answer
+isolation (upstream containers only on the `edge` network with nginx — never on
+`core` with the backend, Redis and Postgres — and no `ports`; `docs/02`,
+"Deployment"). The answer
 that stands up to an audit is issuing a short-lived **signed identity JWT**;
 tracked under the security open questions in `docs/06`.
 
@@ -224,17 +241,20 @@ without a test is visible as a gap rather than an omission.
 | Attack | Where it is refused | Proof |
 |---|---|---|
 | Client sends its own `X-Auth-Groups: IT-Admin` | nginx strips every `X-Auth-*` in a shared `include`, in **every** protected location, before proxying | Phase 3 test |
+| Client sends `X-Auth-Request-Groups: <ADMIN_GROUP>` straight to `/api/admin/*` | The same strip `include` is pulled into the portal host's `/api/*` location — the admin check trusts only what nginx rewrote | Phase 3 test |
+| A protected application harvesting the shared session cookie from incoming requests | nginx removes the `_oauth2_proxy` cookie before proxying upstream; identity travels in `X-Auth-*` only | Phase 3 test |
 | Client drives `Host` / `X-Forwarded-Host` to borrow another application's entitlements | `X-App-Slug` is a constant in each `server` block, never taken from the request | Phase 3 test |
 | `/%61dmin/users` — single-encoded past a `/admin/*` deny | Normalisation runs before matching: decode once, then match | Phase 2 test |
 | `/%2561dmin/` — double-encoded | A `%` surviving one decode round → DENY `malformed_uri` | Phase 2 test |
+| `/admin%00.png` — the upstream truncates at NUL and serves `/admin` | Control characters or invalid UTF-8 after the decode round → DENY `malformed_uri` | Phase 2 test |
 | `//admin/`, `/x/../admin/` | Consecutive slashes collapsed, `.`/`..` resolved | Phase 2 test |
 | `/adminx` slipping into a `/admin/*` rule | Matching at a **segment boundary**, not a raw prefix | Phase 2 test |
 | An entitlement whose `expires_at` has passed still granting | `expires_at` is part of the decision, and the cached rule list carries it | Phase 2 test |
 | A portal user calling `/api/admin/*` | `ADMIN_GROUP` check on the handler's first line, **never cached** | Phase 2 test |
 | A compromised protected application posting to `/api/admin/*` | `Origin` check on state-changing admin endpoints — `SameSite` cannot help, the hosts are same-site (ADR-0015) | Phase 3 test |
 | A request in the gap after a kill switch refilling the cache with a fresh ALLOW | The four-step order is fixed: Keycloak → session keys → cache → index (ADR-0019) | Phase 5 test |
-| Calling `/decide` directly to enumerate the policy table | `internal;` — reachable only from nginx | Phase 3 |
-| Reaching an upstream while bypassing nginx entirely | v1: network isolation, no published `ports`. **Not fully closed** — the signed identity JWT is the answer that survives an audit | Open question, `docs/06` |
+| Calling `/decide` directly to enumerate the policy table | From the browser: `internal;`. From a container: the backend sits only on `core`, which no protected application joins (`docs/02`) | Phase 3 |
+| Reaching an upstream while bypassing nginx entirely | v1: two networks — upstreams on `edge` with nginx only, never on `core` (`docs/02`); no published `ports`. **Not fully closed** — the signed identity JWT is the answer that survives an audit | Open question, `docs/06` |
 | A deleted AD group recreated with the same name inheriting its entitlements | **Not closed.** Accepted debt, mitigated by the `OpenBerat-` prefix and change control (ADR-0008) | — |
 | Revoking access on an **active** WebSocket/SSE connection | **Not closed.** Explicitly outside the N-03 guarantee (ADR-0016) | Phase 1 measures the gap |
 

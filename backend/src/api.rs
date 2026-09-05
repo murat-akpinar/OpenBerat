@@ -5,6 +5,12 @@
 //                     The Set-Cookie from oauth2-proxy is relayed verbatim;
 //                     without it cookie_refresh silently stops (ADR-0006).
 //   GET /api/apps     the applications the portal lists (called by the frontend)
+//   GET /api/me       the signed-in user: name, email, groups, admin flag
+//   POST /api/logout  the caller's own kill switch, run BEFORE the sign-out
+//                     redirect: session key (derived from the cookie it holds),
+//                     cache entries, index entry — kill-switch order (docs/02
+//                     "Logout"). The frontend then sends the browser through
+//                     /oauth2/sign_out -> Keycloak end_session.
 //   GET /healthz      the process is alive; no dependencies checked
 //   GET /readyz       Postgres and Redis reachable — 200 or 503. /decide cannot
 //                     report an outage (a dead DB looks like a denied user), so

@@ -58,3 +58,8 @@ separately in [ADR-0007](0007-frontend-buildless-static.md).
   system cannot drift.
 - ~~One more build chain (Node) enters CI.~~ **Invalidated by ADR-0007:** a
   buildless static UI was chosen, so there is no Node step in CI.
+- **Amended by [ADR-0020](0020-frontend-in-nginx-image.md):** the frontend keeps
+  its directory but not its own container — a named-volume handoff serves stale
+  files after the first deploy, so the static files are copied into the nginx
+  image at build. "One directory per container" holds for the components that
+  *are* containers.

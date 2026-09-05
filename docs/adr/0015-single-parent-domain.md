@@ -65,9 +65,15 @@ limits it to hosts that are, by construction, behind the PEP.
   `Origin` check on state-changing admin endpoints (`docs/02`, "Management
   plane") is not defence in depth — it is the only defence, and it is
   mandatory.
-- A compromised protected application can read the session cookie of any user
-  who visits it. That is inherent to a shared-cookie forward-auth design and is
-  the reason the upstream-bypass question in `docs/06` (option (c), a
-  short-lived signed identity JWT) matters more than it looks.
+- A compromised protected application must **not** see the session cookie of a
+  user who visits it. An earlier version of this bullet called that exposure
+  inherent, and it is not: the cookie reaches an upstream only if nginx forwards
+  the `Cookie` header verbatim, so nginx strips the `_oauth2_proxy` cookie
+  before proxying (`docs/05`, "Header spoof protection") — identity travels in
+  the `X-Auth-*` headers. What *is* inherent to the shared cookie: a script
+  injected into one application runs same-site with all the others, and the
+  browser attaches the cookie to the requests it makes. That is why the `Origin`
+  check above and the upstream-bypass question in `docs/06` (option (c), a
+  short-lived signed identity JWT) still matter.
 - The wildcard certificate becomes a single point of expiry: when it lapses,
   every application goes down at once (`docs/06`).
