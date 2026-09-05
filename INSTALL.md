@@ -58,15 +58,31 @@ KC_ADMIN_USER=admin
 KC_ADMIN_PASSWORD=…
 AD_DOMAIN=ad.example.local
 AD_ADMIN_PASSWORD=…
+# The OIDC client secret. The committed realm export carries a placeholder;
+# this is the real value, injected at import and read by oauth2-proxy.
+OPENBERAT_CLIENT_SECRET=…
+# Must decode to 16, 24 or 32 bytes — oauth2-proxy refuses to start otherwise:
+#   openssl rand -base64 32 | tr -d '\n'
+OAUTH2_PROXY_COOKIE_SECRET=…
+# Lab users only (labuser, labadmin). Gone once AD federation lands.
+LAB_USER_PASSWORD=…
 ```
 
 ## 4. Start
 
 ```sh
 docker compose build
-docker compose up -d nginx
-curl -sk https://portal.apps.example.local/   # serves the portal page
+docker compose up -d nginx keycloak redis oauth2-proxy
 ```
+
+Keycloak imports `keycloak/realm/` at boot. Its H2 database is deliberately
+not on a volume, so after changing the export the way to re-import is
+`docker compose up -d --force-recreate keycloak` — and any change clicked
+together in the admin console is lost the same way, on purpose
+(`keycloak/README.md`).
+
+Then browse to `https://portal.apps.example.local/`; you are redirected to
+Keycloak, and after logging in as `labuser` you land back on the portal.
 
 > Phase 1 is in progress: only nginx is verified so far. The oauth2-proxy
 > configuration, the Keycloak realm import, the LDAP bind account and the

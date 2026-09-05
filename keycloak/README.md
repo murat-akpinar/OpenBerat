@@ -11,9 +11,22 @@ Keycloak UI, the realm is exported again and committed here; otherwise the lab
 cannot be rebuilt.
 
 **No real secrets in the export.** The repository is public: a re-export is
-scrubbed before committing — the OIDC client secret is a placeholder and the
-LDAP bind password is not in the file. Real values arrive through `.env` at
-deploy; whether the import can resolve them from the environment or needs a
-post-import step is a Phase 1 item (`docs/07`, TODO).
+scrubbed before committing — the OIDC client secret is a `${OPENBERAT_CLIENT_SECRET}`
+placeholder and the LDAP bind password is not in the file. Real values arrive
+through `.env` at deploy and the import resolves them from Keycloak's own
+environment; **the syntax is plain `${VAR}`** — `$(env:VAR)` and `${env.VAR}`
+are stored verbatim, which silently produces a client whose secret is the
+literal placeholder text (measured, `docs/07`).
+
+**The file name must match the realm name.** `openberat-realm.json` holds realm
+`openberat`; any other name and Keycloak refuses to start at all — the import
+error is fatal, not skipped.
+
+**Do not add a `clientScopes` array** unless you mean to replace Keycloak's
+built-in set. Supplying one leaves the realm with only the scopes it names, so
+`profile` and `email` cease to exist and every login fails with
+`invalid_scope`. The `groups` claim therefore comes from a protocol mapper on
+the client itself, which also makes it unconditional instead of something the
+caller has to request (`docs/07`).
 
 What the settings mean: `docs/03-keycloak-ad.md`

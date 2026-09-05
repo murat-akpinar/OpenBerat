@@ -184,7 +184,8 @@ There are two distinct header sets in the chain; do not conflate them:
 
 **oauth2-proxy → backend** (identity, ADR-0003):
 ```
-X-Auth-Request-User    : sAMAccountName
+X-Auth-Request-User    : the Keycloak `sub`, a UUID — **not** the username
+X-Auth-Request-Preferred-Username : sAMAccountName
 X-Auth-Request-Email   : mail
 X-Auth-Request-Groups  : comma-separated group list
 ```
@@ -201,10 +202,14 @@ X-Auth-Request-Id  : for correlating with the audit log
 The upstream set is rewritten by nginx from `/decide`'s **response headers** on
 a 200 (`auth_request_set` → `proxy_set_header`; the response contract in
 `docs/02` lists them) — `auth_request` passes no body, so headers are the only
-channel. `X-Auth-Request-Id` alone comes from nginx's own `$request_id`. Which
-claim oauth2-proxy actually puts in `X-Auth-Request-User` for Keycloak is a
-Phase 1 verification (`docs/07`): `X-Auth-Subject` and the ADR-0019 index need
-the immutable `sub`, and if no header carries it, this contract is revised.
+channel. `X-Auth-Request-Id` alone comes from nginx's own `$request_id`.
+
+Which claim oauth2-proxy puts in `X-Auth-Request-User` was a Phase 1
+verification and is now **measured** (`docs/07`): it is the immutable Keycloak
+`sub`, and the username arrives beside it in
+`X-Auth-Request-Preferred-Username`. An earlier version of this contract had
+sAMAccountName in `X-Auth-Request-User`; reading `X-Auth-Subject` from it would
+have keyed the ADR-0019 kill-switch index on a **renameable** value.
 
 ### Header spoof protection — the classic hole in this architecture
 

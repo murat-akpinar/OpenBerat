@@ -1,0 +1,106 @@
+{
+  "realm": "openberat",
+  "enabled": true,
+  "displayName": "OpenBerat",
+  "sslRequired": "external",
+  "loginTheme": "keycloak",
+  "accessTokenLifespan": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "groups": [
+    {
+      "name": "OpenBerat-Admins",
+      "path": "/OpenBerat-Admins"
+    },
+    {
+      "name": "OpenBerat-Finance",
+      "path": "/OpenBerat-Finance"
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "openberat-proxy",
+      "name": "OpenBerat oauth2-proxy",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "secret": "${OPENBERAT_CLIENT_SECRET}",
+      "redirectUris": [
+        "https://portal.apps.example.local/oauth2/callback"
+      ],
+      "webOrigins": [
+        "https://portal.apps.example.local"
+      ],
+      "protocolMappers": [
+        {
+          "name": "groups",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "groups",
+            "full.path": "false",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "openberat-proxy",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "labuser",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "labuser@example.local",
+      "firstName": "Lab",
+      "lastName": "User",
+      "groups": [
+        "/OpenBerat-Finance"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${LAB_USER_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "labadmin",
+      "enabled": true,
+      "emailVerified": true,
+      "email": "labadmin@example.local",
+      "firstName": "Lab",
+      "lastName": "Admin",
+      "groups": [
+        "/OpenBerat-Admins",
+        "/OpenBerat-Finance"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "${LAB_USER_PASSWORD}",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

@@ -7,7 +7,7 @@ authorisation decision. Reference pattern and verified details:
 | File | Contents |
 |---|---|
 | `00-auth.conf` | `auth_request /decide` + `error_page 401/403` + the shared `X-Auth-*` stripping |
-| `10-portal.conf` | Portal and admin: frontend static files, `/api/*` → backend |
+| `10-portal.conf` | Portal and admin: frontend static files, `/api/*` → backend — **and the two anonymous hosts**, `/oauth2/*` and Keycloak's `/realms/` + `/resources/` |
 | `20-apps.conf` | Protected applications (`*.apps.<domain>`) → upstream |
 
 ## Do not skip these
@@ -60,9 +60,16 @@ authorisation decision. Reference pattern and verified details:
    upstream, so it cuts an idle connection and never a busy one. Revocation on
    an active long-lived connection is outside the N-03 guarantee (ADR-0016); do
    not write a test asserting otherwise.
-12. **`client_max_body_size`** defaults to 1m — applications that accept file
+12. **No internal redirects in a location that carries `auth_request`.** An
+   internal redirect restarts the access phase, so the subrequest runs twice —
+   the second one overwrites `$auth_cookie` with an empty string and the
+   refreshed session cookie never reaches the browser (measured, `docs/07`).
+   It also doubles the decision load. `try_files` with `=404` as the last
+   argument serves files in place; a bare URI, a named location, an `index`
+   directive or a directory match all redirect.
+13. **`client_max_body_size`** defaults to 1m — applications that accept file
    uploads will return 413.
-13. **Strip the session cookie before proxying upstream.** The `_oauth2_proxy`
+14. **Strip the session cookie before proxying upstream.** The `_oauth2_proxy`
    cookie is removed from the `Cookie` header (a `map` rewriting `$http_cookie`
    in the shared include); the application's own cookies pass through. An
    upstream that receives the session cookie is holding — and probably

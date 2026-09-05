@@ -94,6 +94,123 @@ What this teaches:
 - `memberOf` gives only **direct** membership; with nested groups
   `..._RECURSIVELY` is required. To be tested in Phase 1.
 
+## Measured in the Phase 1 lab
+
+Run on the lab host against the committed configuration (`docker-compose.yml`,
+`oauth2-proxy.cfg`, `keycloak/realm/`), Keycloak 26.3 + oauth2-proxy v7.8.2,
+2026-09-05. Each line below is an observation, not a reading of the docs.
+
+### VERIFY (1) — `Set-Cookie` during `cookie_refresh`
+
+**Answer: yes.** With `cookie_refresh = 5m`, a `GET /oauth2/auth` made after the
+window has elapsed returns exactly **one** `Set-Cookie: _oauth2_proxy=…` header
+alongside the identity headers. Inside the window it returns none. **ADR-0006's
+mechanism holds at the oauth2-proxy end** — but only the *proxy* end: nothing
+reaches the browser unless the subrequest's header is lifted out and re-emitted,
+which is what `auth_request_set $auth_cookie $upstream_http_set_cookie` plus
+`add_header Set-Cookie $auth_cookie always` in `10-portal.conf` are for.
+`$upstream_http_set_cookie` captures only the first such header; one is all
+there is here, because the Redis session store keeps the cookie small enough
+never to be chunked.
+
+**And the relay does not survive an internal redirect.** The first wiring of
+the portal used `try_files $uri $uri/ /index.html`, and the refreshed cookie
+never reached the browser even though oauth2-proxy was returning it. Measured,
+same session age, one variable changed:
+
+| Request | `auth_request` subrequests | `Set-Cookie` relayed |
+|---|---|---|
+| `GET /` with `try_files … /index.html` | **2** | 0 |
+| `GET /index.html` (served directly) | 1 | 1 |
+| `GET /` with `try_files $uri /index.html =404` | 1 | 1 |
+
+An internal redirect — `try_files` falling through to a URI, an `index`
+directive, a directory match — restarts nginx's access phase, so
+`auth_request` runs **again**. The second subrequest arrives at oauth2-proxy
+milliseconds after the first has already refreshed the session, correctly
+returns no `Set-Cookie`, and `auth_request_set` overwrites `$auth_cookie` with
+an empty string. Nothing errors. The user simply keeps their original groups
+until `cookie_expire`, seven days later — **the exact silent collapse ADR-0006
+was written to prevent, arriving through a door the ADR does not mention.**
+
+Two consequences beyond the cookie:
+
+- **Every such request costs two decisions, not one.** In Phase 3 that is two
+  `/decide` calls, two cache lookups and two audit increments per request, on
+  a path `docs/02` already describes as running 50 times for a single page.
+- The fix is to keep authenticated locations free of internal redirects.
+  `try_files … =404` as the final argument tries each preceding argument as a
+  file and serves it in place; only a URI or named location as the last
+  argument redirects. Protected applications `proxy_pass` and are unaffected;
+  it is the static portal that has to be written carefully.
+
+**`/oauth2/auth` answers `202`, not `200`.** Harmless — `auth_request` accepts
+any 2xx — but a check written as `== 200` anywhere in the backend would fail
+closed against a healthy session.
+
+### Which claim lands in `X-Auth-Request-User`
+
+The subrequest's response headers, verbatim:
+
+```
+x-auth-request-user:                 cae7c116-24a0-42b8-ac6e-9961b34f5d6b
+x-auth-request-preferred-username:   labuser
+x-auth-request-email:                labuser@example.local
+x-auth-request-groups:               OpenBerat-Finance
+```
+
+`X-Auth-Request-User` carries the Keycloak **`sub`**, not the username —
+`docs/05` assumed sAMAccountName and is corrected. The username arrives
+separately in `X-Auth-Request-Preferred-Username`. This is the good outcome:
+`X-Auth-Subject` and the ADR-0019 index need exactly this immutable value, and
+it is there without a custom mapper. Groups arrive as flat names (`full.path`
+off), which is what ADR-0008 matches on.
+
+### The Redis session key survives a refresh
+
+Across a `cookie_refresh` the cookie value **rotates** while the Redis key stays
+byte-identical (`_oauth2_proxy-d8f9514ab7f2dec2ee20adbcd026765c` before and
+after). The ADR-0019 index therefore does not go stale on refresh — the entry
+written on the first cache miss still points at the live session. This is one
+half of VERIFY (4); deleting the key to prove access actually stops is the other
+half and is still open.
+
+### Keycloak realm import
+
+- **Environment substitution works, with one syntax only.** `${VAR}` is
+  resolved from Keycloak's own environment. `$(env:VAR)` and `${env.VAR}` are
+  stored **verbatim** — the import succeeds and the client ends up with a
+  secret that is the literal placeholder text. Tested side by side in one
+  import. This settles how the scrubbed export gets its real secret: `.env` →
+  compose → Keycloak's environment → `${VAR}` in the export.
+- **The file name must match the realm name.** `probe` in `zz-probe-realm.json`
+  makes Keycloak exit at startup with `File name / realm name mismatch`. The
+  failure is fatal, not a skipped file.
+- **A `clientScopes` array replaces Keycloak's built-in set rather than adding
+  to it.** An export that defines only `groups` leaves the realm without
+  `profile` or `email`, and every login fails at the authorization endpoint
+  with `invalid_scope`. The `groups` claim therefore comes from a protocol
+  mapper on the client, which also makes it unconditional.
+- **Keycloak issues no `aud` claim without an audience mapper**, and
+  oauth2-proxy rejects the token: `audience claims [aud] do not exist in
+  claims`. The client carries an `oidc-audience-mapper` naming itself.
+- Keycloak advertises PKCE (`S256`) and oauth2-proxy leaves it off unless
+  `code_challenge_method` is set. It is set.
+
+### nginx resolves upstreams at startup
+
+`proxy_pass http://oauth2-proxy:4180` makes nginx resolve the name **once, at
+startup**, and refuse to start at all if it does not resolve — one stopped
+container takes the entire PEP down, and ADR-0011 generates application blocks
+whose upstreams may legitimately not exist yet. Fixed by `resolver 127.0.0.11`
+plus a variable in `proxy_pass`, which moves resolution to request time; a
+missing upstream then costs one 502 instead of the door.
+
+Related, same class: oauth2-proxy performs OIDC discovery once at startup and
+**exits** if Keycloak is not answering yet. `depends_on` waits for the
+container, not for readiness, so first boot is a race it loses permanently.
+Every service carries `restart: unless-stopped`.
+
 ## Unverified, to be tested
 
 These claims have not been confirmed against a source; they will be tried in the
@@ -106,8 +223,8 @@ Phase 1 lab:
 - [ ] Can Keycloak carry an AD group's `objectSid` into a token claim? If it can,
       ADR-0008 (name vs SID) becomes easy to resolve.
 - [ ] The real deprovisioning delay as measured with `cookie_refresh`.
-- [ ] Does oauth2-proxy return `Set-Cookie` when performing `cookie_refresh` on
-      `/oauth2/auth`? In the official pattern the subrequest's upstream is
+- [x] Does oauth2-proxy return `Set-Cookie` when performing `cookie_refresh` on
+      `/oauth2/auth`? **Yes** — measured above. In the official pattern the subrequest's upstream is
       oauth2-proxy; in ours it is the backend. **If it is not relayed the cookie
       is never refreshed and ADR-0006 silently collapses.**
 - [ ] Does the `auth_request` subrequest inherit the main request's headers? If
@@ -130,14 +247,14 @@ Phase 1 lab:
       key is caught by the next cache miss (new cookie → new hash → miss →
       index add), but the kill-switch test must be run **after** at least one
       refresh to prove the index still finds the live session.
-- [ ] Which claim does oauth2-proxy put in `X-Auth-Request-User` for a Keycloak
-      OIDC provider — `sub`, `preferred_username`, the email? `docs/05` assumes
+- [x] **Answered: the `sub`.** Which claim does oauth2-proxy put in
+      `X-Auth-Request-User` for a Keycloak OIDC provider — `sub`, `preferred_username`, the email? `docs/05` assumes
       sAMAccountName, while `X-Auth-Subject` and the ADR-0019 index need the
       immutable `sub`; if no header carries the `sub`, the `docs/05` header
       contract is revised.
-- [ ] Can a committed Keycloak realm export reference environment variables for
-      the OIDC client secret at import, or does the secret need a post-import
-      step? The repository is public, so the export is committed scrubbed
+- [x] **Answered: yes, as `${VAR}`.** Can a committed Keycloak realm export
+      reference environment variables for the OIDC client secret at import, or
+      does the secret need a post-import step? The repository is public, so the export is committed scrubbed
       (`keycloak/README.md`) and the real value has to arrive some other way.
 - [ ] Does the vendored Alpine.js run under a `default-src 'self'` CSP
       **without** `unsafe-eval`? The standard build evaluates expressions with

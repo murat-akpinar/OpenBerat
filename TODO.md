@@ -74,9 +74,18 @@ Verify the architecture actually works before writing code.
       running lab — `oauth2-proxy.cfg` and the realm export are empty (their
       items below) and the `:443` server stays commented until the certificate
       item above is done.*
-- [ ] **VERIFY (1):** does oauth2-proxy return `Set-Cookie` while performing
+- [x] **VERIFY (1):** does oauth2-proxy return `Set-Cookie` while performing
       `cookie_refresh` on `/oauth2/auth`? If the backend does not relay it the
-      cookie is never refreshed and **ADR-0006 silently collapses** (`docs/07`)
+      cookie is never refreshed and **ADR-0006 silently collapses** (`docs/07`).
+      *Answer: yes, one `Set-Cookie` on a `202` — but the relay broke anyway on
+      the first wiring. An internal redirect (`try_files … /index.html`,
+      `index`, a directory match) restarts nginx's access phase, `auth_request`
+      fires a second time, and the second subrequest — with nothing left to
+      refresh — overwrites `$auth_cookie` with an empty string. Silent: no
+      error, groups just stay frozen for seven days, and every such request
+      costs two decisions instead of one. Fixed with `try_files … =404`, which
+      serves files in place; measured 2 subrequests → 1. Rule added to
+      `nginx/conf.d/README.md`, both halves in `docs/07`*
 - [ ] **VERIFY (2):** Keycloak LDAP provider `Cache Policy` — does group membership
       go stale at anything other than `NO_CACHE`? ADR-0006 rests on this claim
 - [ ] **VERIFY (3):** does an nginx subrequest itself trigger `auth_request`? If it
@@ -96,11 +105,19 @@ Verify the architecture actually works before writing code.
 - [ ] **Nested group test:** does a user in a parent group see the child group?
       If not, switch to `LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY`
 - [ ] User in many groups → is the cookie size problem gone with the Redis session
-- [ ] oauth2-proxy: `set_xauthrequest=true`, `cookie_refresh=5m`, `session_store_type=redis`
-- [ ] **VERIFY:** which claim oauth2-proxy puts in `X-Auth-Request-User` with
+- [x] oauth2-proxy: `set_xauthrequest=true`, `cookie_refresh=5m`, `session_store_type=redis`
+      *All three set in `oauth2-proxy/oauth2-proxy.cfg` and confirmed in the
+      running proxy's own startup line. PKCE (`S256`) turned on at the same
+      time — Keycloak advertises it and oauth2-proxy leaves it off by default*
+- [x] **VERIFY:** which claim oauth2-proxy puts in `X-Auth-Request-User` with
       Keycloak (`sub`? `preferred_username`?) — `X-Auth-Subject` and the
       ADR-0019 index are keyed by the immutable `sub`; if no header carries it,
-      the `docs/05` header contract is revised (`docs/07`)
+      the `docs/05` header contract is revised (`docs/07`).
+      *It is the `sub`, a UUID; the username arrives separately in
+      `X-Auth-Request-Preferred-Username`. `docs/05` said sAMAccountName and is
+      corrected — reading `X-Auth-Subject` from it would have keyed the
+      kill-switch index on a renameable value. Groups arrive as flat names,
+      which is what ADR-0008 matches on*
 - [ ] nginx `auth_request` + `error_page 401 = @signin` (mind the `=`) → login redirect
 - [ ] **MEASURE:** double-hop latency with a three-line fake `/decide` (draft N-01/N-02).
       Wait for the real backend and you only see the number that justifies the
@@ -112,19 +129,29 @@ Verify the architecture actually works before writing code.
       `proxy_read_timeout` is an idle timeout and will not cut it; this measurement
       quantifies the limitation ADR-0016 states rather than testing a fix
 
-- [ ] Keycloak realm is **imported from `keycloak/realm/`** at first boot, not
+- [x] Keycloak realm is **imported from `keycloak/realm/`** at first boot, not
       clicked together by hand — otherwise `docker compose up` does not produce a
       working realm and the lab is not reproducible (`keycloak/README.md`).
       The committed export carries **no real secrets** (scrubbed client secret,
       no LDAP bind password); how the real secret is injected at import — env
-      substitution or a post-import step — is settled here (`docs/07`)
+      substitution or a post-import step — is settled here (`docs/07`).
+      *Settled: env substitution works, and only as `${VAR}` — `$(env:VAR)` and
+      `${env.VAR}` import cleanly and leave the literal placeholder as the
+      client secret. Three more traps measured on the way: the file name must
+      match the realm name or Keycloak refuses to start; a `clientScopes` array
+      **replaces** the built-in scopes, which deletes `profile`/`email` and
+      breaks every login with `invalid_scope`; and without an audience mapper
+      the token carries no `aud` and oauth2-proxy rejects it. The LDAP
+      federation half of this realm waits for samba-ad*
 - [ ] Start `INSTALL.md` **while doing all of the above**, not in Phase 6. Phase 1
       is an installation: DNS, the wildcard certificate, the realm import, the
       LDAP bind account, `ADMIN_GROUP` and the first login all happen here.
       Reconstructing them five phases later from memory is how installation
       documentation becomes wrong.
       *First draft landed with the certificate item: prerequisites,
-      certificate, name resolution, `.env`, start*
+      certificate, name resolution, `.env`, start. Grown since with the OIDC
+      client secret, the cookie secret and the lab user password, and with how
+      the realm is re-imported*
 
 **Output:** authentication works end to end, the latencies are known, `INSTALL.md`
 has a first draft, and there is still not one line of code.
