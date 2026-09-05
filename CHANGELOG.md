@@ -18,3 +18,4 @@
 ### 📚 Documentation
 
 - Mfa intent recorded — totp through keycloak, configuration not code ([555f44e](https://github.com/murat-akpinar/OpenBerat/commit/555f44e3590006b3e4884f3da37105907178a5b4)) — The maintainer wants 2FA (phone TOTP, Google Authenticator style). In this architecture that is Keycloak realm configuration, not code: authentication is delegated (ADR-0003) and Keycloak's OTP is standard TOTP. The docs/06 open question now records the intent and what remains open — for everyone at login, or per application via acr (F-21, v2), which is the only form that touches our code.
+- *(todo)* Record the compose skeleton as landed ([157b7a3](https://github.com/murat-akpinar/OpenBerat/commit/157b7a3fb75ae4f36f11a46f0ddd83fe5f475d5c)) — The Phase 1 compose item is checked with a note on what it is not yet: no running lab until the oauth2-proxy config, the realm export and the wildcard certificate items are done. Should have ridden along in 4291470.
