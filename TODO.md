@@ -42,10 +42,14 @@ Carried alongside the work, not blocking it:
 - [x] Repository published; `CONTRIBUTING.md`, `SECURITY.md` and the DCO +
       `fmt`/`clippy`/`test` CI (`.github/workflows/ci.yml`) are in place — ADR-0018
 - [x] Publish `SECURITY.md` — now at the repository root, so GitHub renders it
-      in the Security tab and wires "Report a vulnerability" to it. Linked from
-      both READMEs and `CONTRIBUTING.md`, which no longer repeats the policy.
-      Its scope section says "no released version yet"; rewriting it is part of
-      the Phase 6 versioning item
+      as the policy in the Security tab. The **"Report a vulnerability" button
+      the file sends reporters to is a separate repository setting**, not
+      something the file turns on: private vulnerability reporting was off, so
+      the first channel in the policy did not exist. Enabled and verified
+      (`gh api repos/OWNER/REPO/private-vulnerability-reporting` → `enabled:
+      true`). Linked from both READMEs and `CONTRIBUTING.md`, which no longer
+      repeats the policy. Its scope section says "no released version yet";
+      rewriting it is part of the Phase 6 versioning item
 
 ## Phase 1 — Lab and measurement
 
