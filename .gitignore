@@ -7,3 +7,4 @@ tmp/
 CLAUDE.md
 .rules/
 certs/
+.claude/
