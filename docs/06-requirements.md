@@ -99,7 +99,13 @@ network and policy. Phase 1 exists partly to establish them.
       for it — a self-signed wildcard is enough there, and the lab needs one from
       its first day because the OIDC redirect and the `Secure` cookie do not work
       over plain HTTP.
-- [ ] Is MFA mandatory, and for which applications? (the PDP can read `acr`)
+- [ ] MFA: **wanted** (maintainer intent, 2026-09-05) as TOTP — the user scans a
+      QR once and types the code from a phone app (Google Authenticator,
+      FreeOTP…). The basic form is **Keycloak realm configuration only**, no
+      code in this repository (`docs/03`, "MFA"). Still open, and
+      environment-dependent: for everyone at login, or per application — the
+      per-application form reads `acr` and is F-21, v2. When it is switched on
+      is free: config can land in any phase without touching the roadmap.
 - [ ] Is Kerberos/SPNEGO (passwordless domain SSO) wanted?
 - [ ] Is there more than one AD domain / forest?
 - [ ] Audit log retention period (N-04) — KVKK and internal policy.

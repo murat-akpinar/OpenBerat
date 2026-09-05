@@ -127,6 +127,12 @@ Keycloak Authentication → Flow → **Conditional OTP**. MFA is enforced for
 specific groups or when a specific `acr` level is required. The PDP can apply a
 "this application requires MFA" rule by looking at the `acr` claim.
 
+Keycloak's OTP is standard TOTP: Google Authenticator, FreeOTP, Aegis and the
+rest all work — the user scans a QR at enrolment and types the six-digit code
+from the phone. Turning it on for everyone is realm configuration alone;
+nothing in this repository changes. Only the per-application form (via `acr`)
+touches our code, and that is F-21, v2 (`docs/06`).
+
 ## Kerberos / SPNEGO (optional)
 
 Login without a password prompt on a domain-joined Windows machine. The
