@@ -148,6 +148,68 @@ Two consequences beyond the cookie:
 any 2xx — but a check written as `== 200` anywhere in the backend would fail
 closed against a healthy session.
 
+### VERIFY (3) — subrequests, the access phase, and inherited headers
+
+Measured with a throwaway probe server on the lab nginx (1.29.8): a stand-in PDP
+on loopback logging exactly what reached it, one location per question.
+
+**Can an `auth_request` subrequest itself trigger `auth_request`? No.**
+
+| Probe | Client sees | |
+|---|---|---|
+| `/q0` — the auth target returns 403 (control) | 403 | the harness denies correctly |
+| `/q1` — the auth target itself carries `auth_request` → 403 | **204** | the inner target never ran |
+| `/q6` — the auth target carries `deny all` | **204** | it never ran either |
+| `/q1a`, `/q1b` requested directly | 404 | `internal;` holds |
+
+And it is not `auth_request` that is special: `deny all` sits in the same nginx
+phase and is skipped in the same position. **The access phase does not run for a
+subrequest at all.** Two consequences:
+
+- The chain cannot be built in nginx. It stays inside the backend, and
+  [ADR-0002](adr/0002-pep-nginx-auth-request.md) is unchanged.
+- `/decide`'s own protection still holds: in the same probe a direct request to
+  an `internal` location returned 404, while `deny all` in that same location
+  did nothing. So `internal;` is the directive that guards `/decide` — an
+  `allow`/`deny` block beside it would test clean and constrain nothing.
+
+**Does the subrequest inherit the main request's headers? Yes, verbatim.**
+The client sent four headers it has no business sending:
+
+| Sent by the client | At the PDP, nothing overridden (`/q4`) | At the PDP, with the `/decide` include (`/q3`) |
+|---|---|---|
+| `X-Original-URI: /admin/forged` | `/admin/forged` | `/q3?real=q3` — the config value wins |
+| `X-App-Slug: finance` | `finance` | `probe-app` — the config value wins |
+| `X-Auth-Request-Groups: OpenBerat-Admins` | `OpenBerat-Admins` | **`OpenBerat-Admins`** |
+| `X-Probe: client-sent` | `client-sent` | **`client-sent`** |
+
+A `proxy_set_header` of the same name replaces the inherited value; every header
+the include does *not* name arrives at the PDP exactly as the client wrote it.
+`docs/05`'s attack table covers the **upstream** direction — nginx stripping
+`X-Auth-*` before proxying to the application — and says nothing about the
+subrequest, which travels in the other direction and is not covered by that
+include. **The `/decide` include has to clear the `X-Auth-*` family itself.**
+`proxy_set_header X-Auth-Request-Groups "";` does it: at `/q5` the header is
+absent at the PDP.
+
+**`$request_uri` and `$request_method` inside the subrequest are the *main*
+request's.** `POST /q3?real=post` arrives at the PDP as a `GET /decide` on the
+wire, yet `proxy_set_header X-Original-Method $request_method` carried `POST`,
+and `DELETE` came through as `DELETE`. `docs/02`'s header mapping is correct as
+written and needs no workaround. (`$uri`, by contrast, is the subrequest's own
+`/decide` — the two variables do not agree, and only one of them is the
+original request.)
+
+**A location that answers with `return` is not protected at all.** `return`
+belongs to the rewrite module and runs in the **rewrite phase**, which comes
+before the access phase where `auth_request` lives: the directive is present,
+`nginx -t` is clean, and the subrequest never fires. The first cut of this probe
+made exactly that mistake —
+`location = /q0 { auth_request /q0deny; return 200 ...; }` with `/q0deny`
+returning 403 answered **200**. The same config with `proxy_pass` in place of
+`return` answers 403. Nothing in the repository does this today; ADR-0011's
+generated application blocks are where it would arrive.
+
 ### Which claim lands in `X-Auth-Request-User`
 
 The subrequest's response headers, verbatim:
@@ -216,10 +278,10 @@ Every service carries `restart: unless-stopped`.
 These claims have not been confirmed against a source; they will be tried in the
 Phase 1 lab:
 
-- [ ] Can an nginx subrequest (the `auth_request` target) itself trigger an
-      `auth_request`? If it can, the chain could be built in nginx and the
-      internal HTTP call in the backend would disappear. The architecture was not
-      built on this because it is uncertain.
+- [x] **Answered: no.** Can an nginx subrequest (the `auth_request` target)
+      itself trigger an `auth_request`? The whole access phase is skipped for a
+      subrequest — measured above. The chain stays in the backend and the
+      internal HTTP call does not disappear.
 - [ ] Can Keycloak carry an AD group's `objectSid` into a token claim? If it can,
       ADR-0008 (name vs SID) becomes easy to resolve.
 - [ ] The real deprovisioning delay as measured with `cookie_refresh`.
@@ -227,9 +289,11 @@ Phase 1 lab:
       `/oauth2/auth`? **Yes** — measured above. In the official pattern the subrequest's upstream is
       oauth2-proxy; in ours it is the backend. **If it is not relayed the cookie
       is never refreshed and ADR-0006 silently collapses.**
-- [ ] Does the `auth_request` subrequest inherit the main request's headers? If
-      it does, a client-supplied `X-Original-URI` / `X-Forwarded-Host` could leak
-      into the PDP (this is why `docs/02` fixes `X-App-Slug` in the nginx config).
+- [x] **Answered: yes, verbatim.** Does the `auth_request` subrequest inherit
+      the main request's headers? It does, so a client-supplied `X-Original-URI`
+      / `X-Forwarded-Host` reaches the PDP unless the include overwrites that
+      exact name (this is why `docs/02` fixes `X-App-Slug` in the nginx config —
+      and why the same include now clears `X-Auth-*`). Measured above.
 - [ ] Does nginx OSS have active upstream health checks, or only passive ones
       (`max_fails`/`fail_timeout`)? The HA item in Phase 6 depends on this.
 - [ ] The effect of the LDAP provider's **Cache Policy** on group freshness. Does

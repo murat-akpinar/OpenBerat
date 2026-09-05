@@ -88,9 +88,23 @@ Verify the architecture actually works before writing code.
       `nginx/conf.d/README.md`, both halves in `docs/07`*
 - [ ] **VERIFY (2):** Keycloak LDAP provider `Cache Policy` — does group membership
       go stale at anything other than `NO_CACHE`? ADR-0006 rests on this claim
-- [ ] **VERIFY (3):** does an nginx subrequest itself trigger `auth_request`? If it
+- [x] **VERIFY (3):** does an nginx subrequest itself trigger `auth_request`? If it
       does, the internal HTTP call in the backend can go away. Also: does the
       subrequest inherit the main request's headers (`X-Original-URI` spoofing)?
+      *Answers: **no** and **yes** — both in `docs/07`. nginx skips the entire
+      access phase for a subrequest (`deny all` is ignored in the same
+      position), so the chain stays in the backend and ADR-0002 is unchanged;
+      `internal;` still holds, because that is checked a phase earlier, but an
+      IP ACL on `/decide` would constrain nothing. Headers are inherited
+      verbatim: everything the `/decide` include does not overwrite reaches the
+      PDP as the client wrote it, so the include now **clears** the `X-Auth-*`
+      family as well — `docs/05`'s attack table only ever covered the upstream
+      direction. Two more findings on the way: `$request_uri` and
+      `$request_method` inside the subrequest are the main request's, so
+      `docs/02`'s mapping was right and needs no workaround; and a location that
+      answers with `return` is **unprotected**, because `return` runs in the
+      rewrite phase before `auth_request` — the probe's own control case caught
+      that one, and it is now item 14 in `nginx/conf.d/README.md`*
 - [ ] **VERIFY (4):** can the oauth2-proxy Redis session key be derived from the
       session cookie? Log in, read the cookie, list the Redis keys, and delete the
       matching one — access must stop immediately. Repeat after a
@@ -221,7 +235,10 @@ has a first draft, and there is still not one line of code.
 - [ ] `/oauth2/*` anonymous; the portal host open to every authenticated user
 - [ ] **Test:** an unauthorised user sees the `/denied` page (no loop)
 - [ ] The `/decide` include: `X-App-Slug` (fixed), `X-Original-URI`,
-      `X-Original-Method`, `X-Real-IP`, `X-Request-Id` — written unconditionally
+      `X-Original-Method`, `X-Real-IP`, `X-Request-Id` — written unconditionally,
+      **and the `X-Auth-*` family cleared** (`proxy_set_header … "";`). The
+      subrequest inherits client headers verbatim (VERIFY (3)); the upstream
+      strip include does not run on this path
 - [ ] `nginx/conf.d/20-apps.conf`: protected applications, **strip** incoming
       `X-Auth-*` headers
 - [ ] `proxy_read_timeout 300s` on protected locations — cuts idle long-lived
@@ -230,6 +247,12 @@ has a first draft, and there is still not one line of code.
 - [ ] Rate limiting (pulled forward from Phase 6 — audit and backend are a single
       point of failure)
 - [ ] **Test:** a forged `X-Auth-Groups` grants no access
+- [ ] **Test:** a forged `X-Auth-Request-Groups` does not reach `/decide` either —
+      the subrequest path, not just the upstream one (VERIFY (3))
+- [ ] **Test:** every location carrying `auth_request` answers from the content
+      phase — no `return` (VERIFY (3): `return` runs before `auth_request` and
+      leaves the location open). Cheap form: grep the generated and
+      hand-written blocks
 - [ ] **Test:** a forged `X-Original-URI` / `Host` cannot borrow another
       application's entitlements
 - [ ] **Test:** an unauthenticated request is redirected to login

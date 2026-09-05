@@ -177,12 +177,20 @@ original request reaches the backend **only** through the headers nginx passes:
 | `X-Real-IP` | `$remote_addr` | Audit |
 | `X-Request-Id` | `$request_id` | Correlating the nginx access log with `audit_event` |
 | `Cookie` | from the client | The session cookie to forward to oauth2-proxy. The cache key hashes **only the `_oauth2_proxy` cookie's value**, never the whole header (`docs/05`, "Decision cache") |
+| `X-Auth-Request-*`, `X-Auth-*` | **cleared** (`proxy_set_header … "";`) | Not input. They are the *response* side of this contract; inherited copies from the client are removed so the backend cannot read one by accident |
 
 The application identity comes from the fixed `X-App-Slug` value in nginx's own
-configuration, **not from a client-controlled hostname**: because the subrequest
-inherits the main request's headers, `Host` and `X-Forwarded-Host` can be driven
-by the client. These headers are written **unconditionally** in every protected
-location through a shared `include`.
+configuration, **not from a client-controlled hostname**: the subrequest
+inherits the main request's headers verbatim — measured, `docs/07` — so `Host`,
+`X-Forwarded-Host` and every `X-…` name the include does not overwrite arrive at
+the backend exactly as the client wrote them. That is why the table's values are
+written **unconditionally** in every protected location through a shared
+`include`, and why the last row clears rather than sets.
+
+`$request_uri` and `$request_method` resolve to the **main** request inside the
+subrequest, not to the `GET /decide` on the wire (measured, `docs/07`); the two
+rows above are correct as written. `$uri` is the subrequest's own path and is
+not what this contract wants.
 
 If any of them is missing the decision cannot be made → **DENY**
 (`missing_context`), fail-closed.

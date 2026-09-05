@@ -265,6 +265,7 @@ without a test is visible as a gap rather than an omission.
 |---|---|---|
 | Client sends its own `X-Auth-Groups: IT-Admin` | nginx strips every `X-Auth-*` in a shared `include`, in **every** protected location, before proxying | Phase 3 test |
 | Client sends `X-Auth-Request-Groups: <ADMIN_GROUP>` straight to `/api/admin/*` | The same strip `include` is pulled into the portal host's `/api/*` location — the admin check trusts only what nginx rewrote | Phase 3 test |
+| Client sends `X-Auth-Request-Groups: <ADMIN_GROUP>` and the **`/decide` subrequest** carries it to the PDP | The subrequest inherits client headers verbatim (measured, `docs/07`) and the upstream strip never runs on that path — so the `/decide` include clears the `X-Auth-*` family itself | Phase 3 test |
 | A protected application harvesting the shared session cookie from incoming requests | nginx removes the `_oauth2_proxy` cookie before proxying upstream; identity travels in `X-Auth-*` only | Phase 3 test |
 | Client drives `Host` / `X-Forwarded-Host` to borrow another application's entitlements | `X-App-Slug` is a constant in each `server` block, never taken from the request | Phase 3 test |
 | `/%61dmin/users` — single-encoded past a `/admin/*` deny | Normalisation runs before matching: decode once, then match | Phase 2 test |

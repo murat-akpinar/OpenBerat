@@ -17,17 +17,27 @@ authorisation decision. Reference pattern and verified details:
    user never reaches the login page.
 2. **`auth_request` is one per location.** The chain lives inside the backend
    (ADR-0002). Do not write a second `auth_request`; it silently overrides the first.
-3. **Strip incoming `X-Auth-*` headers.** In every protected location — **and in
-   the portal host's `/api/*` location**: the backend's admin check trusts
-   `X-Auth-Request-Groups`, so a client sending that header straight to
-   `/api/admin/*` must lose it before the backend sees it. Keep it in a shared
-   `include` file and pull it in everywhere — forget it in one place and the
-   entire system's security claim falls. The rewrite source is `/decide`'s
-   response: on a 200 it returns `X-Auth-Subject/-Username/-Email/-Groups`,
-   lifted with `auth_request_set` and written upstream with `proxy_set_header`
-   (`docs/02`, response contract).
+3. **Strip incoming `X-Auth-*` headers — in both directions.** In every
+   protected location — **and in the portal host's `/api/*` location**: the
+   backend's admin check trusts `X-Auth-Request-Groups`, so a client sending
+   that header straight to `/api/admin/*` must lose it before the backend sees
+   it. Keep it in a shared `include` file and pull it in everywhere — forget it
+   in one place and the entire system's security claim falls. The rewrite source
+   is `/decide`'s response: on a 200 it returns
+   `X-Auth-Subject/-Username/-Email/-Groups`, lifted with `auth_request_set` and
+   written upstream with `proxy_set_header` (`docs/02`, response contract).
+   **The `/decide` include needs its own copy of the stripping**, because the
+   subrequest inherits the main request's headers verbatim (measured, `docs/07`)
+   and the upstream include never runs on that path: a client's
+   `X-Auth-Request-Groups` otherwise arrives at the PDP untouched. Clear each
+   name with `proxy_set_header X-Auth-Request-Groups "";`.
 4. **`proxy_pass_request_body off`** + `Content-Length ""` — no body goes to the subrequest.
-5. **`/decide` must not be reachable from outside** (`internal;`).
+5. **`/decide` must not be reachable from outside** (`internal;`). It has to be
+   `internal;` specifically. nginx **skips the whole access phase for a
+   subrequest**, and `allow`/`deny` live in that phase: measured side by side,
+   `internal` still returned 404 on a direct request while `deny all` in the
+   same location did nothing at all (`docs/07`). An IP ACL on `/decide` would
+   test clean and constrain nothing.
 6. **Pass the original request's details to `/decide`.** In the subrequest the URI
    is `/decide`; the backend sees host/path/method only through headers:
    `X-App-Slug`, `X-Original-URI`, `X-Original-Method`, `X-Real-IP`,
@@ -69,7 +79,14 @@ authorisation decision. Reference pattern and verified details:
    directive or a directory match all redirect.
 13. **`client_max_body_size`** defaults to 1m — applications that accept file
    uploads will return 413.
-14. **Strip the session cookie before proxying upstream.** The `_oauth2_proxy`
+14. **Never answer with `return` in a location that carries `auth_request`.**
+   `return` belongs to the rewrite module and runs in the rewrite phase — before
+   the access phase where `auth_request` lives. The subrequest never fires, the
+   location is wide open, and `nginx -t` says the configuration is fine
+   (measured, `docs/07`). Use `proxy_pass`, or `try_files` with `=404` (item
+   12), so the answer comes from the content phase. This is the one to watch in
+   ADR-0011's generated blocks and in any hand-written maintenance page.
+15. **Strip the session cookie before proxying upstream.** The `_oauth2_proxy`
    cookie is removed from the `Cookie` header (a `map` rewriting `$http_cookie`
    in the shared include); the application's own cookies pass through. An
    upstream that receives the session cookie is holding — and probably
