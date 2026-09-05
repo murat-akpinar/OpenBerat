@@ -10,3 +10,94 @@
 #   core: nginx + backend + oauth2-proxy + keycloak + postgres + redis + samba-ad.
 # No service publishes ports except nginx :443.
 # The frontend is not a service: its files are baked into the nginx image (ADR-0020).
+
+name: openberat
+
+services:
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    ports:
+      - "443:443"
+    volumes:
+      # The wildcard certificate is the operator's (TODO.md Phase 1, first
+      # item). Secrets are never baked into an image, so this is the one mount.
+      - ./certs:/etc/nginx/certs:ro
+    networks: [edge, core]
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgres://openberat:${POSTGRES_PASSWORD}@postgres:5432/openberat
+      REDIS_URL: redis://redis:6379
+    depends_on: [postgres, redis]
+    networks: [core]
+
+  oauth2-proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.8.2
+    command: ["--config=/etc/oauth2-proxy/oauth2-proxy.cfg"]
+    volumes:
+      - ./oauth2-proxy/oauth2-proxy.cfg:/etc/oauth2-proxy/oauth2-proxy.cfg:ro
+    depends_on: [keycloak, redis]
+    networks: [core]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.3
+    # ponytail: start-dev + embedded H2 is lab-only; the production database
+    # and hostname settings are an INSTALL.md item (Phase 1).
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USER}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD}
+      KC_PROXY_HEADERS: xforwarded
+    volumes:
+      # Realm export lands here in Phase 1 (keycloak/README.md); an empty dir
+      # is skipped by --import-realm, so first boot works either way.
+      - ./keycloak/realm:/opt/keycloak/data/import:ro
+      - kc_data:/opt/keycloak/data/h2
+    networks: [core]
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: openberat
+      POSTGRES_DB: openberat
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks: [core]
+
+  redis:
+    # Sessions and the sub → session index (ADR-0019) are both re-creatable;
+    # no volume — losing them only signs users in again.
+    image: redis:7-alpine
+    networks: [core]
+
+  samba-ad:
+    # Lab directory only, ships in no release (ADR-0010). Test users, nested
+    # groups and disabled accounts are provisioned here in Phase 1.
+    image: nowsci/samba-domain
+    hostname: ad
+    environment:
+      DOMAIN: ${AD_DOMAIN}
+      DOMAINPASS: ${AD_ADMIN_PASSWORD}
+    networks: [core]
+
+  # The two protected sample applications (lab): one plain HTTP, one WebSocket.
+  # On edge only — all they can reach is nginx.
+  sample-app:
+    image: traefik/whoami:v1.11
+    networks: [edge]
+
+  sample-ws:
+    image: jmalloc/echo-server:v0.3.7
+    networks: [edge]
+
+networks:
+  edge:
+  core:
+
+volumes:
+  pg_data:
+  kc_data:

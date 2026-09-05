@@ -6,3 +6,4 @@ dist/
 tmp/
 CLAUDE.md
 .rules/
+certs/
