@@ -26,16 +26,20 @@ since.
 ## Decision
 
 **Accept it.** A security product that fails open is not a security product;
-this is the same fail-closed rule CLAUDE.md applies to every ambiguous
-authorisation decision, applied to the system as a whole.
+this is the same fail-closed rule the project applies to every ambiguous
+authorisation decision (`CONTRIBUTING.md`), applied to the system as a whole.
 
 What makes it acceptable is not a promise of uptime but a **rehearsed
 break-glass**: a second nginx configuration shipped in the same image, activated
 with `docker compose --profile breakglass`, which bypasses `auth_request` and
 serves the protected applications directly while the identity chain is repaired.
 
+The procedure is written down as a runbook in the repository
+(`docs/08-breakglass.md`, Phase 3) rather than kept by whoever set the system up:
+the moment it is needed is the moment one person's machine is not enough.
+
 It lives inside the image because configuration is baked in and not mounted
-(CLAUDE.md) — nobody should have to build an image at 3 a.m. to restore access.
+(`CONTRIBUTING.md`) — nobody should have to build an image at 3 a.m. to restore access.
 
 ## Consequences
 

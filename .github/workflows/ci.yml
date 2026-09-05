@@ -1,0 +1,68 @@
+# CONTRIBUTING.md promises two things a human forgets to check: every commit is
+# signed off (DCO, ADR-0018) and the backend still builds and its tests pass.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  dco:
+    name: dco sign-off
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: |
+          fail=
+          for c in $(git rev-list --no-merges ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}); do
+            if ! git log -1 --format=%B "$c" | grep -qEi '^Signed-off-by: .+ <.+@.+>'; then
+              echo "missing Signed-off-by: $(git log -1 --oneline "$c")"
+              fail=1
+            fi
+          done
+          if [ -n "$fail" ]; then
+            echo "Sign your commits: git commit -s  (see CONTRIBUTING.md)"
+            exit 1
+          fi
+
+  docs:
+    name: docs links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Links broke twice in one session by gitignoring a linked file, so this
+      # checks the target is in git, not merely on someone's disk.
+      - run: |
+          python3 - <<'EOF'
+          import re, pathlib, subprocess, sys
+          tracked = set(subprocess.run(['git','ls-files'], capture_output=True, text=True).stdout.split())
+          bad = []
+          for md in sorted(pathlib.Path('.').rglob('*.md')):
+              for m in re.finditer(r'\[([^\]]*)\]\(([^)]+)\)', md.read_text()):
+                  t = m.group(2)
+                  if t.startswith(('http', '#', 'mailto:')):
+                      continue
+                  rel = (md.parent / t.split('#')[0]).resolve().relative_to(pathlib.Path('.').resolve())
+                  if str(rel) not in tracked and not (rel.is_dir() and any(str(f).startswith(str(rel)) for f in map(pathlib.Path, tracked))):
+                      bad.append(f'{md}: {t}')
+          print('\n'.join(bad) if bad else 'all links resolve inside the repository')
+          sys.exit(1 if bad else 0)
+          EOF
+
+  backend:
+    name: backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
+      # ponytail: no build cache, cold builds take a few minutes. Add one when it annoys someone.
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test

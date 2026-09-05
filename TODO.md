@@ -25,6 +25,9 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
 - [x] ADR-0016 N-03: 6 min for an AD change, 5 s for the kill switch, WebSocket excluded
 - [x] ADR-0017 Single point of failure accepted, with a rehearsed break-glass
 - [x] ADR-0018 Contributions: DCO (`git commit -s`), no CLA
+- [x] ADR-0019 Kill switch: the backend keeps a `sub → session` index in Redis
+      (the 5 s target of ADR-0016 was otherwise unimplementable — Redis is keyed
+      by ticket, not by user). Rests on a Phase 1 verification
 
 **Phase 0 is closed.** Everything decidable from the design has been decided;
 what remains needs facts about the target environment and is tracked in
@@ -33,14 +36,23 @@ measurement.
 
 Carried alongside the work, not blocking it:
 
-- [ ] `git init` and the first public commit (there is no repository yet)
-- [ ] DCO sign-off check on pull requests once the repository is public — ADR-0018
+- [x] Repository published; `CONTRIBUTING.md`, `SECURITY.md` and the DCO +
+      `fmt`/`clippy`/`test` CI (`.github/workflows/ci.yml`) are in place — ADR-0018
+- [ ] Publish `SECURITY.md` (drafted in `.rules/`, not in the repository yet)
+      before the project takes outside traffic — GitHub renders it in the Security
+      tab and wires "Report a vulnerability" to it. Its scope section says "no
+      released version yet" and is rewritten when v1 ships
 
 ## Phase 1 — Lab and measurement
 
 Verify the architecture actually works before writing code.
-**The three verifications that could invalidate the architecture come first.**
+**The four verifications that could invalidate the architecture come first.**
 
+- [ ] Self-signed wildcard certificate for `*.apps.<domain>` + the hosts file /
+      DNS entries. **First item, not a Phase 6 one:** the OIDC redirect and the
+      `Secure` session cookie do not work over plain HTTP, so nothing below can
+      be tested without it. Which CA issues the *production* certificate stays
+      an open question (`docs/06`)
 - [ ] `docker-compose.yml`: nginx + oauth2-proxy + redis + postgres + keycloak
       + samba-ad + one sample application + one WebSocket sample.
       Upstream containers expose no `ports`, they sit only on nginx's network.
@@ -52,6 +64,11 @@ Verify the architecture actually works before writing code.
 - [ ] **VERIFY (3):** does an nginx subrequest itself trigger `auth_request`? If it
       does, the internal HTTP call in the backend can go away. Also: does the
       subrequest inherit the main request's headers (`X-Original-URI` spoofing)?
+- [ ] **VERIFY (4):** can the oauth2-proxy Redis session key be derived from the
+      session cookie? Log in, read the cookie, list the Redis keys, and delete the
+      matching one — access must stop immediately. **ADR-0019 and with it the 5 s
+      kill-switch target rest on this**; if it fails, ADR-0019 falls back to
+      option C and ADR-0016 is revised in the same commit
 - [ ] Keycloak LDAP federation → can an AD user log in
 - [ ] `userAccountControl` filter → a disabled account cannot log in
 - [ ] Group mapper `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` → `groups` claim in the token
@@ -70,8 +87,17 @@ Verify the architecture actually works before writing code.
       `proxy_read_timeout` is an idle timeout and will not cut it; this measurement
       quantifies the limitation ADR-0016 states rather than testing a fix
 
-**Output:** authentication works end to end, the latencies are known, and there is
-still not one line of code.
+- [ ] Keycloak realm is **imported from `keycloak/realm/`** at first boot, not
+      clicked together by hand — otherwise `docker compose up` does not produce a
+      working realm and the lab is not reproducible (`keycloak/README.md`)
+- [ ] Start `INSTALL.md` **while doing all of the above**, not in Phase 6. Phase 1
+      is an installation: DNS, the wildcard certificate, the realm import, the
+      LDAP bind account, `ADMIN_GROUP` and the first login all happen here.
+      Reconstructing them five phases later from memory is how installation
+      documentation becomes wrong
+
+**Output:** authentication works end to end, the latencies are known, `INSTALL.md`
+has a first draft, and there is still not one line of code.
 
 ## Phase 2 — Schema + decision (backend)
 
@@ -80,8 +106,11 @@ still not one line of code.
 - [ ] The `audit_event` schema **starts** with its summary columns: `count`,
       `first_seen`, `last_seen`, `distinct_path`, `request_id`. The table is
       partitioned by month and its PK is `(id, ts)` — Postgres requires the
-      partition key in the PK. Adding any of this later is a breaking change
-      (CLAUDE.md)
+      partition key in the PK. Adding any of this later is a breaking change —
+      the audit record format is immutable (`docs/02`, CONTRIBUTING.md)
+- [ ] The backend applies `migrations/` itself on startup (sqlx runtime migrator)
+      and **exits if a migration fails** rather than serving on an unknown schema.
+      An operator should never have to run a migration by hand on first install
 - [ ] `backend/src/policy.rs`: the decision function — pure, no DB, no HTTP
 - [ ] `policy.rs`: URI normalisation (drop the query, one decode round, resolve
       `..`/`//`, lowercase) + matching **at a segment boundary**
@@ -95,6 +124,9 @@ still not one line of code.
 - [ ] **Test:** an ordinary user with portal access cannot reach `/api/admin/*`
 - [ ] `backend/src/store.rs`: the entitlement query + audit writing (off the
       decision path, bounded channel; a full channel does not block the request)
+- [ ] Shutdown flushes the cache's audit counters to the channel before exiting —
+      otherwise up to one TTL of summaries is lost on every restart (`docs/02`,
+      "Audit granularity"). A hard crash still loses them; that is accepted
 
 ## Phase 3 — `/decide` and closing the chain
 
@@ -107,6 +139,9 @@ still not one line of code.
       matching rule list + per-outcome counters**; `policy.rs` evaluates the
       cached rules against the normalised path on every hit. Single-flight
       refresh, bounded LRU, `sub → keys` reverse index (`docs/05`)
+- [ ] On a cache miss the backend already holds the raw cookie: it records
+      `sub → oauth2-proxy session key` in Redis for the kill switch (ADR-0019).
+      This is the backend's only Redis use; it stores keys, not tokens
 - [ ] **Test:** cache TTL, key isolation, single-flight (50 concurrent requests → 1 refresh)
 - [ ] `backend/Dockerfile`: multi-stage build
 - [ ] `nginx/conf.d/00-auth.conf`: `auth_request`, `error_page 401 = @signin`,
@@ -127,9 +162,20 @@ still not one line of code.
 - [ ] **Test:** a forged `X-Original-URI` / `Host` cannot borrow another
       application's entitlements
 - [ ] **Test:** an unauthenticated request is redirected to login
+- [ ] `GET /healthz` and `GET /readyz` (`docs/02`) — internal network only.
+      Without them a fail-closed blackout and a working deny policy look identical
+      from outside, and there is nothing for the Phase 6 health check to poll
 - [ ] `/decide` reachable only from the internal network (`internal;`)
 - [ ] Diagnostics: `X-Deny-Reason` into the access log; `request_id` correlating
       nginx with audit
+
+- [ ] `docs/08-breakglass.md`: the runbook itself — the symptom that justifies
+      pulling it (`/readyz` is what tells you), the command, how to verify the
+      applications came back, what is unprotected while it is active, and how to
+      go back. **It lives in the repository, not on the maintainer's machine:**
+      the moment it is needed is the moment one laptop is not enough
+- [ ] **Rehearse it** and write the measured time into the runbook. ADR-0017 is
+      satisfied by the rehearsal, not by the file existing
 
 **Exit criterion:** end-to-end access control **and a rehearsed break-glass**
 (a second nginx config in the same image, `--profile breakglass`). Everything up
@@ -145,6 +191,8 @@ So the portal's data does not have to be filled in by hand with SQL.
 - [ ] **nginx config generation** (ADR-0011): generate from the template →
       `nginx -t` → reload. If validation fails, the current config stays in effect
 - [ ] **Test:** every generated location contains the `X-Auth-*` stripping include
+- [ ] `nginx/conf.d/10-portal.conf`: the portal host — frontend static files,
+      `/api/*` → backend
 - [ ] `GET /api/me`, `GET /api/apps`
 
 ## Phase 5 — Portal + audit + kill switch
@@ -156,9 +204,14 @@ So the portal's data does not have to be filled in by hand with SQL.
 - [ ] Audit log viewing + filtering
 - [ ] `GET /api/admin/explain?user&host&path` — why the decision was made.
       `policy.rs` is already pure; the screen ops will use most
-- [ ] Kill switch: Keycloak `logout-all` → oauth2-proxy Redis session → decision
-      cache (the order is fixed)
+- [ ] Kill switch, four steps in this fixed order (ADR-0019): Keycloak
+      `logout-all` → the session keys from the `sub → session` index → that user's
+      decision-cache entries → the index entry. Only that user's entries are
+      dropped; flushing the whole cache is self-DoS
 - [ ] **Test:** access is cut after a kill switch **and the cache does not refill**
+- [ ] **MEASURE:** kill switch end to end — is it under the 5 s of N-03?
+      A user still signed in elsewhere is not cut: their entry never existed in
+      the index if they never hit `/decide` on this instance
 - [ ] **Test:** an **idle** WebSocket connection is cut within `proxy_read_timeout`
       (an active one is not — ADR-0016 excludes it, do not assert otherwise)
 - [ ] Logout: all three steps (`docs/02`, "Logout")
@@ -173,7 +226,10 @@ So the portal's data does not have to be filled in by hand with SQL.
 - [ ] Monitoring: decision latency, error rate, cache hit rate, audit loss counter
 - [ ] Versioning, release image, offline bundle for air-gapped installation
 - [ ] SPDX identifier in `Cargo.toml`, licence headers, Alpine.js MIT notice preserved (ADR-0013)
-- [ ] Installation documentation: DNS, wildcard certificate, `ADMIN_GROUP`, first login
+- [ ] Finish `INSTALL.md` (drafted in Phase 1): DNS, wildcard certificate,
+      `ADMIN_GROUP`, first login, and the prerequisites an operator cannot skip —
+      write access to AD for the `OpenBerat-` groups, a common parent domain
+      (ADR-0015), a Keycloak service account
 - [ ] Load test → fix N-01/N-02 (answer N-07 first, otherwise the test has no target)
 - [ ] Backend on 2 instances + nginx health check (HA — after the first deployment)
 

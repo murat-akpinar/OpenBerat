@@ -9,7 +9,8 @@ axum = "0.8.9"
 chrono = "0.4.45"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-# The macros feature is only for the FromRow/Type derives; the query! macro is not used (CLAUDE.md).
+# The macros feature is only for the FromRow/Type derives; the query! macro is not
+# used — it wants DATABASE_URL at compile time (ADR-0004).
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "chrono", "json", "macros"] }
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net"] }
 tracing = "0.1.44"

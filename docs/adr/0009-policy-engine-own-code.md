@@ -30,8 +30,8 @@ path pattern, expiry. That is a function, not a language. Every engine above
 would be introduced to express five rules, and each brings a syntax that has to
 be learned before an outage can be debugged at 3 a.m.
 
-The pure-function constraint (CLAUDE.md: no DB, no HTTP, no clock in
-`policy.rs`) buys most of what a policy engine is sold for — the decision is
+The pure-function constraint (no DB, no HTTP, no clock in `policy.rs` —
+`CONTRIBUTING.md`) buys most of what a policy engine is sold for — the decision is
 testable in isolation, and every row of the path normalisation table in
 `docs/05` is a unit test.
 
@@ -54,7 +54,8 @@ without touching `/decide`, the cache or the store.
 
 - No new service, no new language, no new dependency in v1.
 - `policy.rs` is the single place an authorisation decision is made, and it is
-  the file with the strictest test requirement in the repository (CLAUDE.md).
+  the file with the strictest test requirement in the repository
+  (`CONTRIBUTING.md`).
 - The ABAC conditions of F-21 are the first real test of this decision. If they
   arrive as a JSON blob of ad-hoc operators, that is the signal from trigger (3),
   not a reason to invent a small DSL of our own — which would be the worst of

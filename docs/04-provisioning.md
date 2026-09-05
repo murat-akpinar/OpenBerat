@@ -142,8 +142,12 @@ two numbers.
    switch would not work.
 4. **The kill switch acts in two places:** the Keycloak Admin API `logout-all`
    **and** deleting the oauth2-proxy session from Redis. Skipping either
-   silently neuters it.
-5. **The decision cache is fully cleared on kill switch.**
+   silently neuters it. Redis is keyed by ticket rather than by user, so
+   finding that session requires the backend's `sub → session` index
+   ([ADR-0019](adr/0019-kill-switch-session-index.md)).
+5. **The kill switch drops only that user's decision-cache entries**, through
+   the `sub → keys` reverse index. Clearing the whole cache is self-DoS
+   (`docs/05`).
 
 ### The test that measures the delay (acceptance criterion)
 

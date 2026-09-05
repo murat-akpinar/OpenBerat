@@ -21,8 +21,8 @@ with margin, and being explicit about what it does **not** cover.
 | Path | Target | Where it comes from |
 |---|---|---|
 | Disabled in AD, or removed from a group | **≤ 6 minutes** | `cookie_refresh` 5 m + cache TTL 30 s + margin |
-| Kill switch (incident response) | **≤ 5 seconds** | Three synchronous steps, no TTL involved (`docs/05`) |
-| Logout initiated by the user | **≤ 5 seconds** | The same three steps (`docs/02`, "Logout") |
+| Kill switch (incident response) | **≤ 5 seconds** | Four synchronous steps, no TTL involved (`docs/05`, [ADR-0019](0019-kill-switch-session-index.md)) |
+| Logout initiated by the user | **≤ 5 seconds** | The same steps, with the browser in hand (`docs/02`, "Logout") |
 | Active WebSocket/SSE connection | **Excluded from the guarantee** | See below |
 
 Six minutes is the product's promise for the ordinary path: an account disabled
@@ -47,6 +47,11 @@ connections, which is worth having and costs nothing.
 
 ## Consequences
 
+- **The 5 s target rests on [ADR-0019](0019-kill-switch-session-index.md).**
+  Without a `sub → session` index there is no way to find the user's
+  oauth2-proxy session, and the kill switch degrades to `cookie_refresh` —
+  5 minutes. That ADR rests in turn on a Phase 1 verification; if it fails, the
+  kill-switch row above is revised in the same commit rather than left standing.
 - `cookie_refresh = 5m` and cache TTL = 30 s are now **derived values**, not
   preferences. Raising either requires revisiting this ADR.
 - `proxy_read_timeout 300s` on protected locations.

@@ -6,7 +6,7 @@
 ## Context
 
 The project shipped without a name; the directory was `project-x` and both
-`README.md` and `CLAUDE.md` carried placeholders. `TODO.md` listed the name as a
+`README.md` and the working conventions file carried placeholders. `TODO.md` listed the name as a
 Phase 2 blocker because it reaches the Cargo package name, the container images,
 the realm export and every document.
 
@@ -63,8 +63,7 @@ product, crate or GitHub organisation carries the name.
 ## Consequences
 
 - `backend/Cargo.toml` package name becomes `openberat`.
-- `README.md`, `CLAUDE.md` and `docs/06-requirements.md` placeholders are
-  resolved; the "project name" item leaves the open questions list.
+- The `README.md` and `docs/06-requirements.md` placeholders are resolved; the "project name" item leaves the open questions list.
 - The Keycloak realm export is named `openberat-realm.json`.
 - The AD group prefix was subsequently settled as `OpenBerat-` in
   [ADR-0008](0008-group-identity-name.md), where it does real work as a

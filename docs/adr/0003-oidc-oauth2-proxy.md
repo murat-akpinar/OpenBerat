@@ -52,7 +52,9 @@ project — **the authorisation decision**.
 - The **kill switch** (F-09) now acts in two places: terminate the Keycloak
   session **and** delete the oauth2-proxy session. This is why oauth2-proxy's
   session store must be Redis (a session inside a cookie cannot be revoked
-  server-side).
+  server-side). Redis is keyed by ticket rather than by user, so the second half
+  needs an index the backend keeps —
+  [ADR-0019](0019-kill-switch-session-index.md).
 - **Stale group risk:** the `X-Auth-Request-Groups` oauth2-proxy returns comes
   from the ID token at login time and is not refreshed for days unless
   `--cookie-refresh` is set. That would undermine the product's core promise.

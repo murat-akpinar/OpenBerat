@@ -41,7 +41,8 @@ people will install it and depend on it.
 
 2. **On-premises and air-gapped by construction, not by configuration.** One
    `docker compose up` on one machine (N-05), configuration baked into images
-   (CLAUDE.md), no CDN and no npm tree (ADR-0007), an offline bundle in Phase 6.
+   (`CONTRIBUTING.md`), no CDN and no npm tree (ADR-0007), an offline bundle in
+   Phase 6.
    Nothing phones home, and there is no paid tier that unlocks a feature the
    installation needs — where Pomerium's enterprise features are licensed.
 

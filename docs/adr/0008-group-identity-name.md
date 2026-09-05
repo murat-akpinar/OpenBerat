@@ -33,7 +33,7 @@ close a recreation hole is a worse trade than the hole.
 
 `entitlement.subject_id` holds the group name as a plain string, and the schema
 carries no SID column. A nullable column that nothing ever writes is exactly the
-"we might need it later" field CLAUDE.md forbids.
+"we might need it later" field the project forbids (`CONTRIBUTING.md`).
 
 ## Mitigations, which are the only thing making this acceptable
 

@@ -119,6 +119,13 @@ Phase 1 lab:
       the "Keycloak reads live" claim still hold at any value other than
       `NO_CACHE`? **ADR-0006 rests on this claim**, and the only source for it is
       the general Keycloak documentation.
+- [ ] **Can the oauth2-proxy Redis session key be derived from the session
+      cookie the backend already holds?** The cookie is understood to carry a
+      ticket the store is keyed by, but that is oauth2-proxy internals and has
+      not been read out of its source or documentation.
+      **[ADR-0019](adr/0019-kill-switch-session-index.md) rests on this claim**,
+      and through it the 5 s kill-switch target in ADR-0016. If it is false the
+      fallback is option C of that ADR and N-03 is revised.
 
 ## Licences (to be verified)
 

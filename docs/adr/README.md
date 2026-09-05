@@ -9,6 +9,7 @@ marking the old one `Superseded`.
 
 Template: `0000-template.md`
 
-`0008`–`0010` were reserved placeholders and are now written. Every decision the
-design could settle on its own has an ADR; what remains open needs facts about
-the target environment and lives in `docs/06-requirements.md`.
+Every decision the design could settle on its own has an ADR; what remains open
+needs facts about the target environment and lives in `docs/06-requirements.md`.
+`0019` is the exception: it settles a design question but rests on a claim about
+oauth2-proxy that Phase 1 has to confirm (`docs/07`, "Unverified").

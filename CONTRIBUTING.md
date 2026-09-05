@@ -28,6 +28,12 @@ from the changelog silently.
 If the body explains something, put the explanation in the **first paragraph** —
 that is the part that ends up in `CHANGELOG.md`.
 
+## Found a vulnerability?
+
+Do not open a public issue — email **akpinarmurat@protonmail.com**. There is no
+released version yet, so the useful report at this stage is a flaw in the design
+itself.
+
 ## Licence
 
 OpenBerat is [GPL-3.0-or-later](LICENSE). Contributions are accepted under the
@@ -39,10 +45,32 @@ same terms ([ADR-0013](docs/adr/0013-licence-gpl.md)).
   answered there, including the ones where the answer is "this is accepted debt".
 - [`docs/06-requirements.md`](docs/06-requirements.md) holds what is still
   undecided. If your change touches one of those, say so in the pull request.
-- [`CLAUDE.md`](CLAUDE.md) holds the code and documentation conventions. Two that
-  catch people out: documentation is English (`README_TR.md` is the one
-  exception), and anything that makes an identity, session or authorisation
-  decision needs a test.
+- The rules below are the ones the design documents treat as settled. The two
+  that catch people out: documentation and code comments are English, and
+  anything deciding identity, session or authorisation needs a test that was
+  seen to fail first.
+
+## The rules the documents cite
+
+The design documents refer to these as settled project rules. They are here so a
+reader outside the maintainer's machine can find them.
+
+- **Fail-closed.** If an authorisation decision cannot be made, the answer is
+  deny. This applies to the system as a whole, not only to `policy.rs`
+  ([ADR-0017](docs/adr/0017-fail-closed-availability.md)).
+- **Configuration is baked into the image, not bind-mounted**, so a running
+  system cannot drift. The one exception is the nginx application blocks
+  generated from the database ([ADR-0011](docs/adr/0011-nginx-config-generation.md)).
+- **The audit record format is immutable.** Changing what an `audit_event` row
+  holds is a breaking change, which is why the summary columns are in the first
+  migration rather than added later (`docs/02-architecture.md`).
+- **`policy.rs` stays pure:** no database, no HTTP, no reading the clock. Every
+  input arrives as a parameter, so the decision is testable in isolation. It is
+  the file with the strictest test requirement in the repository.
+- **Nothing speculative.** No column, config value, or abstraction with one
+  implementation added because it might be needed later.
+- **Documentation and code comments are English**, `README_TR.md` excepted.
+  Comments say *why*, not *what*.
 
 ## What gets rejected
 

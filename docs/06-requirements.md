@@ -46,7 +46,7 @@
 |---|---|---|
 | N-01 | Authorisation decision latency (cache hit) | < 5 ms *(draft — to be measured and fixed)*. The cache entry must carry the identity too, otherwise this is unreachable — `docs/05`. |
 | N-02 | Authorisation decision latency (cache miss) | < 50 ms *(draft — to be measured and fixed)* |
-| N-03 | Revocation delay | **≤ 6 min** for an AD change, **≤ 5 s** for the kill switch ([ADR-0016](adr/0016-n03-revocation-targets.md)). Active WebSocket/SSE connections are excluded from the guarantee. |
+| N-03 | Revocation delay | **≤ 6 min** for an AD change, **≤ 5 s** for the kill switch ([ADR-0016](adr/0016-n03-revocation-targets.md)). The 5 s figure depends on the session index in [ADR-0019](adr/0019-kill-switch-session-index.md), verified in Phase 1. Active WebSocket/SSE connections are excluded from the guarantee. |
 | N-04 | Audit log retention period | **? — depends on KVKK and internal policy** |
 | N-05 | Must come up with `docker compose up` on a single machine | v1 |
 | N-06 | High availability (HA) | No in v1; the design will not prevent it |
@@ -79,6 +79,7 @@ answered and write the decision to `docs/adr/`.
 | N-03 revocation targets | 6 min / 5 s, WebSocket excluded | [0016](adr/0016-n03-revocation-targets.md) |
 | Single point of failure | Accepted, with a rehearsed break-glass | [0017](adr/0017-fail-closed-availability.md) |
 | Outside contributions | DCO (`git commit -s`), no CLA | [0018](adr/0018-contributions-dco.md) |
+| Finding a user's oauth2-proxy session for the kill switch | The backend keeps a `sub → session` index in Redis | [0019](adr/0019-kill-switch-session-index.md) |
 | AD group strategy | `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` | `docs/03`, `docs/07` |
 
 ### 🔴 Needs an answer about the target environment
@@ -92,7 +93,10 @@ network and policy. Phase 1 exists partly to establish them.
 - [ ] **Wildcard certificate: internal CA or Let's Encrypt?** ADR-0015 makes the
       certificate mandatory but not its source. If it is baked into the image,
       renewal means an image build, and expiry takes **every** application down
-      at once.
+      at once. This is a **production** question; the Phase 1 lab does not wait
+      for it — a self-signed wildcard is enough there, and the lab needs one from
+      its first day because the OIDC redirect and the `Secure` cookie do not work
+      over plain HTTP.
 - [ ] Is MFA mandatory, and for which applications? (the PDP can read `acr`)
 - [ ] Is Kerberos/SPNEGO (passwordless domain SSO) wanted?
 - [ ] Is there more than one AD domain / forest?

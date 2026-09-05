@@ -23,6 +23,24 @@ design could settle has an ADR. Next up: the Phase 1 lab in `TODO.md`.
 environment; there is no paid edition. Patches welcome under
 [DCO](CONTRIBUTING.md) — no CLA to sign.
 
+## What you need before installing
+
+`docker compose up` brings the stack up on one machine (N-05), but the stack is
+not the whole job. These are the operator's, and none of them can be skipped:
+
+| Prerequisite | Why |
+|---|---|
+| **A common parent domain** for every protected application (`*.apps.<domain>`) | The session cookie is shared across them; applications on unrelated domains are not supported ([ADR-0015](docs/adr/0015-single-parent-domain.md)) |
+| **A wildcard DNS record** and a **wildcard TLS certificate** covering it | An admin can add an application but cannot create name resolution ([ADR-0011](docs/adr/0011-nginx-config-generation.md)). When the certificate lapses, everything goes down at once |
+| **Write access to Active Directory** for the `OpenBerat-` groups | Entitlements are AD groups. Somebody has to create them ([ADR-0008](docs/adr/0008-group-identity-name.md)) |
+| **An AD service account** for Keycloak's LDAP bind, read-only | [docs/03-keycloak-ad.md](docs/03-keycloak-ad.md) |
+| **One AD group for administrators**, named in `ADMIN_GROUP` | In a fail-closed system the first admin cannot come from the database |
+
+Realistically this asks for an operator who is comfortable with AD, Keycloak and
+nginx. It replaces a VPN; it is not lighter than one to set up, only lighter to
+live with. The installation guide is written during the Phase 1 lab
+([TODO.md](TODO.md)).
+
 ## How it works
 
 ```mermaid
@@ -51,6 +69,7 @@ flowchart LR
     nginx -->|"only after ALLOW"| app
     backend -->|"GET /oauth2/auth"| o2p
     backend -->|"entitlements · audit"| pg
+    backend -.->|"kill switch · sub → session"| redis
     o2p -->|session| redis
     o2p -->|"token exchange"| kc
     kc -->|"bind · memberOf"| ad
@@ -120,11 +139,10 @@ identity is Keycloak — all three are off the shelf and configured, not written
 | [docs/05-authz-model.md](docs/05-authz-model.md) | The authorisation model and decision rules |
 | [docs/06-requirements.md](docs/06-requirements.md) | Requirements and **open questions** |
 | [docs/07-references.md](docs/07-references.md) | **Sources** — the basis for the technical claims, verified defaults |
-| [docs/adr/](docs/adr/) | **Decisions taken** — 18 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets |
+| [docs/adr/](docs/adr/) | **Decisions taken** — 19 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — DCO sign-off, conventions, what gets rejected |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |
 | [TODO.md](TODO.md) | Roadmap |
-| [CLAUDE.md](CLAUDE.md) | Code and documentation conventions |
 
 ## Where to start
 

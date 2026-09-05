@@ -8,7 +8,8 @@
 F-06 requires an admin to be able to define applications (name, target address,
 icon), and the `application` table has an `upstream_url`. But the nginx
 configuration for protected applications (`20-apps.conf`) is written by hand and
-baked into the image (CLAUDE.md) — meaning **no component reads `upstream_url`.**
+baked into the image (`CONTRIBUTING.md`) — meaning **no component reads
+`upstream_url`.**
 The admin screen can only map entitlements to applications that were already
 added by hand, and adding a new application requires rebuilding the image.
 
@@ -35,10 +36,10 @@ a single bad record in the admin UI into an internal-network redirect hole.
 
 ## Consequences
 
-- **CLAUDE.md's "configuration is baked into the image" rule is relaxed for this
-  one file.** nginx's core configuration (`00-auth.conf`, `10-portal.conf`) is
-  still in the image; only the generated application blocks live in a shared
-  volume.
+- **The "configuration is baked into the image" rule is relaxed for this one
+  file** (`CONTRIBUTING.md`). nginx's core configuration (`00-auth.conf`,
+  `10-portal.conf`) is still in the image; only the generated application blocks
+  live in a shared volume.
 - The shared `include` that strips incoming `X-Auth-*` headers is **part of the
   template** for every generated location, not optional. Forget it in the
   template and the security claim falls for every generated application — so the

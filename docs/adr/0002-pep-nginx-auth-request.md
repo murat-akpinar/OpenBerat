@@ -70,8 +70,10 @@ Side effects:
 
 - **Constraint:** every protected application must live under a common parent
   domain (`*.apps.example.local`), otherwise the session cookie cannot be
-  shared. The DNS and wildcard certificate decisions depend on this. It is still
-  the most critical unanswered question.
+  shared. The DNS and wildcard certificate decisions depend on this. Carried as
+  the most critical open question until
+  [ADR-0015](0015-single-parent-domain.md) settled it: the parent domain is an
+  installation prerequisite and the portal lives inside it.
 - The backend never sees the traffic; it sees only request metadata (host, path,
   identity). Body inspection (WAF-style) is not possible.
 - The proxy is replaceable: Caddy `forward_auth` and Traefik `forwardAuth` speak

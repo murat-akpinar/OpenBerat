@@ -23,6 +23,23 @@ imzalanacak CLA yok.
 > **Not:** Bu dosya dışındaki tüm dokümanlar İngilizce tutulur (`docs/`, `TODO.md`,
 > alt dizin README'leri). Proje açık kaynak yayımlanacak.
 
+## Kurmadan önce gerekenler
+
+`docker compose up` yığını tek makinede ayağa kaldırır (N-05), ama iş yığından
+ibaret değil. Aşağıdakiler operatörün sorumluluğunda ve hiçbiri atlanamaz:
+
+| Ön koşul | Neden |
+|---|---|
+| Korunan tüm uygulamalar için **ortak bir üst alan adı** (`*.apps.<domain>`) | Oturum çerezi bunlar arasında paylaşılıyor; ilgisiz alan adlarındaki uygulamalar desteklenmiyor ([ADR-0015](docs/adr/0015-single-parent-domain.md)) |
+| **Wildcard DNS kaydı** ve onu kapsayan **wildcard TLS sertifikası** | Admin uygulama ekleyebilir ama ad çözümlemesi yaratamaz ([ADR-0011](docs/adr/0011-nginx-config-generation.md)). Sertifika dolduğunda her şey aynı anda düşer |
+| `OpenBerat-` gruplarını açmak için **Active Directory'de yazma yetkisi** | Yetkiler AD gruplarıdır; birinin onları oluşturması gerekir ([ADR-0008](docs/adr/0008-group-identity-name.md)) |
+| Keycloak'ın LDAP bind'i için **salt okunur bir AD servis hesabı** | [docs/03-keycloak-ad.md](docs/03-keycloak-ad.md) |
+| `ADMIN_GROUP`'ta adı geçen **bir yönetici AD grubu** | Fail-closed bir sistemde ilk admin veritabanından gelemez |
+
+Gerçekçi olmak gerekirse bu, AD'ye, Keycloak'a ve nginx'e hâkim bir operatör
+ister. VPN'in yerine geçiyor; kurulumu VPN'den hafif değil, yaşatması hafif.
+Kurulum belgesi Phase 1 laboratuvarı sırasında yazılıyor ([TODO.md](TODO.md)).
+
 ## Nasıl çalışıyor
 
 ```mermaid
@@ -51,6 +68,7 @@ flowchart LR
     nginx -->|"yalnızca ALLOW sonrası"| app
     backend -->|"GET /oauth2/auth"| o2p
     backend -->|"entitlement · audit"| pg
+    backend -.->|"kill switch · sub → oturum"| redis
     o2p -->|oturum| redis
     o2p -->|"token exchange"| kc
     kc -->|"bind · memberOf"| ad
@@ -120,11 +138,10 @@ kimlik Keycloak'ta — üçü de hazır, yapılandırma işi.
 | [docs/05-authz-model.md](docs/05-authz-model.md) | Yetkilendirme modeli ve karar kuralları |
 | [docs/06-requirements.md](docs/06-requirements.md) | Gereksinimler ve **açık sorular** |
 | [docs/07-references.md](docs/07-references.md) | **Kaynaklar** — teknik iddiaların dayanağı, doğrulanmış varsayılanlar |
-| [docs/adr/](docs/adr/) | **Alınan kararlar** — 18 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri |
+| [docs/adr/](docs/adr/) | **Alınan kararlar** — 19 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Nasıl katkı verilir — DCO imzası, konvansiyonlar, neler reddedilir |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |
 | [TODO.md](TODO.md) | Yol haritası |
-| [CLAUDE.md](CLAUDE.md) | Kod ve doküman kuralları |
 
 ## Nereden başlanır
 

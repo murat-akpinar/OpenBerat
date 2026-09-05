@@ -13,7 +13,8 @@ Decisions: [0001](adr/0001-scope-v1-web-only.md) web only ·
 [0012](adr/0012-project-name-openberat.md) project name ·
 [0015](adr/0015-single-parent-domain.md) one parent domain ·
 [0016](adr/0016-n03-revocation-targets.md) revocation targets ·
-[0017](adr/0017-fail-closed-availability.md) accepted SPOF
+[0017](adr/0017-fail-closed-availability.md) accepted SPOF ·
+[0019](adr/0019-kill-switch-session-index.md) kill switch session index
 
 Sources for the technical claims: [`docs/07-references.md`](07-references.md).
 
@@ -28,7 +29,7 @@ Sources for the technical claims: [`docs/07-references.md`](07-references.md).
 | **backend** | **Authorisation decision + `/api` + audit** | **Written** |
 | **frontend** | **Portal + admin UI** (buildless static, ADR-0007) | **Written** |
 | **Postgres** | application / entitlement / audit_event | Deployed |
-| **Redis** | oauth2-proxy session store — mandatory for the kill switch **and** for the 4 KB cookie limit | Deployed |
+| **Redis** | oauth2-proxy session store — mandatory for the kill switch **and** for the 4 KB cookie limit. Also holds the backend's `sub → session` index (ADR-0019) | Deployed |
 
 The two components we write are `backend` and `frontend`. The rest is
 off-the-shelf parts and configuration.
@@ -105,11 +106,15 @@ The rule: **count decisions, summarise rows.**
   and the event is logged through `tracing`.
 - If the raw request stream is needed, structured logs go to stdout and are
   shipped to the SIEM from there (F-23) — full trace without bloating the DB.
+- Counters live in memory until the entry expires, so **up to one TTL of
+  summaries is lost if the process dies.** On shutdown the cache is flushed to
+  the channel first; on a hard crash the loss is accepted and bounded by the TTL
+  (30 s). Anything needing a gapless record uses the stdout stream, not the DB.
 
 This is why the `audit_event` schema **starts** with the `count` / `first_seen` /
 `last_seen` / `distinct_path` columns and the table is partitioned by month.
-Because the audit record format is treated as immutable (CLAUDE.md), these
-cannot be added later.
+Because the audit record format is treated as immutable (CONTRIBUTING.md),
+these cannot be added later.
 
 ## Flow: the portal
 
@@ -141,6 +146,17 @@ updated together.
 | `GET/POST/DELETE /api/admin/entitlements` | admin | AD group ↔ application mapping |
 | `GET /api/admin/audit` | admin | Audit record, filtered |
 | `POST /api/admin/kill/{sub}` | admin | Kill switch |
+| `GET /healthz` | operator, compose | The process is alive. No dependencies checked, no body |
+| `GET /readyz` | operator, nginx | Postgres and Redis are reachable. 200 or 503 |
+
+`/healthz` and `/readyz` exist because **the fail-closed rule hides the outage**:
+`/decide` answers 403 `store_unavailable` when the database is gone, which from
+outside is indistinguishable from a user who is simply not entitled. Without a
+readiness endpoint the operator at 3 a.m. sees "everyone is denied" and cannot
+tell whether the policy is working or the system is down — which is exactly when
+the break-glass decision has to be made ([ADR-0017](adr/0017-fail-closed-availability.md)).
+They are reachable on the internal network only, like `/decide`, and they are
+the health check the second instance in Phase 6 needs.
 
 ### The `/decide` request contract
 
@@ -172,6 +188,8 @@ If any of them is missing the decision cannot be made → **DENY**
 | 200 / 401 / 403 | The only valid codes. **`/decide` never returns 5xx** — if the DB is unreachable, 403 `store_unavailable` |
 | `Set-Cookie` | If it came from oauth2-proxy it is **relayed verbatim**; nginx passes it to the browser with `auth_request_set` + `add_header ... always`. Without this, `cookie_refresh` silently stops working (ADR-0006 collapses) |
 | `X-Deny-Reason` | The reason on DENY; written to the nginx access log, never shown to the user |
+
+### Anonymous endpoints
 
 There are **no anonymously reachable endpoints** — with three mandatory
 exceptions. The first two are the same trap in two places: a login flow cannot
@@ -310,10 +328,15 @@ not:
 
 1. oauth2-proxy `/oauth2/sign_out` → cookie cleared, Redis session dropped
 2. Keycloak RP-initiated logout (`end_session_endpoint`) → the IdP session closes
-3. That `sub` is dropped from the backend decision cache
+3. That `sub` is dropped from the backend decision cache **and from the
+   `sub → session` index** (ADR-0019)
 
 Skip step 2 and the next login hands the session straight back without a
 password prompt — the "I logged out" illusion.
+
+Logout has the browser in hand, so step 1 knows which session to drop. The kill
+switch does not — the admin acts on a `sub`, and Redis is keyed by ticket. That
+is what the index in step 3 exists for; its order there is fixed (`docs/05`).
 
 ## Availability: the price of fail-closed
 
@@ -327,8 +350,8 @@ operational consequence:
 This is why the timeout budget is failure-mode design rather than optimisation:
 if the backend slows down, nginx waits the default 60 seconds, worker
 connections fill up, and the system stops completely. The break-glass config
-lives **inside the image** — because nothing is mounted from outside (CLAUDE.md),
-nobody should have to build an image at 3 a.m.
+lives **inside the image** — because nothing is mounted from outside
+(CONTRIBUTING.md), nobody should have to build an image at 3 a.m.
 
 Removing the VPN and putting this in its place means placing a single point of
 failure in front of every internal application. This is
@@ -339,7 +362,7 @@ is the rehearsed break-glass below, not a promise of uptime.
 | Measure | In v1? |
 |---|---|
 | `backend` stateless, horizontally scalable | **Yes**, a design constraint |
-| At least 2 instances + nginx upstream health check | No, but the design will not prevent it |
+| At least 2 instances + nginx upstream health check | Not in v1, but `/readyz` ships in v1 so the check has something to poll |
 | Decision cache is instance-local; moves to Redis with multiple instances | Noted |
 | Postgres unreachable → DENY; cached decisions survive for their TTL | **Yes** |
 | **Break-glass:** a second nginx config in the same image, via `docker compose --profile breakglass` — written down and **rehearsed** | **Yes**, Phase 3 exit criterion |
@@ -358,7 +381,7 @@ is the rehearsed break-glass below, not a promise of uptime.
                           │ auth_request /decide
                     ┌─────▼──────────┐
                     │  backend  :8081│──► Postgres :5432
-                    └─────┬──────────┘
+                    └─────┬──────────┘──► Redis :6379 (sub → session index)
                           │ GET /oauth2/auth
                   ┌───────▼──────────┐
                   │ oauth2-proxy:4180│──► Redis :6379 (session)

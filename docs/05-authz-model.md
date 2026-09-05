@@ -17,12 +17,11 @@
 | **Cedar** | More readable than Rego, formally verifiable | Smaller ecosystem |
 | **Casbin** | Embedded, light | The model file is still a DSL |
 
-**Recommendation: our own code in v1.** The decision order is a six-step function
-(see `docs/02-architecture.md`). Moving that to OPA means 300 lines of Rego and
-one more service. When the rule count stops being manageable with ifs, then it
-moves to OPA.
-
-→ **Not yet decided.** Tracked in the Open Questions of `docs/06-requirements.md`.
+**Decided: our own code in v1** ([ADR-0009](adr/0009-policy-engine-own-code.md)).
+The decision order is a six-step function (see `docs/02-architecture.md`); moving
+that to OPA means 300 lines of Rego and one more service. The reversal trigger is
+written down in the ADR — when the rule count stops being manageable with ifs,
+this moves to OPA.
 
 ## Decision inputs
 
@@ -31,7 +30,7 @@ moves to OPA.
   subject:  { sub, username, groups[] },
   resource: { application_id, hostname, path, method },
   context:  { now }        -- for comparing expires_at; policy.rs does not read
-}                          -- the clock, it arrives as a parameter (CLAUDE.md)
+}                          -- the clock, it arrives as a parameter (CONTRIBUTING)
 ```
 
 `acr` and `src_ip` do **not** feed the decision: the first arrives with ABAC
@@ -126,9 +125,11 @@ So:
 - Bounded LRU. One user cannot produce unbounded entries.
 - A `sub → keys` reverse index is kept; logout and the kill switch drop **only
   that user's** entries. Clearing the whole cache is self-DoS.
-- The kill switch order is fixed: **Keycloak `logout-all` → Redis session →
-  cache.** In the reverse order a request arriving in the gap refills the cache
-  with a fresh ALLOW.
+- The kill switch order is fixed: **Keycloak `logout-all` → the oauth2-proxy
+  session keys from the `sub → session` index → this user's cache entries →
+  the index entry.** In the reverse order a request arriving in the gap refills
+  the cache with a fresh ALLOW. Finding the session at all needs that index —
+  Redis is keyed by ticket, not by user ([ADR-0019](adr/0019-kill-switch-session-index.md)).
 
 Caching the rule set rather than the verdict is also the safer design: every
 request is evaluated against the **full** rule list, so a deny can never be
@@ -152,7 +153,7 @@ this TTL (ADR-0006, ADR-0016). **Exception:** long-lived connections such as
 WebSocket/SSE are authorised once and are not covered by either number
 (`docs/02`, "Long-lived connections").
 
-`# ponytail: in-memory cache + full flush on kill switch, assumes a single instance. Move to Redis with selective flushing once there are several.`
+`# ponytail: in-memory cache keyed per sub, assumes a single instance. Move to Redis once there are several.`
 
 ## Application access levels (not in v1, reserved in the design)
 
@@ -213,3 +214,29 @@ that **bypassed** nginx from the incoming headers. In v1 the basis is network
 isolation (upstream containers only on nginx's network, no `ports`). The answer
 that stands up to an audit is issuing a short-lived **signed identity JWT**;
 tracked under the security open questions in `docs/06`.
+
+## Attacks this design must refuse
+
+Nothing here is new — every row is decided somewhere above or in `docs/02`. It is
+collected so that a reviewer can find them in one place, and so that a row
+without a test is visible as a gap rather than an omission.
+
+| Attack | Where it is refused | Proof |
+|---|---|---|
+| Client sends its own `X-Auth-Groups: IT-Admin` | nginx strips every `X-Auth-*` in a shared `include`, in **every** protected location, before proxying | Phase 3 test |
+| Client drives `Host` / `X-Forwarded-Host` to borrow another application's entitlements | `X-App-Slug` is a constant in each `server` block, never taken from the request | Phase 3 test |
+| `/%61dmin/users` — single-encoded past a `/admin/*` deny | Normalisation runs before matching: decode once, then match | Phase 2 test |
+| `/%2561dmin/` — double-encoded | A `%` surviving one decode round → DENY `malformed_uri` | Phase 2 test |
+| `//admin/`, `/x/../admin/` | Consecutive slashes collapsed, `.`/`..` resolved | Phase 2 test |
+| `/adminx` slipping into a `/admin/*` rule | Matching at a **segment boundary**, not a raw prefix | Phase 2 test |
+| An entitlement whose `expires_at` has passed still granting | `expires_at` is part of the decision, and the cached rule list carries it | Phase 2 test |
+| A portal user calling `/api/admin/*` | `ADMIN_GROUP` check on the handler's first line, **never cached** | Phase 2 test |
+| A compromised protected application posting to `/api/admin/*` | `Origin` check on state-changing admin endpoints — `SameSite` cannot help, the hosts are same-site (ADR-0015) | Phase 3 test |
+| A request in the gap after a kill switch refilling the cache with a fresh ALLOW | The four-step order is fixed: Keycloak → session keys → cache → index (ADR-0019) | Phase 5 test |
+| Calling `/decide` directly to enumerate the policy table | `internal;` — reachable only from nginx | Phase 3 |
+| Reaching an upstream while bypassing nginx entirely | v1: network isolation, no published `ports`. **Not fully closed** — the signed identity JWT is the answer that survives an audit | Open question, `docs/06` |
+| A deleted AD group recreated with the same name inheriting its entitlements | **Not closed.** Accepted debt, mitigated by the `OpenBerat-` prefix and change control (ADR-0008) | — |
+| Revoking access on an **active** WebSocket/SSE connection | **Not closed.** Explicitly outside the N-03 guarantee (ADR-0016) | Phase 1 measures the gap |
+
+The last three rows are the honest ones: they are open, and a security review
+should find them here rather than in the code.

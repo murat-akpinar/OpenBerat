@@ -44,7 +44,11 @@ authorisation decision. Reference pattern and verified details:
 10. **Relay `Set-Cookie`.** `auth_request_set $auth_cookie $upstream_http_set_cookie;`
    plus `add_header Set-Cookie $auth_cookie always;` Without it `cookie_refresh`
    does not work.
-11. **Set `proxy_read_timeout` from N-03.** A WebSocket/SSE connection is
-   authorised once; its lifetime determines the revocation delay.
+11. **`proxy_read_timeout 300s` on protected locations — and know what it does
+   not do.** A WebSocket/SSE connection is authorised once, at the upgrade. This
+   timeout is an **idle** timeout: nginx resets it on every read from the
+   upstream, so it cuts an idle connection and never a busy one. Revocation on
+   an active long-lived connection is outside the N-03 guarantee (ADR-0016); do
+   not write a test asserting otherwise.
 12. **`client_max_body_size`** defaults to 1m — applications that accept file
    uploads will return 413.
