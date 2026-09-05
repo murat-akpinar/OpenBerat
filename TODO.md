@@ -51,11 +51,17 @@ Carried alongside the work, not blocking it:
 Verify the architecture actually works before writing code.
 **The four verifications that could invalidate the architecture come first.**
 
-- [ ] Self-signed wildcard certificate for `*.apps.<domain>` + the hosts file /
+- [x] Self-signed wildcard certificate for `*.apps.<domain>` + the hosts file /
       DNS entries. **First item, not a Phase 6 one:** the OIDC redirect and the
       `Secure` session cookie do not work over plain HTTP, so nothing below can
       be tested without it. Which CA issues the *production* certificate stays
-      an open question (`docs/06`)
+      an open question (`docs/06`).
+      *Landed as `INSTALL.md` §1–2, executed on the lab host: self-signed
+      `*.apps.example.local` (SAN wildcard + apex, 2-year), hosts entries, and
+      the `:443` server enabled. Verified live: the presented certificate
+      validates against the crt without `-k`, HTTP/2 200 on two wildcard
+      hosts, `:80` → 301. Browser-side hosts entries are still needed on the
+      machine the OIDC tests will run from*
 - [x] `docker-compose.yml`: nginx + oauth2-proxy + redis + postgres + keycloak
       + samba-ad + one sample application + one WebSocket sample.
       **Two networks** (`docs/02`, "Deployment"): the sample applications on
@@ -116,7 +122,9 @@ Verify the architecture actually works before writing code.
       is an installation: DNS, the wildcard certificate, the realm import, the
       LDAP bind account, `ADMIN_GROUP` and the first login all happen here.
       Reconstructing them five phases later from memory is how installation
-      documentation becomes wrong
+      documentation becomes wrong.
+      *First draft landed with the certificate item: prerequisites,
+      certificate, name resolution, `.env`, start*
 
 **Output:** authentication works end to end, the latencies are known, `INSTALL.md`
 has a first draft, and there is still not one line of code.
