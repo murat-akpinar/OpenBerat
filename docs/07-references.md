@@ -373,6 +373,62 @@ Related, same class: oauth2-proxy performs OIDC discovery once at startup and
 container, not for readiness, so first boot is a race it loses permanently.
 Every service carries `restart: unless-stopped`.
 
+### The login redirect — the `=` was inert and the `rd` was truncating
+
+<https://nginx.org/en/docs/http/ngx_http_core_module.html#error_page> ·
+<https://oauth2-proxy.github.io/oauth2-proxy/configuration/integrations/nginx/>
+
+`error_page 401 = @signin` with the pattern both the oauth2-proxy documentation
+and this repository carried — `return 302 …/oauth2/start?rd=$scheme://$host$request_uri`
+— works: an anonymous request is answered `302`, the login completes, and the
+user comes back to the page they asked for. Two things underneath it were not
+what the configuration claimed.
+
+**The client's query string was being handed to oauth2-proxy as parameters of
+its own.** nginx has no way to percent-encode `$request_uri`, so it goes into
+`rd=` raw and every `&` in it starts a new parameter of `/oauth2/start`.
+Measured, one login each:
+
+| Requested | Landed on after login |
+|---|---|
+| `/index.html?a=1&b=2` | `/index.html?a=1` |
+| `/index.html?a=1&rd=https://evil.example.com/` | `/index.html?a=1` |
+
+The first row is the everyday cost: a `200`, the right page, and everything
+after the first `&` silently gone — a deep link into a protected application
+comes back half-parameterised after any session expiry. The second is the same
+mechanism aimed at the redirect itself: the injected `rd` became a *second* `rd`
+parameter. oauth2-proxy took the first one and `whitelist_domains` would have
+refused the host anyway, so it was not exploitable — but the client was writing
+into the query string of a request it never made.
+
+**Fixed by moving the return address out of the query string**: `@signin`
+proxies to `/oauth2/start` and carries the target in `X-Auth-Request-Redirect`,
+the header oauth2-proxy's own nginx page documents for exactly this
+("or, if you are handling multiple domains"). Re-measured: `/index.html?a=1&b=2`
+comes back whole, the injected `rd` arrives as inert query data on our host, and
+the browser makes one round trip fewer — nginx now returns oauth2-proxy's
+redirect to Keycloak directly instead of bouncing the browser through
+`/oauth2/start`. The `rewrite ^ /oauth2/start? break;` needs its trailing `?`:
+without it nginx appends the original query string and the injection is back.
+
+**And the `=` this repository calls mandatory changed nothing — until the fix
+made it load-bearing.** Measured side by side on one probe server, the same
+location twice with only the `=` removed:
+
+| Error handler | `error_page 401 = @signin` | `error_page 401 @signin` |
+|---|---|---|
+| `return 302 …` | 302 | **302** |
+| `proxy_pass …/oauth2/start` | 302 | **401**, `Location` present |
+
+nginx's documentation is precise about it and the rule as written was not: the
+`=` means "answer with the code the handler returns", and it matters when *an
+error response is processed by a proxied server*. `return` belongs to the
+rewrite module and sets the status itself, so nothing was there to override.
+The old configuration was correct by accident; the new one would have been a
+401 with a `Location` nobody follows — the exact failure the rule describes,
+reachable only now that the handler is a proxy.
+
 ## Unverified, to be tested
 
 These claims have not been confirmed against a source; they will be tried in the

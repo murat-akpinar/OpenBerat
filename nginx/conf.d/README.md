@@ -12,9 +12,19 @@ authorisation decision. Reference pattern and verified details:
 
 ## Do not skip these
 
-1. **`error_page 401 = @signin`** — the `=` is mandatory. Without it the response
-   code stays 401, the browser does not follow the `Location` header, and the
-   user never reaches the login page.
+1. **`error_page 401 = @signin`, and the return address never goes in the query
+   string.** The `=` means "answer with the code the handler returns", and it
+   only bites when the handler is a **proxied** response: measured side by side,
+   a `return 302` handler answers 302 with or without it, while a `proxy_pass`
+   handler without it answers **401 with a `Location` the browser will not
+   follow** (`docs/07`). `@signin` proxies to `/oauth2/start` with the target in
+   `X-Auth-Request-Redirect`, because nginx cannot percent-encode
+   `$request_uri`: `?rd=$scheme://$host$request_uri` hands the client's own
+   `&`-separated query string to oauth2-proxy as extra parameters of that
+   request — the user comes back with everything after the first `&` gone, and
+   a client-supplied `rd` rides along as a second one. The `?` in
+   `rewrite ^ /oauth2/start? break;` is what drops the original query string;
+   without it the injection is back.
 2. **`auth_request` is one per location.** The chain lives inside the backend
    (ADR-0002). Do not write a second `auth_request`; it silently overrides the first.
 3. **Strip incoming `X-Auth-*` headers — in both directions.** In every

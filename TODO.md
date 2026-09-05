@@ -156,7 +156,22 @@ Verify the architecture actually works before writing code.
       corrected — reading `X-Auth-Subject` from it would have keyed the
       kill-switch index on a renameable value. Groups arrive as flat names,
       which is what ADR-0008 matches on*
-- [ ] nginx `auth_request` + `error_page 401 = @signin` (mind the `=`) → login redirect
+- [x] nginx `auth_request` + `error_page 401 = @signin` (mind the `=`) → login redirect
+      *Works end to end: anonymous request → Keycloak → back on the page that
+      was asked for. Two things underneath it were not what the configuration
+      claimed. The return address went into `?rd=$scheme://$host$request_uri`,
+      which nginx cannot percent-encode, so the client's own `&` started a new
+      parameter of `/oauth2/start`: `/index.html?a=1&b=2` came back as
+      `/index.html?a=1` — a 200 with half the query silently gone — and an
+      injected `rd` arrived as a second one (not exploitable; the first wins and
+      `whitelist_domains` sits behind it). Fixed by carrying the target in
+      `X-Auth-Request-Redirect` and proxying to `/oauth2/start`: the query comes
+      back whole and the browser makes one round trip fewer. And the `=` this
+      repository calls mandatory was **inert** with a `return` handler — it only
+      bites when the error is answered by a proxied response, which is exactly
+      what the fix made it. Both halves in `docs/07`, rule 1 in
+      `nginx/conf.d/README.md` rewritten, one row added to `docs/05`'s attack
+      table; the one-shot test is `verify-signin.sh` on the lab host*
 - [ ] **MEASURE:** double-hop latency with a three-line fake `/decide` (draft N-01/N-02).
       Wait for the real backend and you only see the number that justifies the
       architecture in Phase 3

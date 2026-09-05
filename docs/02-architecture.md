@@ -53,8 +53,9 @@ authorisation check. The chain is therefore built inside the backend:
         ┌── 401 (no session) ───────────────────────────────────┘
         │
 4.      backend returns 401
-5.      nginx: error_page 401 → 302 ──────► oauth2-proxy /oauth2/start
-6.      oauth2-proxy → 302 ───────────────► Keycloak /auth
+5.      nginx: error_page 401 → @signin ──► oauth2-proxy /oauth2/start
+             the return address travels as a header (docs/07)
+6.      nginx relays its 302 ─────────────► Keycloak /auth
 7.      Keycloak → LDAP bind ─────────────► Active Directory
              user is verified, memberOf is read
 8.      Keycloak → 302 + code ────────────► oauth2-proxy /oauth2/callback

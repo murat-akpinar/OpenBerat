@@ -276,6 +276,7 @@ without a test is visible as a gap rather than an omission.
 | An entitlement whose `expires_at` has passed still granting | `expires_at` is part of the decision, and the cached rule list carries it | Phase 2 test |
 | A portal user calling `/api/admin/*` | `ADMIN_GROUP` check on the handler's first line, **never cached** | Phase 2 test |
 | A compromised protected application posting to `/api/admin/*` | `Origin` check on state-changing admin endpoints — `SameSite` cannot help, the hosts are same-site (ADR-0015) | Phase 3 test |
+| Client's query string injected into `/oauth2/start` through the login redirect | The return address travels in `X-Auth-Request-Redirect`; nginx never builds a query string out of `$request_uri`, which it cannot percent-encode. `whitelist_domains` is the second line, not the first | Measured, `docs/07` |
 | A request in the gap after a kill switch refilling the cache with a fresh ALLOW | The four-step order is fixed: Keycloak → session keys → cache → index (ADR-0019) | Phase 5 test |
 | A kill switch erasing the audit trail of the user it kills | Dropped cache entries flush their counters to the audit channel before they go | Phase 3 test |
 | Calling `/decide` directly to enumerate the policy table | From the browser: `internal;`. From a container: the backend sits only on `core`, which no protected application joins (`docs/02`) | Phase 3 |
