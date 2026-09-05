@@ -56,13 +56,18 @@ Verify the architecture actually works before writing code.
       `Secure` session cookie do not work over plain HTTP, so nothing below can
       be tested without it. Which CA issues the *production* certificate stays
       an open question (`docs/06`)
-- [ ] `docker-compose.yml`: nginx + oauth2-proxy + redis + postgres + keycloak
+- [x] `docker-compose.yml`: nginx + oauth2-proxy + redis + postgres + keycloak
       + samba-ad + one sample application + one WebSocket sample.
       **Two networks** (`docs/02`, "Deployment"): the sample applications on
       `edge` with nginx alone; backend, oauth2-proxy, Keycloak, Postgres,
       Redis and samba-ad on `core`. Nothing publishes `ports` except nginx —
       a flat network would let a compromised upstream reach `backend:8081` and
       the Redis sessions directly.
+      *Landed as the skeleton (4291470): compose validates, both images build,
+      the nginx request log verified against a live container. Not yet a
+      running lab — `oauth2-proxy.cfg` and the realm export are empty (their
+      items below) and the `:443` server stays commented until the certificate
+      item above is done.*
 - [ ] **VERIFY (1):** does oauth2-proxy return `Set-Cookie` while performing
       `cookie_refresh` on `/oauth2/auth`? If the backend does not relay it the
       cookie is never refreshed and **ADR-0006 silently collapses** (`docs/07`)
