@@ -130,12 +130,21 @@ So:
   page with 50 assets does not trigger 50 parallel refreshes when the TTL expires.
 - Bounded LRU. One user cannot produce unbounded entries.
 - A `sub → keys` reverse index is kept; logout and the kill switch drop **only
-  that user's** entries. Clearing the whole cache is self-DoS.
+  that user's** entries. Clearing the whole cache is self-DoS. A dropped
+  entry's counters are flushed to the audit channel first — eviction, logout
+  and the kill switch flush for the same reason TTL expiry does (`docs/02`,
+  "Audit granularity").
 - The kill switch order is fixed: **Keycloak `logout-all` → the oauth2-proxy
   session keys from the `sub → session` index → this user's cache entries →
   the index entry.** In the reverse order a request arriving in the gap refills
   the cache with a fresh ALLOW. Finding the session at all needs that index —
   Redis is keyed by ticket, not by user ([ADR-0019](adr/0019-kill-switch-session-index.md)).
+- On a miss the `sub → session key` index entry (ADR-0019) is written **before**
+  the ALLOW is returned, and a failed write is a DENY `store_unavailable`: a
+  session the kill switch cannot find must not gain access. Redis dying
+  outright already fails closed at oauth2-proxy; this covers the narrower
+  failure where reads still work but writes do not (a full Redis under
+  `noeviction`).
 
 Caching the rule set rather than the verdict is also the safer design: every
 request is evaluated against the **full** rule list, so a deny can never be
@@ -151,8 +160,9 @@ allow: { count, first_seen, last_seen, distinct_path }
 deny:  { reason → { count, first_seen, last_seen } }
 ```
 
-When the entry expires, one summary row is written per outcome — an allow row,
-and one row per distinct deny reason (`docs/02`, "Audit granularity").
+When the entry leaves the cache — TTL, eviction, logout, kill switch — one
+summary row is written per outcome: an allow row, and one row per distinct deny
+reason (`docs/02`, "Audit granularity").
 
 Deprovisioning delay is therefore still **two numbers**: `cookie_refresh` plus
 this TTL (ADR-0006, ADR-0016). **Exception:** long-lived connections such as
@@ -187,6 +197,14 @@ X-Auth-Email       : mail
 X-Auth-Groups      : comma-separated group list
 X-Auth-Request-Id  : for correlating with the audit log
 ```
+
+The upstream set is rewritten by nginx from `/decide`'s **response headers** on
+a 200 (`auth_request_set` → `proxy_set_header`; the response contract in
+`docs/02` lists them) — `auth_request` passes no body, so headers are the only
+channel. `X-Auth-Request-Id` alone comes from nginx's own `$request_id`. Which
+claim oauth2-proxy actually puts in `X-Auth-Request-User` for Keycloak is a
+Phase 1 verification (`docs/07`): `X-Auth-Subject` and the ADR-0019 index need
+the immutable `sub`, and if no header carries it, this contract is revised.
 
 ### Header spoof protection — the classic hole in this architecture
 
@@ -253,6 +271,7 @@ without a test is visible as a gap rather than an omission.
 | A portal user calling `/api/admin/*` | `ADMIN_GROUP` check on the handler's first line, **never cached** | Phase 2 test |
 | A compromised protected application posting to `/api/admin/*` | `Origin` check on state-changing admin endpoints — `SameSite` cannot help, the hosts are same-site (ADR-0015) | Phase 3 test |
 | A request in the gap after a kill switch refilling the cache with a fresh ALLOW | The four-step order is fixed: Keycloak → session keys → cache → index (ADR-0019) | Phase 5 test |
+| A kill switch erasing the audit trail of the user it kills | Dropped cache entries flush their counters to the audit channel before they go | Phase 3 test |
 | Calling `/decide` directly to enumerate the policy table | From the browser: `internal;`. From a container: the backend sits only on `core`, which no protected application joins (`docs/02`) | Phase 3 |
 | Reaching an upstream while bypassing nginx entirely | v1: two networks — upstreams on `edge` with nginx only, never on `core` (`docs/02`); no published `ports`. **Not fully closed** — the signed identity JWT is the answer that survives an audit | Open question, `docs/06` |
 | A deleted AD group recreated with the same name inheriting its entitlements | **Not closed.** Accepted debt, mitigated by the `OpenBerat-` prefix and change control (ADR-0008) | — |

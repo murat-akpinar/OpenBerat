@@ -48,6 +48,10 @@ a single bad record in the admin UI into an internal-network redirect hole.
   are validated; loopback and link-local addresses (`127.0.0.0/8`,
   `169.254.0.0/16`) and infrastructure services (Postgres, Redis, Keycloak
   admin) are rejected.
+- `external_hostname` is validated the same way: it must not collide with the
+  reserved hosts — `portal` (ADR-0015) and `auth` (the Keycloak host,
+  `docs/02` "Deployment") — or a generated application block would shadow the
+  portal or the login flow.
 - DNS records and the wildcard certificate are **still the operator's job**. An
   admin can add an application but cannot create name resolution. This goes in
   the installation documentation.

@@ -147,7 +147,9 @@ two numbers.
    ([ADR-0019](adr/0019-kill-switch-session-index.md)).
 5. **The kill switch drops only that user's decision-cache entries**, through
    the `sub → keys` reverse index. Clearing the whole cache is self-DoS
-   (`docs/05`).
+   (`docs/05`). The full order is four steps and fixed — Keycloak → session
+   keys → cache entries → index entry (ADR-0019) — and dropped entries flush
+   their audit counters first (`docs/02`).
 
 ### The test that measures the delay (acceptance criterion)
 

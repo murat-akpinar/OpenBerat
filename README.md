@@ -96,7 +96,7 @@ The full sequence, the failure modes and the decision cache are in
 | nginx | 443 (80 redirects to it) | **Yes — the only one** |
 | backend | 8081 | No |
 | oauth2-proxy | 4180 | No |
-| Keycloak | 8080 | No — reached through nginx |
+| Keycloak | 8080 | No — reached through nginx at `auth.apps.<domain>` |
 | Postgres | 5432 | No |
 | Redis | 6379 | No |
 | Active Directory | 636 (LDAPS) | External, outbound only |

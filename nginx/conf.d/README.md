@@ -22,7 +22,10 @@ authorisation decision. Reference pattern and verified details:
    `X-Auth-Request-Groups`, so a client sending that header straight to
    `/api/admin/*` must lose it before the backend sees it. Keep it in a shared
    `include` file and pull it in everywhere — forget it in one place and the
-   entire system's security claim falls.
+   entire system's security claim falls. The rewrite source is `/decide`'s
+   response: on a 200 it returns `X-Auth-Subject/-Username/-Email/-Groups`,
+   lifted with `auth_request_set` and written upstream with `proxy_set_header`
+   (`docs/02`, response contract).
 4. **`proxy_pass_request_body off`** + `Content-Length ""` — no body goes to the subrequest.
 5. **`/decide` must not be reachable from outside** (`internal;`).
 6. **Pass the original request's details to `/decide`.** In the subrequest the URI
@@ -41,7 +44,9 @@ authorisation decision. Reference pattern and verified details:
    order to authenticate. Keycloak is the easy one to forget, because it looks
    like infrastructure rather than a page the browser visits. Proxy only
    `/realms/*` and `/resources/*` on the Keycloak host — never `/admin` (the
-   Keycloak admin console) or `/metrics`.
+   Keycloak admin console) or `/metrics`. The Keycloak host defaults to
+   `auth.apps.<domain>` — covered by the wildcard certificate, and the session
+   cookie is stripped before proxying to it exactly as in item 13.
 9. **Timeout budget.** For `/decide`: `proxy_connect_timeout 1s; proxy_read_timeout 2s;`
    The default is 60 seconds; if the backend slows down, workers fill up and
    everything stops. `error_page 500 502 503 504 = @unavailable` → a local static

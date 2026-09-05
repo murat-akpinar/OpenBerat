@@ -56,6 +56,11 @@ target is revised rather than quietly missed.
   request arriving in the gap refill what was just cleared.
 - Only that user's cache entries are dropped, never the whole cache — clearing
   it for everybody is self-DoS (`docs/05`).
+- The index entry is written **before** the ALLOW that depends on it, and a
+  failed write is a DENY: a session the kill switch cannot find must not gain
+  access (fail-closed). The narrow case this closes is a Redis that still
+  serves reads but refuses writes — full under `noeviction` — where sessions
+  would otherwise keep working while silently becoming unkillable.
 - The index is bounded and expires with the session; a `sub` that never signs in
   again leaves nothing behind. It carries session keys, not tokens or groups: it
   is a revocation aid, not a second session store.

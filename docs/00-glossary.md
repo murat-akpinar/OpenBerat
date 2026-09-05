@@ -29,7 +29,7 @@ comes from the portal.
 | **SP / RP** (Service Provider / Relying Party) | The application that trusts the identity. Called SP in SAML, RP in OIDC. |
 | **OIDC** | Identity protocol built on top of OAuth2. The modern default. Returns an `id_token` (JWT). |
 | **SAML 2.0** | Older XML-based SSO protocol, still widespread in the enterprise. Needed for legacy applications. |
-| **JWT / JWKS** | Token format / the public key set the IdP publishes so signatures can be verified. The proxy validates the token against JWKS on every request. |
+| **JWT / JWKS** | Token format / the public key set the IdP publishes so token signatures can be verified without asking it. (Here the per-request check is oauth2-proxy's session lookup, not a JWKS validation — the token is verified once, at login.) |
 | **memberOf** | The AD attribute holding the groups a user belongs to. In this project it is the source of authorisation: `memberOf` → group → application. |
 | **LDAP User Federation** | How Keycloak connects to AD. Users stay in AD, Keycloak reads them. It does not copy them into Keycloak (in READ_ONLY mode). |
 | **Kerberos / SPNEGO** | SSO on a domain-joined machine without ever prompting for a password. Keycloak supports it; optional. |

@@ -125,7 +125,16 @@ Phase 1 lab:
       not been read out of its source or documentation.
       **[ADR-0019](adr/0019-kill-switch-session-index.md) rests on this claim**,
       and through it the 5 s kill-switch target in ADR-0016. If it is false the
-      fallback is option C of that ADR and N-03 is revised.
+      fallback is option C of that ADR and N-03 is revised. And does the key
+      survive `cookie_refresh`, or does a refresh mint a new ticket? A rotated
+      key is caught by the next cache miss (new cookie → new hash → miss →
+      index add), but the kill-switch test must be run **after** at least one
+      refresh to prove the index still finds the live session.
+- [ ] Which claim does oauth2-proxy put in `X-Auth-Request-User` for a Keycloak
+      OIDC provider — `sub`, `preferred_username`, the email? `docs/05` assumes
+      sAMAccountName, while `X-Auth-Subject` and the ADR-0019 index need the
+      immutable `sub`; if no header carries the `sub`, the `docs/05` header
+      contract is revised.
 - [ ] Does the vendored Alpine.js run under a `default-src 'self'` CSP
       **without** `unsafe-eval`? The standard build evaluates expressions with
       `new Function()`; the CSP build restricts the expression syntax.

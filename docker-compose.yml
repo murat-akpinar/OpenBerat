@@ -1,5 +1,6 @@
 # The whole stack: nginx + oauth2-proxy + redis + backend + postgres + keycloak
-#                  + samba-ad (lab, ADR-0010) + a sample application (lab)
+#                  + samba-ad (lab, ADR-0010) + sample applications (lab: one
+#                  plain + one WebSocket — TODO.md Phase 1)
 # Startup order and verification steps: TODO.md "Phase 1 — Lab"
 #
 # Two networks (docs/02 "Deployment"); nginx is the only member of both:

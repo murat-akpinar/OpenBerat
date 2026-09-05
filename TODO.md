@@ -59,10 +59,10 @@ Verify the architecture actually works before writing code.
 - [ ] `docker-compose.yml`: nginx + oauth2-proxy + redis + postgres + keycloak
       + samba-ad + one sample application + one WebSocket sample.
       **Two networks** (`docs/02`, "Deployment"): the sample applications on
-      `edge` with nginx alone; backend, oauth2-proxy, Keycloak, Postgres and
-      Redis on `core`. Nothing publishes `ports` except nginx — a flat network
-      would let a compromised upstream reach `backend:8081` and the Redis
-      sessions directly.
+      `edge` with nginx alone; backend, oauth2-proxy, Keycloak, Postgres,
+      Redis and samba-ad on `core`. Nothing publishes `ports` except nginx —
+      a flat network would let a compromised upstream reach `backend:8081` and
+      the Redis sessions directly.
 - [ ] **VERIFY (1):** does oauth2-proxy return `Set-Cookie` while performing
       `cookie_refresh` on `/oauth2/auth`? If the backend does not relay it the
       cookie is never refreshed and **ADR-0006 silently collapses** (`docs/07`)
@@ -73,7 +73,10 @@ Verify the architecture actually works before writing code.
       subrequest inherit the main request's headers (`X-Original-URI` spoofing)?
 - [ ] **VERIFY (4):** can the oauth2-proxy Redis session key be derived from the
       session cookie? Log in, read the cookie, list the Redis keys, and delete the
-      matching one — access must stop immediately. **ADR-0019 and with it the 5 s
+      matching one — access must stop immediately. Repeat after a
+      `cookie_refresh` has fired: if the refresh mints a new ticket, the index
+      must still find the live session (the new key arrives via the next cache
+      miss). **ADR-0019 and with it the 5 s
       kill-switch target rest on this**; if it fails, ADR-0019 falls back to
       option C and ADR-0016 is revised in the same commit
 - [ ] Keycloak LDAP federation → can an AD user log in
@@ -83,6 +86,10 @@ Verify the architecture actually works before writing code.
       If not, switch to `LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY`
 - [ ] User in many groups → is the cookie size problem gone with the Redis session
 - [ ] oauth2-proxy: `set_xauthrequest=true`, `cookie_refresh=5m`, `session_store_type=redis`
+- [ ] **VERIFY:** which claim oauth2-proxy puts in `X-Auth-Request-User` with
+      Keycloak (`sub`? `preferred_username`?) — `X-Auth-Subject` and the
+      ADR-0019 index are keyed by the immutable `sub`; if no header carries it,
+      the `docs/05` header contract is revised (`docs/07`)
 - [ ] nginx `auth_request` + `error_page 401 = @signin` (mind the `=`) → login redirect
 - [ ] **MEASURE:** double-hop latency with a three-line fake `/decide` (draft N-01/N-02).
       Wait for the real backend and you only see the number that justifies the
@@ -154,8 +161,16 @@ has a first draft, and there is still not one line of code.
       refresh, bounded LRU, `sub → keys` reverse index (`docs/05`)
 - [ ] On a cache miss the backend already holds the raw cookie: it records
       `sub → oauth2-proxy session key` in Redis for the kill switch (ADR-0019).
-      This is the backend's only Redis use; it stores keys, not tokens
+      This is the backend's only Redis use; it stores keys, not tokens. The
+      write lands **before** the ALLOW is returned; a failed write is a DENY
+      `store_unavailable` — a session the kill switch cannot find must not gain
+      access
+- [ ] **Test:** index write failure → DENY (Redis accepting reads but refusing
+      writes)
 - [ ] **Test:** cache TTL, key isolation, single-flight (50 concurrent requests → 1 refresh)
+- [ ] **Test:** an entry leaving the cache by any road — TTL, LRU eviction,
+      logout, kill switch — flushes its counters to the audit channel first
+      (`docs/02`, "Audit granularity")
 - [ ] `backend/Dockerfile`: multi-stage build
 - [ ] `nginx/conf.d/00-auth.conf`: `auth_request`, `error_page 401 = @signin`,
       `error_page 403 = @denied` → **302** to the portal host,
@@ -199,7 +214,8 @@ to here is a usable system — and the proof of usability is the break-glass.
 So the portal's data does not have to be filled in by hand with SQL.
 
 - [ ] Application CRUD + `upstream_url` validation (scheme/host/port; loopback,
-      link-local and infrastructure services rejected)
+      link-local and infrastructure services rejected); `external_hostname`
+      must not collide with the reserved `portal` / `auth` hosts (ADR-0011)
 - [ ] AD group ↔ application mapping (allow/deny)
 - [ ] **nginx config generation** (ADR-0011): generate from the template →
       `nginx -t` → reload. If validation fails, the current config stays in effect
@@ -207,6 +223,8 @@ So the portal's data does not have to be filled in by hand with SQL.
 - [ ] `nginx/conf.d/10-portal.conf`: the portal host — frontend static files,
       `/api/*` → backend
 - [ ] `GET /api/me`, `GET /api/apps`
+- [ ] Admin mutations and kill switch invocations recorded to the structured
+      log — actor, action, target, outcome (F-14, `docs/02` "Management plane")
 
 ## Phase 5 — Portal + audit + kill switch
 
@@ -225,7 +243,9 @@ So the portal's data does not have to be filled in by hand with SQL.
       `logout-all` → the session keys from the `sub → session` index → that user's
       decision-cache entries → the index entry. Only that user's entries are
       dropped; flushing the whole cache is self-DoS
-- [ ] **Test:** access is cut after a kill switch **and the cache does not refill**
+- [ ] **Test:** access is cut after a kill switch **and the cache does not
+      refill**; the dropped entries' counters land in the audit channel, not
+      the void
 - [ ] **MEASURE:** kill switch end to end — is it under the 5 s of N-03?
       A user still signed in elsewhere is not cut: their entry never existed in
       the index if they never hit `/decide` on this instance

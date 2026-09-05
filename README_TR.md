@@ -95,7 +95,7 @@ Tam akış, arıza modları ve karar cache'i:
 | nginx | 443 (80 buraya yönlendirir) | **Evet — tek açık port** |
 | backend | 8081 | Hayır |
 | oauth2-proxy | 4180 | Hayır |
-| Keycloak | 8080 | Hayır — nginx üzerinden erişilir |
+| Keycloak | 8080 | Hayır — nginx üzerinden `auth.apps.<domain>` adresiyle erişilir |
 | Postgres | 5432 | Hayır |
 | Redis | 6379 | Hayır |
 | Active Directory | 636 (LDAPS) | Dışarıda, yalnızca giden bağlantı |

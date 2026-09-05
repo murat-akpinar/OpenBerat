@@ -22,6 +22,7 @@
 | F-11 | Path-based authorisation: a single path of an application (`/admin/*`) can be bound to its own rule. |
 | F-12 | Management endpoints (`/api/admin/*`) are bound to a separate AD group (`ADMIN_GROUP`); portal access does not grant admin rights. |
 | F-13 | An application defined by an admin becomes genuinely reachable through generated nginx configuration (ADR-0011). |
+| F-14 | State-changing admin actions and kill switch invocations are recorded: actor, action, target, outcome — the structured log stream in v1 (`docs/02`, "Management plane"). |
 
 ### v2 — later
 

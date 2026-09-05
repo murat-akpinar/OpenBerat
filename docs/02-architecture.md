@@ -100,8 +100,12 @@ The rule: **count decisions, summarise rows.**
 
 - The cache entry keeps counters per outcome: `count`, `first_seen`, `last_seen`
   and `distinct_path` for allows, and the same per reason for denies (`docs/05`).
-- When the entry expires on TTL, **one summary row per outcome** is written: one
-  allow row, and one row per distinct deny reason.
+- When the entry leaves the cache — TTL expiry, LRU eviction, logout or the
+  kill switch — **one summary row per outcome** is written: one allow row, and
+  one row per distinct deny reason. Every exit road flushes for the reason
+  shutdown does: dropping an entry without writing its counters silently
+  deletes audit, and the kill-switch road would lose exactly the user under
+  incident response.
 - Writing happens **off the decision path**: it is handed to a bounded channel.
   If the channel is full the request is not blocked; a loss counter increments
   and the event is logged through `tracing`.
@@ -189,6 +193,7 @@ If any of them is missing the decision cannot be made → **DENY**
 |---|---|
 | 200 / 401 / 403 | The only valid codes. **`/decide` never returns 5xx** — if the DB is unreachable, 403 `store_unavailable` |
 | `Set-Cookie` | If it came from oauth2-proxy it is **relayed verbatim**; nginx passes it to the browser with `auth_request_set` + `add_header ... always`. Without this, `cookie_refresh` silently stops working (ADR-0006 collapses) |
+| `X-Auth-Subject` / `-Username` / `-Email` / `-Groups` | **On 200 only:** the verified identity. `auth_request` passes no response body, so these headers are the only channel nginx can lift the identity from (`auth_request_set`) to rewrite the upstream `X-Auth-*` headers (`docs/05`, "Header contract") — without them the strip-and-rewrite include would rewrite from nothing |
 | `X-Deny-Reason` | The reason on DENY; written to the nginx access log, never shown to the user |
 
 ### Anonymous endpoints
@@ -236,6 +241,14 @@ who could reach the portal could grant themselves entitlements.
 - This is the source of the `admin` field returned by `GET /api/me`; hiding
   things in the frontend is only a convenience (ADR-0007).
 
+Every state-changing admin call and every kill switch invocation is recorded —
+actor, action, target, outcome — in the structured stdout stream, the same
+stream that carries the per-request records (F-14). Not in `audit_event`: that
+table's rows are decision summaries and its format is immutable, so admin
+actions would either distort it or freeze a second schema today. A dedicated
+table can arrive later without breaking anything — a new table is not a format
+change.
+
 **Bootstrap:** `ADMIN_GROUP` is supplied through the environment at install
 time. In a fail-closed system the first admin cannot come from the DB — nobody
 can grant entitlements before anybody can log in.
@@ -262,9 +275,9 @@ connection. The candidates, none of them free:
 | `worker_shutdown_timeout` + a periodic reload | Old workers are killed after the timeout, so every connection is bounded | Reload side effects, worker churn; a blunt instrument |
 | Re-authorisation inside the upstream application | Correct and precise | Not something a proxy can impose; the upstream has to cooperate |
 
-**Decision: v1 sets `proxy_read_timeout` to the N-03 target and states the
-limitation rather than hiding it** — an idle connection is cut, a busy one is
-not. Revocation on active WebSocket/SSE connections is **explicitly outside the
+**Decision: v1 sets `proxy_read_timeout` below the N-03 target (300 s,
+ADR-0016) and states the limitation rather than hiding it** — an idle
+connection is cut, a busy one is not. Revocation on active WebSocket/SSE connections is **explicitly outside the
 N-03 guarantee** (ADR-0016), and the Phase 1 measurement exists to show exactly
 how large the gap is. If it turns out to matter, the `worker_shutdown_timeout`
 route is the next step.
@@ -364,6 +377,10 @@ Cache before session would let a request in the gap refill the cache from the
 still-live session; skipping the call entirely leaves a replayed cookie working
 for up to one cache TTL after "logout". The browser then walks steps 1–2, which
 clear the cookie and the IdP session.
+
+`POST /api/logout` is state-changing, so it carries the same `Origin` check as
+the admin endpoints: the hosts behind the proxy are same-site (ADR-0015), and a
+compromised application logging users out at will is a denial of service.
 
 ## Availability: the price of fail-closed
 

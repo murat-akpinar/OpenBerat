@@ -4,6 +4,11 @@
 //                     X-Real-IP, X-Request-Id, Cookie. Anything missing is a DENY.
 //                     The Set-Cookie from oauth2-proxy is relayed verbatim;
 //                     without it cookie_refresh silently stops (ADR-0006).
+//                     On 200 the verified identity is returned as X-Auth-Subject/
+//                     -Username/-Email/-Groups response headers — auth_request
+//                     passes no body, so response headers are the only channel
+//                     nginx can lift the identity from to rewrite the upstream
+//                     headers (docs/02, response contract).
 //   GET /api/apps     the applications the portal lists (called by the frontend)
 //   GET /api/me       the signed-in user: name, email, groups, admin flag
 //   POST /api/logout  the caller's own kill switch, run BEFORE the sign-out
