@@ -103,7 +103,10 @@ Verify the architecture actually works before writing code.
 
 - [ ] Keycloak realm is **imported from `keycloak/realm/`** at first boot, not
       clicked together by hand — otherwise `docker compose up` does not produce a
-      working realm and the lab is not reproducible (`keycloak/README.md`)
+      working realm and the lab is not reproducible (`keycloak/README.md`).
+      The committed export carries **no real secrets** (scrubbed client secret,
+      no LDAP bind password); how the real secret is injected at import — env
+      substitution or a post-import step — is settled here (`docs/07`)
 - [ ] Start `INSTALL.md` **while doing all of the above**, not in Phase 6. Phase 1
       is an installation: DNS, the wildcard certificate, the realm import, the
       LDAP bind account, `ADMIN_GROUP` and the first login all happen here.

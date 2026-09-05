@@ -216,7 +216,14 @@ sit behind the login flow.
 - **The portal host (`portal.apps.<domain>`, ADR-0015) is open to every
   authenticated user.** Not through policy, but through a separate `location` in
   `00-auth.conf`. Otherwise an unauthorised user is redirected to `/denied`,
-  that page is itself DENYed, and the redirect loops forever.
+  that page is itself DENYed, and the redirect loops forever. The portal's
+  `auth_request` therefore targets `/oauth2/auth` **directly**, not `/decide` —
+  authentication without a policy decision — and the identity headers for
+  `/api/*` are lifted from that subrequest's response exactly as `/decide`'s
+  are on application hosts. Known consequence: a user who only ever visits the
+  portal never hits `/decide`, so they never enter the ADR-0019 kill-switch
+  index — their revocation path is Keycloak `logout-all` plus `cookie_refresh`
+  (TODO Phase 5 measures this).
 
 The portal being open does **not** open the admin endpoints: `/api/admin/*`
 separately requires `ADMIN_GROUP` membership and is not cached (see "Management

@@ -135,6 +135,10 @@ Phase 1 lab:
       sAMAccountName, while `X-Auth-Subject` and the ADR-0019 index need the
       immutable `sub`; if no header carries the `sub`, the `docs/05` header
       contract is revised.
+- [ ] Can a committed Keycloak realm export reference environment variables for
+      the OIDC client secret at import, or does the secret need a post-import
+      step? The repository is public, so the export is committed scrubbed
+      (`keycloak/README.md`) and the real value has to arrive some other way.
 - [ ] Does the vendored Alpine.js run under a `default-src 'self'` CSP
       **without** `unsafe-eval`? The standard build evaluates expressions with
       `new Function()`; the CSP build restricts the expression syntax.
