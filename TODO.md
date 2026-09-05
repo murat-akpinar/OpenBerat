@@ -41,10 +41,11 @@ Carried alongside the work, not blocking it:
 
 - [x] Repository published; `CONTRIBUTING.md`, `SECURITY.md` and the DCO +
       `fmt`/`clippy`/`test` CI (`.github/workflows/ci.yml`) are in place — ADR-0018
-- [ ] Publish `SECURITY.md` (drafted in `.rules/`, not in the repository yet)
-      before the project takes outside traffic — GitHub renders it in the Security
-      tab and wires "Report a vulnerability" to it. Its scope section says "no
-      released version yet" and is rewritten when v1 ships
+- [x] Publish `SECURITY.md` — now at the repository root, so GitHub renders it
+      in the Security tab and wires "Report a vulnerability" to it. Linked from
+      both READMEs and `CONTRIBUTING.md`, which no longer repeats the policy.
+      Its scope section says "no released version yet"; rewriting it is part of
+      the Phase 6 versioning item
 
 ## Phase 1 — Lab and measurement
 
@@ -374,7 +375,9 @@ So the portal's data does not have to be filled in by hand with SQL.
 - [ ] Backup/restore procedure, migration rollback
 - [ ] Audit retention job (N-04) and partition maintenance
 - [ ] Monitoring: decision latency, error rate, cache hit rate, audit loss counter
-- [ ] Versioning, release image, offline bundle for air-gapped installation
+- [ ] Versioning, release image, offline bundle for air-gapped installation.
+      Rewrite the `SECURITY.md` scope section — it says there is no released
+      version yet, which stops being true here
 - [ ] SPDX identifier in `Cargo.toml`, licence headers, Alpine.js MIT notice preserved (ADR-0013)
 - [ ] Finish `INSTALL.md` (drafted in Phase 1): DNS, wildcard certificate,
       `ADMIN_GROUP`, first login, and the prerequisites an operator cannot skip —

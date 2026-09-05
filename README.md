@@ -143,6 +143,7 @@ identity is Keycloak — all three are off the shelf and configured, not written
 | [docs/06-requirements.md](docs/06-requirements.md) | Requirements and **open questions** |
 | [docs/07-references.md](docs/07-references.md) | **Sources** — the basis for the technical claims, verified defaults |
 | [docs/adr/](docs/adr/) | **Decisions taken** — 20 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets |
+| [SECURITY.md](SECURITY.md) | Reporting a vulnerability — channels, response times, scope, accepted limitations |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — DCO sign-off, conventions, what gets rejected |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |
 | [TODO.md](TODO.md) | Roadmap |

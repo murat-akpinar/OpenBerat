@@ -30,9 +30,9 @@ that is the part that ends up in `CHANGELOG.md`.
 
 ## Found a vulnerability?
 
-Do not open a public issue — email **akpinarmurat@protonmail.com**. There is no
-released version yet, so the useful report at this stage is a flaw in the design
-itself.
+Do not open a public issue. [SECURITY.md](SECURITY.md) has the reporting
+channels, the response times and what is in scope — there is no released version
+yet, so the useful report at this stage is a flaw in the design itself.
 
 ## Licence
 

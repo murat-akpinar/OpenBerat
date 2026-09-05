@@ -142,6 +142,7 @@ kimlik Keycloak'ta — üçü de hazır, yapılandırma işi.
 | [docs/06-requirements.md](docs/06-requirements.md) | Gereksinimler ve **açık sorular** |
 | [docs/07-references.md](docs/07-references.md) | **Kaynaklar** — teknik iddiaların dayanağı, doğrulanmış varsayılanlar |
 | [docs/adr/](docs/adr/) | **Alınan kararlar** — 20 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri |
+| [SECURITY.md](SECURITY.md) | Güvenlik açığı bildirimi — kanallar, cevap süreleri, kapsam, kabul edilmiş sınırlar |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Nasıl katkı verilir — DCO imzası, konvansiyonlar, neler reddedilir |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |
 | [TODO.md](TODO.md) | Yol haritası |
