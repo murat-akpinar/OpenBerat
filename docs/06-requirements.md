@@ -110,7 +110,10 @@ network and policy. Phase 1 exists partly to establish them.
 - [ ] Is there more than one AD domain / forest?
 - [ ] Audit log retention period (N-04) — KVKK and internal policy.
 - [ ] Target concurrent user count (N-07), and how many applications, users and
-      AD groups. Without N-07 the Phase 6 load test has no target.
+      AD groups. Without N-07 the Phase 6 load test has no target. **How many
+      groups a single user is in is now a sizing input, not only a load-test
+      one:** the whole list travels in one header on every decision, and the
+      nginx buffer that reads it is set from this number (`docs/07`).
 
 ### 🔴 Security, still open
 

@@ -56,7 +56,7 @@ authorisation decision. Reference pattern and verified details:
    `/realms/*` and `/resources/*` on the Keycloak host — never `/admin` (the
    Keycloak admin console) or `/metrics`. The Keycloak host defaults to
    `auth.apps.<domain>` — covered by the wildcard certificate, and the session
-   cookie is stripped before proxying to it exactly as in item 13.
+   cookie is stripped before proxying to it exactly as in item 16.
 9. **Timeout budget.** For `/decide`: `proxy_connect_timeout 1s; proxy_read_timeout 2s;`
    The default is 60 seconds; if the backend slows down, workers fill up and
    everything stops. `error_page 500 502 503 504 = @unavailable` → a local static
@@ -86,7 +86,18 @@ authorisation decision. Reference pattern and verified details:
    (measured, `docs/07`). Use `proxy_pass`, or `try_files` with `=404` (item
    12), so the answer comes from the content phase. This is the one to watch in
    ADR-0011's generated blocks and in any hand-written maintenance page.
-15. **Strip the session cookie before proxying upstream.** The `_oauth2_proxy`
+15. **Raise `proxy_buffer_size` on every location whose *response* carries the
+   group list.** oauth2-proxy returns every group of the user comma-joined in
+   one `X-Auth-Request-Groups`, and `/decide` returns the same list as
+   `X-Auth-Groups`. nginx reads a response header block into a **single**
+   buffer of `proxy_buffer_size` — one page, 4 KB — and answers 502 above it,
+   which `auth_request` turns into a **500 for the client**: a total lockout of
+   the users with the most AD groups, arriving without a single warning from
+   `nginx -t`. Measured: it breaks between 100 and 200 groups (`docs/07`).
+   `proxy_buffer_size 32k;` **plus `proxy_buffers 4 32k;`** — raising the first
+   alone makes nginx refuse to start, because `proxy_busy_buffers_size`
+   defaults to twice it and must stay under the pool minus one buffer.
+16. **Strip the session cookie before proxying upstream.** The `_oauth2_proxy`
    cookie is removed from the `Cookie` header (a `map` rewriting `$http_cookie`
    in the shared include); the application's own cookies pass through. An
    upstream that receives the session cookie is holding — and probably

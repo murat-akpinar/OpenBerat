@@ -129,7 +129,20 @@ Verify the architecture actually works before writing code.
 - [ ] Group mapper `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` → `groups` claim in the token
 - [ ] **Nested group test:** does a user in a parent group see the child group?
       If not, switch to `LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY`
-- [ ] User in many groups → is the cookie size problem gone with the Redis session
+- [x] User in many groups → is the cookie size problem gone with the Redis session
+      *Yes — and it took the ceiling with it to a place nothing warns about.
+      Ramped labuser to 800 generated groups: the session cookie stays **192
+      bytes** at every step, one cookie, never chunked; the Redis value carries
+      the growth (3.3 KB → 66 KB). But every group name comes back comma-joined
+      in one `X-Auth-Request-Groups`, and nginx reads a response header block
+      into a **single** `proxy_buffer_size` buffer (4 KB): between 100 and 200
+      groups `/oauth2/auth` turned 502 and `auth_request` mapped it to **500 for
+      the client** — a total lockout of the accounts with the most AD groups,
+      clean `nginx -t`, no warning anywhere. Fixed with `proxy_buffer_size 32k`
+      + `proxy_buffers 4 32k` on the subrequest location (raising the first
+      alone makes nginx refuse to start); re-measured green through 800 groups.
+      Both halves and the numbers in `docs/07`, rule 15 in
+      `nginx/conf.d/README.md`*
 - [x] oauth2-proxy: `set_xauthrequest=true`, `cookie_refresh=5m`, `session_store_type=redis`
       *All three set in `oauth2-proxy/oauth2-proxy.cfg` and confirmed in the
       running proxy's own startup line. PKCE (`S256`) turned on at the same
@@ -249,7 +262,13 @@ has a first draft, and there is still not one line of code.
       `X-Original-Method`, `X-Real-IP`, `X-Request-Id` — written unconditionally,
       **and the `X-Auth-*` family cleared** (`proxy_set_header … "";`). The
       subrequest inherits client headers verbatim (VERIFY (3)); the upstream
-      strip include does not run on this path
+      strip include does not run on this path.
+      Also `proxy_buffer_size 32k` + `proxy_buffers 4 32k`: `/decide` returns the
+      user's whole group list in one header, and the 4 KB default turns a
+      many-group user into a 500 (measured, `docs/07`)
+- [ ] **Check the backend's own HTTP client header limit** the same way — it
+      reads oauth2-proxy's response, which carries that same group list. The
+      nginx half is measured; this half is not
 - [ ] `nginx/conf.d/20-apps.conf`: protected applications, **strip** incoming
       `X-Auth-*` headers
 - [ ] `proxy_read_timeout 300s` on protected locations — cuts idle long-lived

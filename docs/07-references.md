@@ -76,7 +76,9 @@ What this teaches:
   example handles this with `if` blocks and `$upstream_cookie_*`.
 - The official recommendation: **use the Redis session store if large
   sessions/OIDC tokens are expected.** → AD users in many groups land exactly in
-  that case here.
+  that case here. **Measured below:** with the Redis store the cookie does not
+  grow at all — but the 4 KB limit does not disappear, it moves to the response
+  header block.
 
 ## Keycloak — LDAP group mapper
 
@@ -266,6 +268,74 @@ the rotated cookie was live, and deleting it stopped access exactly as above.
 Consequence: the kill switch deletes the session directly instead of degrading to
 `cookie_refresh` latency (5 min). Option C is not needed and ADR-0016's 5 s
 target stands. The one-shot test is `verify4.sh` on the lab host.
+
+### A user in many groups — the cookie stays small, the header does not
+
+**The cookie size problem is gone.** With `session_store_type = redis` the
+session cookie is a fixed-length ticket: **192 bytes at 1 group and at 800**,
+one cookie, never chunked. What grows is the Redis value and the identity
+headers oauth2-proxy returns on `/oauth2/auth`. Ramped on labuser with
+generated `OpenBerat-Load-NNNN` groups (18 characters each), a fresh login and
+an empty Redis at every step:
+
+| groups | session cookie | Redis session | `/oauth2/auth` | groups header | whole header block | `GET /` |
+|---|---|---|---|---|---|---|
+| 1 | 192 B | 3.3 KB | 202 | 42 B | 308 B | 200 |
+| 100 | 192 B | 11 KB | 202 | 2022 B | 2288 B | 200 |
+| 200 | 192 B | 19 KB | **502** | — | (4288 B) | **500** |
+| 400 | 192 B | 35 KB | **502** | — | (8288 B) | **500** |
+
+**The 4 KB limit did not disappear, it moved** — off the cookie, where
+oauth2-proxy would have chunked it, and onto nginx reading oauth2-proxy's
+*response header block*, where nothing chunks anything:
+
+```
+upstream sent too big header while reading response header from upstream,
+request: "GET / HTTP/2.0", subrequest: "/oauth2/auth"
+auth request unexpected status: 502
+```
+
+nginx reads a response header block into a **single** buffer of
+`proxy_buffer_size` (one page, 4 KB here) and `auth_request` maps the resulting
+502 onto **500 for the client**. That is a total lockout of exactly the accounts
+an enterprise has most of — users in many AD groups — and it is not even a deny:
+fail-closed, but indistinguishable from the backend being down. It appeared
+between 100 and 200 groups, i.e. when the header block crossed 4096 bytes
+(~185 groups at this name length), and nothing in `nginx -t` or in any startup
+log says the configuration is one group list away from it.
+
+Fixed in `10-portal.conf` with `proxy_buffer_size 32k` on the subrequest
+location. **Raising that alone makes nginx refuse to start:**
+`proxy_busy_buffers_size` defaults to twice `proxy_buffer_size` and must stay
+below the `proxy_buffers` pool minus one buffer (`8 4k` by default), so
+`proxy_buffers 4 32k` goes with it — and is never used, because a subrequest
+response has no body. Re-measured after the fix, same ramp:
+
+| groups | `/oauth2/auth` | groups header | header block | `GET /` | what `auth_request_set` captured |
+|---|---|---|---|---|---|
+| 100 | 202 | 2022 B | 2288 B | 200 | 1998 B |
+| 200 | 202 | 4022 B | 4288 B | 200 | 3998 B |
+| 400 | 202 | 8022 B | 8288 B | 200 | 7998 B |
+| 800 | 202 | 16022 B | 16288 B | 200 | 15998 B |
+
+Three more observations from the same run:
+
+- **Groups arrive comma-joined in one header**, not one header per group — the
+  count stayed 1 at every step. So
+  `auth_request_set $g $upstream_http_x_auth_request_groups` carries the whole
+  list byte for byte (1998 B of a 1998 B value at 100 groups) and does not
+  silently keep only the first group.
+- **The token grows with them:** at 800 groups Keycloak's token response was
+  50 KB through nginx. That path is a response *body* and streams fine — the
+  header buffer is the only place the size turns into an error.
+- The same ceiling waits on two paths that do not exist yet: nginx reading
+  **`/decide`**'s response, which carries the same joined list back as
+  `X-Auth-Groups`, and the backend's own HTTP client reading oauth2-proxy's
+  response — whose default header limit has not been checked and is a Phase 3
+  item.
+
+The one-shot test is `verify-groups.sh` on the lab host; it ends by recreating
+keycloak and nginx to get the committed realm and configuration back.
 
 ### Keycloak realm import
 
