@@ -228,14 +228,44 @@ separately in `X-Auth-Request-Preferred-Username`. This is the good outcome:
 it is there without a custom mapper. Groups arrive as flat names (`full.path`
 off), which is what ADR-0008 matches on.
 
-### The Redis session key survives a refresh
+### VERIFY (4) — the Redis key is derivable from the cookie, and deleting it stops access
 
-Across a `cookie_refresh` the cookie value **rotates** while the Redis key stays
-byte-identical (`_oauth2_proxy-d8f9514ab7f2dec2ee20adbcd026765c` before and
-after). The ADR-0019 index therefore does not go stale on refresh — the entry
-written on the first cache miss still points at the live session. This is one
-half of VERIFY (4); deleting the key to prove access actually stops is the other
-half and is still open.
+**Both halves answered. ADR-0019 holds, and with it ADR-0016's 5 s target.**
+
+The key oauth2-proxy uses in Redis is recoverable from the raw session cookie the
+backend already holds on every cache miss. The cookie is a signed, base64-wrapped
+ticket:
+
+    <base64( "v2." + base64url(handle) + "." + base64url(secret) )>|<ts>|<hmac>
+
+Derivation: drop the `|ts|hmac` suffix, base64-decode, strip the `v2.` prefix,
+and base64url-decode the handle up to the next `.`. The result is the Redis key
+`_oauth2_proxy-<32 hex>`, and against a live login it matched an existing key
+exactly. No oauth2-proxy secret is needed — the handle travels in the cookie in
+the clear (the secret only decrypts the session payload, which the kill switch
+never reads).
+
+Deleting that key stops access on the **next** request. There is no backend yet,
+so nginx `auth_request` targets oauth2-proxy's `/oauth2/auth` directly — this
+measures the oauth2-proxy/Redis layer alone, which is what the kill switch acts
+on:
+
+| request | before `DEL` | after `DEL` |
+|---|---|---|
+| `/oauth2/auth` | 202 | 401 |
+| `/` | 200 | 302 -> login |
+
+**Across a `cookie_refresh` the key is stable.** The outer cookie value rotates
+-- the signed timestamp changes -- but the handle inside is byte-identical
+(`_oauth2_proxy-d8f9514ab7f2dec2ee20adbcd026765c` before and after), so the
+ADR-0019 index written on the first cache miss still points at the live session.
+The deletion test was repeated **after** forcing a refresh (>5 min, then one
+request; the `Set-Cookie` on it confirms the refresh fired): the key derived from
+the rotated cookie was live, and deleting it stopped access exactly as above.
+
+Consequence: the kill switch deletes the session directly instead of degrading to
+`cookie_refresh` latency (5 min). Option C is not needed and ADR-0016's 5 s
+target stands. The one-shot test is `verify4.sh` on the lab host.
 
 ### Keycloak realm import
 
@@ -300,17 +330,15 @@ Phase 1 lab:
       the "Keycloak reads live" claim still hold at any value other than
       `NO_CACHE`? **ADR-0006 rests on this claim**, and the only source for it is
       the general Keycloak documentation.
-- [ ] **Can the oauth2-proxy Redis session key be derived from the session
-      cookie the backend already holds?** The cookie is understood to carry a
-      ticket the store is keyed by, but that is oauth2-proxy internals and has
-      not been read out of its source or documentation.
-      **[ADR-0019](adr/0019-kill-switch-session-index.md) rests on this claim**,
-      and through it the 5 s kill-switch target in ADR-0016. If it is false the
-      fallback is option C of that ADR and N-03 is revised. And does the key
-      survive `cookie_refresh`, or does a refresh mint a new ticket? A rotated
-      key is caught by the next cache miss (new cookie → new hash → miss →
-      index add), but the kill-switch test must be run **after** at least one
-      refresh to prove the index still finds the live session.
+- [x] **Answered: yes, and deleting it stops access.** Can the oauth2-proxy
+      Redis session key be derived from the session cookie the backend already
+      holds? Measured above: strip the signature, base64-decode, base64url-decode
+      the handle -> the `_oauth2_proxy-<hex>` Redis key, which deleting cuts
+      access on the next request. The key is byte-identical across a
+      `cookie_refresh` (only the signed timestamp rotates the outer cookie), and
+      the deletion test was repeated after a refresh had fired.
+      **[ADR-0019](adr/0019-kill-switch-session-index.md) holds** and with it
+      ADR-0016's 5 s target; option C is not needed.
 - [x] **Answered: the `sub`.** Which claim does oauth2-proxy put in
       `X-Auth-Request-User` for a Keycloak OIDC provider — `sub`, `preferred_username`, the email? `docs/05` assumes
       sAMAccountName, while `X-Auth-Subject` and the ADR-0019 index need the

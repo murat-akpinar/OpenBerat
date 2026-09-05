@@ -105,7 +105,7 @@ Verify the architecture actually works before writing code.
       answers with `return` is **unprotected**, because `return` runs in the
       rewrite phase before `auth_request` — the probe's own control case caught
       that one, and it is now item 14 in `nginx/conf.d/README.md`*
-- [ ] **VERIFY (4):** can the oauth2-proxy Redis session key be derived from the
+- [x] **VERIFY (4):** can the oauth2-proxy Redis session key be derived from the
       session cookie? Log in, read the cookie, list the Redis keys, and delete the
       matching one — access must stop immediately. Repeat after a
       `cookie_refresh` has fired: if the refresh mints a new ticket, the index
@@ -113,6 +113,17 @@ Verify the architecture actually works before writing code.
       miss). **ADR-0019 and with it the 5 s
       kill-switch target rest on this**; if it fails, ADR-0019 falls back to
       option C and ADR-0016 is revised in the same commit
+      *Answer: yes — ADR-0019 holds. The Redis key derives from the cookie the
+      backend already holds: strip the `|ts|hmac` signature, base64-decode the
+      `v2.<handle>.<secret>` ticket, base64url-decode the handle → the live
+      `_oauth2_proxy-<hex>` key (matched exactly against a labuser login).
+      Deleting it flips the next request 202/200 → 401/302 with no backend in
+      front — the oauth2-proxy/Redis layer the kill switch acts on. The key is
+      byte-identical across a `cookie_refresh` (only the signed timestamp rotates
+      the cookie), so the index written on the first cache miss never goes stale;
+      the deletion test was re-run after a refresh had fired and behaved
+      identically. Option C is not needed, ADR-0016's 5 s target stands. Both
+      halves in `docs/07`; the one-shot test is `verify4.sh` on the lab host.*
 - [ ] Keycloak LDAP federation → can an AD user log in
 - [ ] `userAccountControl` filter → a disabled account cannot log in
 - [ ] Group mapper `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` → `groups` claim in the token
