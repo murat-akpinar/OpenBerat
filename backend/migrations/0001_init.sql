@@ -1,0 +1,8 @@
+-- Initial schema: application, entitlement, audit_event
+-- known_user and entitlement.conditions are NOT in v1 (v2 — docs/02 "Data model")
+-- audit_event STARTS with its summary columns: count, first_seen, last_seen,
+-- distinct_path, request_id. Partitioned by month, so the PK is (id, ts) —
+-- Postgres requires the partition key in the primary key. Adding any of this
+-- later is a breaking change (CLAUDE.md audit rule).
+-- entitlement.subject_id holds the AD group NAME, not a SID (ADR-0008).
+-- For the columns see docs/02-architecture.md "Data model"

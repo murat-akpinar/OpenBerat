@@ -1,0 +1,3 @@
+# The whole stack: nginx + oauth2-proxy + redis + backend + postgres + keycloak
+#                  + samba-ad (lab, ADR-0010) + a sample application (lab)
+# Startup order and verification steps: TODO.md "Phase 1 — Lab"

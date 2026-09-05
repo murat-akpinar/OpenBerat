@@ -1,0 +1,116 @@
+# 06 — Requirements and Open Questions
+
+> This is a **living** file. When an open question is answered it is deleted from
+> here and the decision is written to `docs/adr/`.
+
+## Functional requirements
+
+### v1 — non-negotiable
+
+| ID | Requirement |
+|---|---|
+| F-01 | The user signs in via SSO through Keycloak; Keycloak verifies the identity against AD. |
+| F-02 | A protected application cannot be reached without an identity (fail-closed). |
+| F-03 | The applications a user can reach are derived from AD group membership. |
+| F-04 | The portal lists only the applications the user can reach. |
+| F-05 | An application not shown in the portal cannot be reached by direct URL either. |
+| F-06 | An admin can define applications (name, target address, icon). |
+| F-07 | An admin can map AD group ↔ application (allow/deny). |
+| F-08 | Every access decision enters the audit record; rows are written summarised — counters plus a single summary row (`docs/02`, "Audit granularity"). |
+| F-09 | An admin can terminate all of a user's sessions immediately (kill switch). |
+| F-10 | A user disabled in AD loses access within a defined period. |
+| F-11 | Path-based authorisation: a single path of an application (`/admin/*`) can be bound to its own rule. |
+| F-12 | Management endpoints (`/api/admin/*`) are bound to a separate AD group (`ADMIN_GROUP`); portal access does not grant admin rights. |
+| F-13 | An application defined by an admin becomes genuinely reachable through generated nginx configuration (ADR-0011). |
+
+### v2 — later
+
+| ID | Requirement |
+|---|---|
+| F-20 | Per-person time-limited access (JIT access), via `expires_at`. |
+| F-21 | Conditional access: IP range, MFA level (`acr`), time window. The `entitlement.conditions` column is added in this release. |
+| F-23 | The audit log is shipped to a SIEM (syslog/webhook). |
+| F-24 | Access reports: "what can user X reach", "who can reach application Y". |
+
+### Explicitly out of scope
+
+- SSH/RDP/DB session brokering and session recording → Apache Guacamole if needed
+- Password vault / credential injection
+- Device posture, agents
+- Approval workflow, ticket integration
+- In-application role management (the upstream's job)
+
+## Non-functional requirements
+
+| ID | Requirement | Target |
+|---|---|---|
+| N-01 | Authorisation decision latency (cache hit) | < 5 ms *(draft — to be measured and fixed)*. The cache entry must carry the identity too, otherwise this is unreachable — `docs/05`. |
+| N-02 | Authorisation decision latency (cache miss) | < 50 ms *(draft — to be measured and fixed)* |
+| N-03 | Revocation delay | **≤ 6 min** for an AD change, **≤ 5 s** for the kill switch ([ADR-0016](adr/0016-n03-revocation-targets.md)). Active WebSocket/SSE connections are excluded from the guarantee. |
+| N-04 | Audit log retention period | **? — depends on KVKK and internal policy** |
+| N-05 | Must come up with `docker compose up` on a single machine | v1 |
+| N-06 | High availability (HA) | No in v1; the design will not prevent it |
+| N-07 | Target concurrent users | **? — undecided** |
+
+## Open Questions
+
+Questions that need an answer and will change the design. Delete as they are
+answered and write the decision to `docs/adr/`.
+
+### Decided ✅
+
+| Topic | Decision | ADR |
+|---|---|---|
+| Scope | Web only (SSH/RDP in v2, via Guacamole) | [0001](adr/0001-scope-v1-web-only.md) |
+| PEP | nginx + `auth_request`, no proxy of our own | [0002](adr/0002-pep-nginx-auth-request.md) |
+| OIDC login | Delegated to oauth2-proxy | [0003](adr/0003-oidc-oauth2-proxy.md) |
+| Backend language | Rust (axum + sqlx) | [0004](adr/0004-stack-rust.md) |
+| Structure | Separate frontend, one directory per container, Docker | [0005](adr/0005-frontend-backend-split.md) |
+| Group membership source | oauth2-proxy header + mandatory `cookie_refresh` | [0006](adr/0006-group-membership-source.md) |
+| Frontend | Buildless static (HTML + Alpine.js), no npm | [0007](adr/0007-frontend-buildless-static.md) |
+| Group identity, prefix, `ADMIN_GROUP` | Match by name; `OpenBerat-` prefix; `ADMIN_GROUP` defaults to `OpenBerat-Admins` | [0008](adr/0008-group-identity-name.md) |
+| Policy engine | Our own code in `policy.rs`, with a written reversal trigger | [0009](adr/0009-policy-engine-own-code.md) |
+| Lab AD | Samba AD DC, with Windows Server as the escalation path | [0010](adr/0010-lab-ad-samba.md) |
+| nginx application blocks | Generated from the `application` table | [0011](adr/0011-nginx-config-generation.md) |
+| Project name | OpenBerat | [0012](adr/0012-project-name-openberat.md) |
+| Licence | GPL-3.0-or-later; not sold, no dual licensing | [0013](adr/0013-licence-gpl.md) |
+| Why not Pomerium/Authentik | Three differentiators + one to confirm; abandon trigger written down | [0014](adr/0014-differentiator-vs-pomerium.md) |
+| Common parent domain, portal address, cookie scope | Required; portal at `portal.apps.<domain>`; cookie on `.apps.<domain>` | [0015](adr/0015-single-parent-domain.md) |
+| N-03 revocation targets | 6 min / 5 s, WebSocket excluded | [0016](adr/0016-n03-revocation-targets.md) |
+| Single point of failure | Accepted, with a rehearsed break-glass | [0017](adr/0017-fail-closed-availability.md) |
+| Outside contributions | DCO (`git commit -s`), no CLA | [0018](adr/0018-contributions-dco.md) |
+| AD group strategy | `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` | `docs/03`, `docs/07` |
+
+### 🔴 Needs an answer about the target environment
+
+These cannot be decided from the design; they are facts about the customer's AD,
+network and policy. Phase 1 exists partly to establish them.
+
+- [ ] **Are nested groups used in AD?** `memberOf` gives only direct membership;
+      if they are, `LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY` is required.
+      Tested with a test user in Phase 1 ([ADR-0010](adr/0010-lab-ad-samba.md)).
+- [ ] **Wildcard certificate: internal CA or Let's Encrypt?** ADR-0015 makes the
+      certificate mandatory but not its source. If it is baked into the image,
+      renewal means an image build, and expiry takes **every** application down
+      at once.
+- [ ] Is MFA mandatory, and for which applications? (the PDP can read `acr`)
+- [ ] Is Kerberos/SPNEGO (passwordless domain SSO) wanted?
+- [ ] Is there more than one AD domain / forest?
+- [ ] Audit log retention period (N-04) — KVKK and internal policy.
+- [ ] Target concurrent user count (N-07), and how many applications, users and
+      AD groups. Without N-07 the Phase 6 load test has no target.
+
+### 🔴 Security, still open
+
+- [ ] **Can upstream applications be reached bypassing nginx?** Three answers:
+      (a) network isolation (the v1 default), (b) mTLS, (c) a **short-lived
+      signed identity JWT** to the upstream plus a JWKS endpoint. (c) is the one
+      that stands up to an audit, and it is a small piece of work.
+      [ADR-0015](adr/0015-single-parent-domain.md) raised its priority: with a
+      shared session cookie, a compromised protected application is a realistic
+      path to the rest of the system.
+- [ ] **How does an operator get into the machine when the identity chain is
+      down?** [ADR-0017](adr/0017-fail-closed-availability.md) requires that host
+      access does not depend on this product; the concrete mechanism (out-of-band
+      admin path, its own credentials, how it is audited) is not designed yet.
+
