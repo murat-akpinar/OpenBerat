@@ -49,6 +49,7 @@
 - The security policy asked for secrets and hid its own worst case ([7c4296d](https://github.com/murat-akpinar/OpenBerat/commit/7c4296d4bd58271141fb63f0f6285eb2ca9f07e0)) — Four things wrong with SECURITY.md, one of them not cosmetic. The report template asked for "the configuration that matters (oauth2-proxy settings)" with nothing said about redaction — an invitation to paste a client secret, a cookie secret or a live session cookie into an email or an advisory, none of which reproduce anything.
 - Four files described a repository that does not exist yet ([4942959](https://github.com/murat-akpinar/OpenBerat/commit/4942959000b6b9b455a09ec00579f2867cb1b1cd)) — A sweep of every markdown file for the thing SECURITY.md turned out to have: a sentence asserting something is in place when it is not.
 - Show the generated-config path in both READMEs and the deployment map ([015ddec](https://github.com/murat-akpinar/OpenBerat/commit/015ddec45a6c16d74a82e651bdda35dcbc6bdf0c)) — The backend and nginx now share a volume — a connection between two components, so by the propagation rule it belongs in the deployment diagram and in both READMEs rather than only in the ADR that decided it.
+- *(tests)* The integration suite needs Redis as well as Postgres ([ec61242](https://github.com/murat-akpinar/OpenBerat/commit/ec6124270964a381babfe79bd68cadf188489778))
 
 ### 🧪 Testing
 
