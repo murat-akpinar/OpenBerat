@@ -121,7 +121,7 @@ Cutting access matters more than granting it. Three scenarios:
 
 | Scenario | How it is cut | Delay |
 |---|---|---|
-| Account disabled in AD | The `userAccountControl` filter; Keycloak rejects the session on refresh | `cookie_refresh` + cache TTL |
+| Account disabled in AD | AD refuses the bind and the `userAccountControl` filter hides the account; the session dies at the next refresh | `cookie_refresh` + cache TTL — **measured 282 s**, worst case 330 s (`docs/07`) |
 | Removed from a group in AD | The refreshed session carries the new `memberOf` | `cookie_refresh` + cache TTL |
 | Emergency revocation (incident response) | Kill switch from the admin UI | **Immediate** (ADR-0016: ≤ 5 s) |
 | Active WebSocket/SSE connection | Not cut — authorised once at the upgrade | **Outside the guarantee** (`docs/02`) |

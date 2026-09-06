@@ -841,6 +841,55 @@ cookie matching `_oauth2_proxy`, which the **failed** flow also leaves behind
 as `_oauth2_proxy_csrf`: a wrong password passed. The signal is `/api/me`
 answering 200 with the expected username.
 
+#### A disabled account — what the filter stops, and what stops it anyway
+
+**Answer: it cannot log in, and the custom filter is not the reason.** The
+account under test is `labuac`, created in AD after the realm was running and
+deleted at the end, enabled first so that the same credential is known to work
+and the disable bit is the only thing that changes between the two rows.
+
+| Custom User LDAP Filter | Keycloak's user list | Login | Keycloak's reason |
+|---|---|---|---|
+| present (the committed config) | absent; a user already imported is **removed** | refused | `error="user_not_found"`, `userId="null"` |
+| removed | present, and reported **`"enabled": true`** | refused | `error="invalid_user_credentials"`, with a real `userId` |
+
+There are two independent barriers, and the one everybody names is the weaker.
+AD refuses the LDAP simple bind for a disabled account, and `editMode:
+READ_ONLY` delegates that bind on **every** login (measured above), so the
+password is refused with the filter or without it.
+
+What the filter alone does is keep the account out of Keycloak's *view*, and
+that is not cosmetic. Without it Keycloak imports a leaver, gives them a `sub`,
+resolves their groups, and displays them as **enabled** — Keycloak does not
+read `userAccountControl`, so an operator reading the user list sees an account
+AD has disabled shown as active. Every path that does not end in an AD bind
+then reaches a live account: a locally set password, token exchange, a future
+non-password authenticator. `docs/03` said "without this, staff who have left
+keep logging in"; that is wrong as written and is corrected there. Without it
+they keep *existing*, and it is AD, not our configuration, that refuses them.
+
+**F-10 — how long a session already open survives.** `labuac` logged in while
+enabled and was disabled in AD 12 s later; `/api/me` was polled every 10 s.
+It answered 200 through `t+272 s` and 302 from `t+282 s` (10 s resolution). The
+cut is at the `cookie_refresh` boundary — 299 s after the token was issued, not
+after the disable — so the worst case is `cookie_refresh` (300 s) plus the
+decision cache TTL (30 s) = **330 s**, inside N-03's 6 minutes with half a
+minute to spare. Disabling shortens nothing: the session dies at the next
+refresh, exactly as a group removal does.
+
+The instruments lied twice before this was the answer, both times in the
+reassuring direction. `kcadm get components/<id> --fields config` **omits**
+`customUserSearchFilter`, so the projection prints a configuration the
+component does not have. And `kcadm update components/<id> -f file.json`
+**merges**: deleting a key from the file leaves it on the component. The first
+control run therefore removed nothing and produced a confident wrong answer — a
+disabled user still invisible "without" a filter that was still there. Removing
+a key needs `-s 'config.<key>=[""]'`; any `-f` body needs `providerType` and
+`parentId` or the server answers `Invalid provider type 'null'`. Read the state
+back from the full `get components/<id>`, or from the LDAP configuration
+Keycloak prints itself when it rebuilds the store. Harness: `verify-uac.sh`
+and its log on the lab host.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is

@@ -160,7 +160,23 @@ Verify the architecture actually works before writing code.
       `labfed` **before** any login, because with `importEnabled` a user search
       is itself an LDAP query — that list is a lookup cache, not a record of
       who has access. `docs/07`; harness `ob-login-pw.sh` on the lab host*
-- [ ] `userAccountControl` filter → a disabled account cannot log in
+- [x] `userAccountControl` filter → a disabled account cannot log in
+      *It cannot, and the filter is not what stops it. Tested with `labuac`,
+      created in AD after the realm was running and enabled first, so the same
+      credential is known to work and only the disable bit changes. With the
+      filter the account is invisible and the login fails `user_not_found`; an
+      already-imported user is removed. With the filter genuinely gone the login
+      still fails, now `invalid_user_credentials` — AD refuses the bind, which
+      `editMode: READ_ONLY` delegates on every login. What the filter alone
+      stops is the **import**: without it Keycloak lists a leaver as
+      `enabled: true`, because it does not read `userAccountControl`, and any
+      path not ending in an AD bind reaches a live account. `docs/03`'s "leavers
+      keep logging in" is corrected. F-10 measured on the same account: a
+      session already open was cut between t+272 s and t+282 s, at the
+      `cookie_refresh` boundary, worst case 330 s — inside N-03. Two instrument
+      traps cost a wrong first answer, both in `docs/07`: `kcadm --fields
+      config` omits this filter, and `kcadm update -f` merges rather than
+      replaces, so removing a key from the file removes nothing*
 - [ ] Group mapper `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` → `groups` claim in the token
 - [ ] **Nested group test:** does a user in a parent group see the child group?
 - [ ] **VERIFY:** does the LDAP group filter `(cn=OpenBerat-*)` exclude a group

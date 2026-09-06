@@ -33,7 +33,12 @@ In the **Custom User LDAP Filter** field:
 (&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))
 ```
 
-Without this, staff who have left keep logging in. **Critical.**
+**Critical, and not for the reason it looks like.** Measured (`docs/07`): AD
+refuses the LDAP bind for a disabled account, so a leaver's password is refused
+with this filter or without it. What the filter stops is Keycloak **importing**
+them — without it a disabled account appears in the user list reported as
+`enabled: true`, because Keycloak does not read `userAccountControl`, and every
+path that does not end in an AD bind reaches a live account.
 
 ## Group synchronisation
 
