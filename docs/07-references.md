@@ -1867,6 +1867,49 @@ The exposition names nobody. Checked for the username, the application slug, the
 hostname and both address ranges the lab uses: none appear, because the only
 labels in it are `decision`, `reason`, `result` and `le`.
 
+### TEST — installing the release bundle on a host with no images
+
+ADR-0023 makes the release one tarball: `git archive` of the tag plus
+`docker save` of every image the release compose references. `release.sh`
+produced **420 MB** compressed for 0.1.0, and `verify-airgap.sh` (on the lab
+host) installed it the way an air-gapped site would — after deleting every image
+the bundle claims to carry, so nothing on the host could stand in for a missing
+one.
+
+| Step | Result |
+|---|---|
+| `docker compose config --images` | six: our three built images and `postgres:17-alpine`, `redis:7-alpine`, `oauth2-proxy:v7.8.2`. The lab directory and the sample applications are behind `--profile lab` and do not appear |
+| Secrets in the bundle | none — no `.env`, no private key. It carries what `git archive` carries |
+| `docker compose create --pull never`, images deleted | refuses: `No such image: redis:7-alpine` |
+| `docker load -i images.tar` | all six |
+| `docker compose up -d --pull never` | the six containers start |
+| Backend answering `/readyz` | **33 s** after `docker load` began |
+| Portal redirecting to the IdP | **88 s** |
+| A real login, then the protected application | `/api/me` 200, Jenkins 200 |
+| `openberat_build_info` | `version="0.1.0"`, and the same string in the backend's first log line |
+
+**The gap between 33 s and 88 s is the finding.** `/readyz` reports Postgres
+and Redis and deliberately says nothing about oauth2-proxy (`docs/02`), which
+performs OIDC discovery once at startup and exits until Keycloak answers. So for
+most of a minute the backend is ready, every container is *up*, and the portal
+answers **500**. The first run of this test called that a failure — it waited on
+`/readyz`, logged in immediately and got a 500 — which is the same shape as the
+certificate-renewal run that reported success on a login that had 500'd. On a
+first install the signal that the stack is usable is the portal answering 302,
+not any container being up.
+
+Nothing here proves the *host* had no network; `--pull never` is what proves the
+bundle was complete, because with the images deleted it is an error naming the
+missing image rather than a download that succeeds quietly. That distinction is
+why the flag is in `INSTALL.md` §11 rather than a bare `up -d`.
+
+Two things the bundle deliberately does not solve. It freezes the third-party
+images **by content** while their tags stay mutable, so two bundles built a
+month apart can differ — inside one bundle nothing drifts, which is the property
+the offline site needs. And the certificate, `.env` and any lab override are the
+operator's: the test copies them in from the existing installation, which is
+exactly the manual step §11 describes.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is

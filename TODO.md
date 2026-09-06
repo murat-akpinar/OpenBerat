@@ -38,6 +38,10 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
 - [x] ADR-0022 Audit retention: the operator sets `AUDIT_RETENTION_MONTHS`
       (default 12) and a month leaves the database as a dropped partition —
       N-04 answered as a mechanism with a default, not as a number
+- [x] ADR-0023 Versioning and release: one semantic version for the whole
+      product, taken from `backend/Cargo.toml`; the release artifact is one
+      tarball holding the tagged source and every image, because an air-gapped
+      site cannot build any of them
 
 **Phase 0 is closed.** Everything decidable from the design has been decided;
 what remains needs facts about the target environment and is tracked in
@@ -55,8 +59,9 @@ Carried alongside the work, not blocking it:
       the first channel in the policy did not exist. Enabled and verified
       (`gh api repos/OWNER/REPO/private-vulnerability-reporting` → `enabled:
       true`). Linked from both READMEs and `CONTRIBUTING.md`, which no longer
-      repeats the policy. Its scope section says "no released version yet";
-      rewriting it is part of the Phase 6 versioning item
+      repeats the policy. Its scope section said "no released version yet";
+      rewritten with the Phase 6 versioning item, which is where the supported
+      versions table came from (ADR-0023)
 
 ## Phase 1 — Lab and measurement
 
@@ -1229,9 +1234,35 @@ So the portal's data does not have to be filled in by hand with SQL.
       the traffic did, and all three false alarms the run produced were the
       harness reading a status code where the answer was in the `Location`, the
       body, or a `# HELP` line (`docs/07`).*
-- [ ] Versioning, release image, offline bundle for air-gapped installation.
+- [x] Versioning, release image, offline bundle for air-gapped installation.
       Rewrite the `SECURITY.md` scope section — it says there is no released
       version yet, which stops being true here
+      *Three things that looked separate and were one (ADR-0023). **An
+      air-gapped site cannot build this product** — the backend compiles against
+      crates.io, two images install packages and Keycloak resolves Maven on
+      first start — so the release has to be images that already exist, and once
+      it is a set of images the version is a property of the set. One semver for
+      the whole product, from `backend/Cargo.toml` and nowhere else; the backend
+      logs it and publishes `openberat_build_info`, so a running deployment can
+      name itself instead of the operator reading an image tag.
+      `release.sh` writes one tarball — the tagged source plus `docker save` of
+      every image the release compose references. **420 MB for 0.1.0**, and no
+      second online-only artifact, because two artifacts would mean testing two.
+      **The lab left the default compose in the same change:** `samba-ad`,
+      `sample-app` and `sample-ws` are behind `--profile lab` now. ADR-0010 said
+      the DC ships in nothing, and until this box the only thing making that
+      true was the order of arguments in `INSTALL.md` §5.
+      Installed on the lab after deleting every image the bundle claims to
+      carry, so nothing on the host could stand in for a missing one:
+      `--pull never` refuses by name, the six images load, and a real login
+      reaches Jenkins. **The number worth keeping is the gap between 33 s and
+      88 s** — the backend answers `/readyz` at 33 s while the portal is still
+      answering 500, because `/readyz` covers Postgres and Redis and says
+      nothing about oauth2-proxy's OIDC discovery. The first run of the test
+      called that a failure; on a first install the signal is the portal
+      redirecting, not a container being up (`docs/07`).
+      The tag itself is not cut here: a release a script can make by itself is
+      one that can be made by accident (ADR-0023).*
 - [ ] SPDX identifier in `Cargo.toml`, licence headers, Alpine.js MIT notice preserved (ADR-0013)
 - [ ] Finish `INSTALL.md` (drafted in Phase 1): DNS, wildcard certificate,
       `ADMIN_GROUP`, first login, and the prerequisites an operator cannot skip —

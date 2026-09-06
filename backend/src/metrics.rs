@@ -71,6 +71,16 @@ pub fn observe(elapsed: Duration) {
 
 pub fn render() -> String {
     let mut out = String::with_capacity(2048);
+    // A gauge that is always 1, with the version in a label: the Prometheus
+    // idiom, and the only way to ask a *running* deployment what it is. An
+    // image tag is a fact about the host, not about the process (ADR-0023).
+    let _ = writeln!(
+        out,
+        "# HELP openberat_build_info The running version.\n\
+         # TYPE openberat_build_info gauge\n\
+         openberat_build_info{{version=\"{}\"}} 1",
+        env!("CARGO_PKG_VERSION")
+    );
     out.push_str(
         "# HELP openberat_decision_total Authorisation decisions, by outcome and reason.\n\
          # TYPE openberat_decision_total counter\n",

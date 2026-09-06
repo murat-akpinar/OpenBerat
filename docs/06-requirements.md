@@ -84,6 +84,7 @@ answered and write the decision to `docs/adr/`.
 | Frontend packaging | Static files copied into the nginx image at build; no frontend container | [0020](adr/0020-frontend-in-nginx-image.md) |
 | How a protected application learns who the user is | Trusted `X-Auth-*` headers; isolating the upstream becomes a requirement, not a deployment default | [0021](adr/0021-application-identity-trusted-headers.md) |
 | Audit retention | The operator sets `AUDIT_RETENTION_MONTHS` (default 12); a month is dropped whole | [0022](adr/0022-audit-retention.md) |
+| Versioning and what a release is | One semver for the whole product, from `backend/Cargo.toml`; the release is one tarball holding the tagged source and every image | [0023](adr/0023-versioning-and-release.md) |
 | AD group strategy | `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` | `docs/03`, `docs/07` |
 
 ### 🔴 Needs an answer about the target environment

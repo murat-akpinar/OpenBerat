@@ -244,8 +244,15 @@ at once.
 
 ```sh
 docker compose build
-docker compose up -d nginx keycloak redis oauth2-proxy postgres backend
+docker compose up -d
 ```
+
+On a host with no internet, §11 comes first — this builds from source, and
+building is the one thing an air-gapped machine cannot do.
+
+`up` with no arguments starts the six services a release consists of. The lab
+directory and the two sample applications are behind a profile and stay down
+unless asked for by name or with `--profile lab` (ADR-0023).
 
 The build compiles the backend in release mode and takes a few minutes the
 first time; afterwards it is cached.
@@ -277,7 +284,7 @@ users — `labuser` and everyone else come from AD through the LDAP provider, so
 a lab needs the fixture before anyone can log in:
 
 ```sh
-docker compose up -d samba-ad
+docker compose --profile lab up -d
 docker compose exec -T -e AD_BIND_PASSWORD -e LAB_USER_PASSWORD \
   samba-ad bash < samba-ad/fixture.sh
 ```
@@ -553,6 +560,51 @@ meeting each target is read off the exposition rather than estimated from a
 quantile. `reason="no_matching_grant"` climbing is not an outage — it is usually
 an application whose entitlements were never mapped, and the `/api/admin/explain`
 screen answers why for one user.
+
+## 11. Installing without internet
+
+Nothing here can be built offline: the backend compiles Rust against crates.io,
+two of the images install packages, and Keycloak resolves Maven artifacts on its
+first start. So an air-gapped installation is not a different procedure — it is
+the same one with the images carried in.
+
+On a machine that **does** have internet, with a checkout of the version you
+want and the `.env` beside it:
+
+```sh
+./release.sh v0.1.0            # or a commit; HEAD is the default
+```
+
+That writes `dist/openberat-<version>.tar.gz`: the tagged source, `images.tar`
+holding every image the release compose references, `images.txt` listing them
+and a `VERSION` file. Expect it to be large — image layers are stored
+uncompressed and Keycloak is most of it — and to take a few minutes.
+
+Carry it over, then on the target host:
+
+```sh
+tar xzf openberat-<version>.tar.gz
+cd openberat-<version>
+docker load -i images.tar
+# §1 through §4 first: the certificate, the hosts entries, .env, and AD
+docker compose up -d --pull never
+```
+
+`--pull never` is the point of the exercise. Without it a missing image is a
+download that hangs and then fails with a network error, which reads like a
+broken installer; with it, it is `Error response from daemon: No such image`,
+naming the one that did not make it into the bundle.
+
+Two things to know:
+
+- **The images the bundle carries are frozen; the tags they came from are not.**
+  `postgres:17-alpine` and the rest are pinned by tag rather than by digest, so
+  two bundles built a month apart can hold different Postgres builds. Inside one
+  bundle nothing drifts, which is the property the offline site needs, but two
+  sites installed from two bundles are not necessarily running the same stack.
+- **Upgrading is the same procedure again**, with the new bundle and a dump
+  taken first (§9). Migrations run forward only and the older binary will not
+  start against the newer schema, so the dump is the only road back.
 
 > Phase 1 and the phases after it are done and this file follows them: the
 > certificate, the realm import, the AD federation, the first login, adding an

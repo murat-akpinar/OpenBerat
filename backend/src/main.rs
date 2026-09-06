@@ -168,7 +168,10 @@ async fn main() {
         Ok(listener) => listener,
         Err(e) => fatal(&format!("cannot listen on {LISTEN}: {e}")),
     };
-    tracing::info!("schema is up to date, listening on {LISTEN}");
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        "schema is up to date, listening on {LISTEN}"
+    );
     if let Err(e) = axum::serve(listener, api::router(ctx.clone()))
         .with_graceful_shutdown(shutdown())
         .await

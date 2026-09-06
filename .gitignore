@@ -8,3 +8,4 @@ CLAUDE.md
 .rules/
 certs/
 .claude/
+dist/

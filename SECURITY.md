@@ -24,15 +24,31 @@ and no bug bounty.
 
 ## Scope
 
-This is a design-stage project — **there is no released version yet** and no
-deployment to attack. Until v1 ships, the useful report is a flaw in the design
-itself: a way around the decision path in `docs/02-architecture.md`, a rule in
+The code is written and installable, so a report can be about a running system
+now and not only about the design. **In scope:** the authorisation decision, the
+`/decide` contract, header spoofing, the nginx configuration this project
+generates, session handling and revocation, the admin API, and the release
+bundle. A flaw in the design is still worth reporting on its own — a way around
+the decision path in `docs/02-architecture.md`, a rule in
 `docs/05-authz-model.md` that does not hold, or a configuration in
 `docs/03-keycloak-ad.md` that is unsafe as written.
 
-In scope once code exists: the authorisation decision, the `/decide` contract,
-header spoofing, the nginx configuration this project generates, session
-handling and revocation, and the admin API.
+### Which versions get a fix
+
+One version number covers the whole product
+([ADR-0023](docs/adr/0023-versioning-and-release.md)) — the images move
+together, so there is no such thing as a fix for the backend alone.
+
+| Version | Supported |
+|---|---|
+| the newest release | yes |
+| anything older | no — upgrade is the fix |
+| `main` | yes, and it is where a fix lands first |
+
+Until the first tag exists, report against `main` and name the commit. A
+running deployment can name itself: the backend logs its version on its first
+line, and `openberat_build_info` on the internal `/metrics` endpoint carries the
+same string (`INSTALL.md` §10).
 
 Out of scope: vulnerabilities in Keycloak, oauth2-proxy, nginx, Postgres or
 Redis themselves — report those upstream. Findings that depend on a

@@ -1,7 +1,9 @@
-# The whole stack: nginx + oauth2-proxy + redis + backend + postgres + keycloak
-#                  + samba-ad (lab, ADR-0010) + sample applications (lab: one
-#                  plain + one WebSocket — TODO.md Phase 1)
+# The whole stack: nginx + oauth2-proxy + redis + backend + postgres + keycloak.
 # Startup order and verification steps: TODO.md "Phase 1 — Lab"
+#
+# The lab directory and the sample applications are behind `--profile lab`, so
+# an ordinary `docker compose up` starts a release and not a domain controller
+# (ADR-0010, ADR-0023). The lab runs `docker compose --profile lab up -d`.
 #
 # Two networks (docs/02 "Deployment"); nginx is the only member of both:
 #   edge: nginx + the protected sample applications. Nothing else — an upstream
@@ -48,6 +50,9 @@ services:
 
   backend:
     restart: unless-stopped
+    # Named rather than left to compose's `<project>-<service>` default: this is
+    # the name `release.sh` saves and an air-gapped host loads (ADR-0023).
+    image: openberat-backend
     build: ./backend
     environment:
       DATABASE_URL: postgres://openberat:${POSTGRES_PASSWORD}@postgres:5432/openberat
@@ -168,8 +173,10 @@ services:
     networks: [core]
 
   samba-ad:
+    profiles: [lab]
     restart: unless-stopped
-    # Lab directory only, ships in no release (ADR-0010). Test users, nested
+    # Lab directory only, and `profiles` is what makes that true rather than a
+    # comment. Test users, nested
     # groups and disabled accounts are provisioned here in Phase 1. Pinned by
     # digest like every other image: the fixture is only reproducible if the
     # directory it is built in is.
@@ -193,11 +200,13 @@ services:
   # The two protected sample applications (lab): one plain HTTP, one WebSocket.
   # On edge only — all they can reach is nginx.
   sample-app:
+    profiles: [lab]
     restart: unless-stopped
     image: traefik/whoami:v1.11
     networks: [edge]
 
   sample-ws:
+    profiles: [lab]
     restart: unless-stopped
     image: jmalloc/echo-server:v0.3.7
     networks: [edge]

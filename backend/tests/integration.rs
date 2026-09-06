@@ -2421,6 +2421,16 @@ async fn decide_section(pool: &PgPool) {
         "the exposition reports the counter, not a copy of it"
     );
 
+    // Which version answered. The image tag is a fact about the host; this is
+    // the only way to ask the running process (ADR-0023).
+    assert!(
+        after.contains(&format!(
+            "openberat_build_info{{version=\"{}\"}} 1",
+            env!("CARGO_PKG_VERSION")
+        )),
+        "the exposition does not carry the version:\n{after}"
+    );
+
     // --- Feature Start ---
     // /metrics is unauthenticated, like /healthz and /readyz, and reachable
     // from anything on the internal network. So it carries counters and no
