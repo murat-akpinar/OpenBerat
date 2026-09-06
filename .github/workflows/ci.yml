@@ -1,5 +1,7 @@
-# CONTRIBUTING.md promises two things a human forgets to check: every commit is
-# signed off (DCO, ADR-0018) and the backend still builds and its tests pass.
+# The checks a human forgets: every commit is signed off (DCO, ADR-0018), the
+# documents' links still resolve, nginx and the frontend have not lost a
+# security rule that neither `nginx -t` nor a build step would notice, and the
+# backend still compiles and its tests pass.
 name: ci
 
 on:
@@ -102,6 +104,39 @@ jobs:
                       if not tf.split()[-1].startswith('='):
                           bad.append(f'{path.name}: `{header}` try_files does not end in =CODE, so it redirects internally')
           print('\n'.join(bad) if bad else 'every auth_request location answers from the content phase')
+          sys.exit(1 if bad else 0)
+          EOF
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # There is no build step to catch this and no linter in the repository
+      # (ADR-0007), so the two rules the portal lives by are checked here.
+      - run: |
+          python3 - <<'EOF'
+          # The portal renders strings an admin typed (application name, icon) on the
+          # one host every user opens, and the session cookie it carries is valid for
+          # every application on .apps.<domain> (ADR-0015). So the frontend may only
+          # write text, never markup. It carries no inline script either: that is what
+          # lets a `default-src 'self'` CSP land without `unsafe-inline`.
+          import pathlib, re, sys
+
+          SINKS = r'innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\s*\(|new\s+Function'
+          bad = []
+          for path in sorted(pathlib.Path('frontend/src').rglob('*')):
+              if path.suffix not in ('.html', '.js'):
+                  continue
+              text = path.read_text()
+              for m in re.finditer(SINKS, text):
+                  bad.append(f'{path}: writes markup instead of text ({m.group(0)})')
+              if path.suffix == '.html':
+                  if re.search(r'<script(?![^>]*\ssrc=)[^>]*>\s*\S', text):
+                      bad.append(f'{path}: inline <script> needs unsafe-inline in the CSP')
+                  if re.search(r'<[^>]*?\son[a-z]+\s*=', text):
+                      bad.append(f'{path}: inline event handler needs unsafe-inline in the CSP')
+          print('\n'.join(bad) if bad else 'the frontend writes text only and carries no inline script')
           sys.exit(1 if bad else 0)
           EOF
 

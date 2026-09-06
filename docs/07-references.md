@@ -796,7 +796,10 @@ Phase 1 lab:
 - [ ] Does the vendored Alpine.js run under a `default-src 'self'` CSP
       **without** `unsafe-eval`? The standard build evaluates expressions with
       `new Function()`; the CSP build restricts the expression syntax.
-      ADR-0007's CSP consequence rests on this.
+      ADR-0007's CSP consequence rests on this. **Narrowed:** the portal was
+      built without Alpine at all — a read-only list needs no reactivity — so
+      the question now applies only to the admin screens, and nothing is
+      vendored yet for the experiment to run against.
 
 ## Licences (to be verified)
 

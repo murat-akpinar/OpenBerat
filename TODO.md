@@ -756,14 +756,45 @@ So the portal's data does not have to be filled in by hand with SQL.
 
 ## Phase 5 — Portal + audit + kill switch
 
-- [ ] Portal: reachable applications, buttons with icons
+- [x] Portal: reachable applications, buttons with icons
+      *`index.html` + `portal.js` + `portal.css`, and **no Alpine.js** — a
+      read-only list of what `/api/apps` returned needs no reactivity, and
+      leaving it out is what lets the page run under `default-src 'self'`
+      today instead of waiting on the CSP question below. ADR-0007 chose *no
+      build step*, not *Alpine on every page*, so this is inside it.
+      Everything an admin typed is written with `textContent`: the portal is
+      the one host every user opens and its cookie is valid across
+      `.apps.<domain>` (ADR-0015), so an application named
+      `<img src=x onerror=…>` would otherwise be stored XSS. A CI job
+      (`frontend`) fails the build on `innerHTML`, `eval`, inline `<script>`
+      and inline handlers, because there is no build step and no linter to
+      catch a contributor re-introducing one. Verified live on the lab: an
+      `OpenBerat-Finance` entitlement makes the button appear for `labuser`,
+      and a second application with no rule at all stays absent (F-04/F-05).
+      Rendered in Firefox against a stubbed API in all three states — the
+      injected name is drawn as text, and clipping the icon box was needed
+      because nothing validates the `icon` column.*
 - [ ] The "no access" page — where `error_page 403` lands
-- [ ] Empty state: "you have access to no applications"
-- [ ] Frontend files served by nginx — baked into the nginx image at build
+- [x] Empty state: "you have access to no applications"
+      *The same branch of the same file, so it landed with the portal. It is
+      **not** the error branch: `/api/apps` answers 503 when Postgres is down,
+      and drawing that as "you can reach nothing" tells the user their access
+      was revoked when the truth is an outage. The two say different things.*
+- [x] Frontend files served by nginx — baked into the nginx image at build
       (ADR-0020), no frontend container or volume
+      *Already how `nginx/Dockerfile` was written; this is the first change
+      that exercised it. `docker compose build nginx` on the lab, and
+      `portal.js` and `portal.css` come back 200 with `application/javascript`
+      and `text/css` from the image — no volume, no frontend container.*
 - [ ] **VERIFY:** Alpine.js under a `default-src 'self'` CSP — the standard
       build needs `unsafe-eval`; if it fails, vendor the CSP build or amend
       ADR-0007 (`docs/07`)
+      *Narrowed, not answered: the portal ships without Alpine, so this now
+      bites only the admin screens (CRUD, audit filtering) — the screens
+      ADR-0007 actually bought Alpine for. Nothing is vendored yet, so the
+      experiment has nothing to run against; it waits for the first admin
+      screen. The CSP header itself is not set on any host yet (Phase 6
+      security headers) — the portal is merely written to survive one.*
 - [ ] Audit log viewing + filtering
 - [ ] `GET /api/admin/explain?user&host&path` — why the decision was made.
       `policy.rs` is already pure; the screen ops will use most
