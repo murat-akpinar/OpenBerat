@@ -921,9 +921,14 @@ So the portal's data does not have to be filled in by hand with SQL.
       `keycloak/themes/`, `loginTheme` set in the realm export, and the IdP
       hostname named for what a user sees rather than for the software behind
       it. Today the realm ships `"loginTheme": "keycloak"`, so the one screen
-      every user meets first is stock Keycloak on a second hostname. This is
-      configuration, not code: it needs no phase of its own and it does not
-      touch ADR-0003.
+      every user meets first is stock Keycloak on a second hostname. No code,
+      and ADR-0003 is untouched — but it is the one thing here that changes
+      something already built: a theme is read at runtime, not imported like
+      the realm, so `keycloak/` needs the `Dockerfile` it does not have yet
+      (stock image today) and `docker-compose.yml` swaps `image:` for
+      `build:`. Bind-mounting the theme instead is the config drift the rules
+      forbid; the realm mount is exempt because it is import data, not running
+      configuration.
       **Not** an own login form posting to Keycloak's direct grant — that puts
       the password through our backend, breaks the TOTP intent in `docs/06`,
       and throws away the one decision that keeps OIDC code out of this

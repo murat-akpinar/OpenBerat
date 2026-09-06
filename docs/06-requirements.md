@@ -141,7 +141,11 @@ network and policy. Phase 1 exists partly to establish them.
       **(1) trusted headers.** The application is configured to believe
       `X-Auth-Username` / `-Email` / `-Groups`, which `protected.inc` already
       writes and already strips from the request side. No code, no per-application
-      registration. Its entire security rests on "only nginx can reach that
+      registration. It does hand the comma problem to a second consumer: the
+      groups header is comma-joined, so an application deriving its own roles
+      from it inherits the `Payroll,OpenBerat-Admins` attack, and the
+      `(cn=OpenBerat-*)` filter measured in `docs/07` stops being a mitigation
+      for `ADMIN_GROUP` alone. Its entire security rests on "only nginx can reach that
       port" — a network assumption, and one that a single wrong compose line
       breaks in silence. It is the question below, with the stakes raised: under
       (1) a bypass is not information disclosure, it is impersonation.
