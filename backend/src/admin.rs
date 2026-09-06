@@ -368,6 +368,16 @@ async fn create_entitlement(
     if new.subject_id.trim().is_empty() {
         return bad_request("subject_id is required");
     }
+    // --- Feature Start ---
+    // Group names arrive comma-joined in one header and are split back apart
+    // before matching (docs/07), so an `ad_group` name containing a comma can
+    // never equal anything in that list. Refused rather than stored: a rule
+    // that silently never fires is worse than one that was never accepted,
+    // because the admin believes the access was granted.
+    if new.subject_type == "ad_group" && new.subject_id.contains(',') {
+        return bad_request("an AD group name cannot contain a comma");
+    }
+    // --- Feature End ---
     if !new.path_pattern.is_empty() && !new.path_pattern.starts_with('/') {
         return bad_request("path_pattern must be empty or start with /");
     }

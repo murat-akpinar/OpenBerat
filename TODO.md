@@ -142,6 +142,11 @@ Verify the architecture actually works before writing code.
 - [ ] `userAccountControl` filter → a disabled account cannot log in
 - [ ] Group mapper `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` → `groups` claim in the token
 - [ ] **Nested group test:** does a user in a parent group see the child group?
+- [ ] **VERIFY:** does the LDAP group filter `(cn=OpenBerat-*)` exclude a group
+      whose `cn` contains a comma? A group named `Payroll,OpenBerat-Admins`
+      reaching the claim is a management-plane escalation, measured in Phase 2
+      (`docs/07`), and this filter is the only thing that stops it (ADR-0008
+      mitigation 1). Needs samba-ad.
       If not, switch to `LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY`
 - [x] User in many groups → is the cookie size problem gone with the Redis session
       *Yes — and it took the ceiling with it to a place nothing warns about.
@@ -328,11 +333,31 @@ has a first draft, and there is still not one line of code.
 - [x] The `ADMIN_GROUP` check — a separate pure function, never cached
       *`is_admin` — exact, case-sensitive match. ADR-0008 already chose the
       direction to fail in: a group renamed in AD loses its entitlements.*
-- [ ] **Test:** an ordinary user with portal access cannot reach `/api/admin/*`
-      *Half done and deliberately left open: the pure half is tested with
-      `is_admin` (a portal user, a look-alike group name and a differently
-      cased one are all refused), but there is no `/api/admin/*` handler to
-      reach until Phase 4. The box closes there, against the endpoint.*
+- [x] **Test:** an ordinary user with portal access cannot reach `/api/admin/*`
+      *Closed against the endpoint, route by route rather than on the one route
+      that was already covered: seven methods and paths, a valid `Origin` and
+      bodies that would really work, so the group check is the only thing left
+      that can refuse and a hole would show up as a written row. All 403,
+      nothing written, each refusal logged with the actor. The same seven
+      answer 200/204 for `labadmin`, which is what stops seven 403s from being
+      seven typos — the guard is a `route_layer`, so it covers a handler only
+      if the handler was registered on `admin::routes()`, and the kill switch
+      is the next route to be added (Phase 5). Verified live on the lab too:
+      through nginx, as a real logged-in portal user, with the client supplying
+      its own `X-Auth-Groups: OpenBerat-Admins` — still 403, because that is
+      where the portal's `/api/` strip kills it.*
+      **What this found.** The group list is comma-joined into one header and
+      split back apart here, so a single group *named* `Payroll,OpenBerat-Admins`
+      arrives as two and the second is `ADMIN_GROUP`. Measured end to end: an
+      ordinary portal user in that one group got `admin: true`, a 200 on
+      `/api/admin/applications` and a **201 on a wildcard entitlement**. It
+      cannot be fixed on this side — oauth2-proxy flattens the claim array
+      before the request arrives — so the control is the Keycloak group filter,
+      which ADR-0008, `docs/05`, `INSTALL.md` and both READMEs now call
+      mandatory instead of advisable. The one half the backend *can* refuse it
+      does: an `ad_group` entitlement whose `subject_id` contains a comma is a
+      rule that could never match, and is now a 400 rather than a silently dead
+      row. `docs/07`, harness `verify-comma.sh` on the lab host.
 - [x] `backend/src/store.rs`: the entitlement query + audit writing (off the
       decision path, bounded channel; a full channel does not block the request)
       *`rules_for` returns the application and the rules in one call; expiry is

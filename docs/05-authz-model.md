@@ -92,6 +92,18 @@ membership and is **not cached** (`docs/02`, "Management plane"). The decision
 function is separate and two lines long: is `ADMIN_GROUP` in the group list or
 not.
 
+**Where that group list comes from is the weak part, and the comma is why.**
+Groups arrive joined with commas into one header and are split back apart here,
+so a single group *named* `Payroll,OpenBerat-Admins` becomes two, the second
+being `ADMIN_GROUP`. Measured end to end: an ordinary portal user put in that
+one group reached `/api/admin/*` and created a wildcard entitlement
+(`docs/07`). The boundary information is destroyed by oauth2-proxy before the
+request arrives, so no care taken on this side can recover it — the control is
+the `OpenBerat-` prefix filter on the Keycloak group mapper, which matches the
+whole `cn` and never lets such a name into the claim. That filter is therefore
+**required configuration and not an optimisation**
+([ADR-0008](adr/0008-group-identity-name.md)).
+
 ## Decision cache
 
 A DB query on every HTTP request does not scale. But a long cache means late
@@ -293,6 +305,7 @@ without a test is visible as a gap rather than an omission.
 | Calling `/decide` directly to enumerate the policy table | From the browser: `internal;`. From a container: the backend sits only on `core`, which no protected application joins (`docs/02`) | Phase 3 |
 | Reaching an upstream while bypassing nginx entirely | v1: two networks — upstreams on `edge` with nginx only, never on `core` (`docs/02`); no published `ports`. **Not fully closed** — the signed identity JWT is the answer that survives an audit | Open question, `docs/06` |
 | A deleted AD group recreated with the same name inheriting its entitlements | **Not closed.** Accepted debt, mitigated by the `OpenBerat-` prefix and change control (ADR-0008) | — |
+| An AD group *named* `Payroll,OpenBerat-Admins` — one group that arrives as two, the second being `ADMIN_GROUP` | **Not closed here, and cannot be.** oauth2-proxy flattens the claim array into one comma-joined header, so the boundary is gone before the request arrives. The control is the Keycloak group filter, which never lets the name into the claim (ADR-0008) | Measured, `docs/07` |
 | Revoking access on an **active** WebSocket/SSE connection | **Not closed.** Explicitly outside the N-03 guarantee (ADR-0016) | Phase 1 measures the gap |
 
 The last four rows are the honest ones: they are open, and a security review

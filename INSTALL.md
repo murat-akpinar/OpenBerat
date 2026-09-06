@@ -24,6 +24,13 @@
   (`docs/03-keycloak-ad.md`).
 - **One AD group for administrators**, named in `ADMIN_GROUP`. In a fail-closed
   system the first admin cannot come from the database.
+- **A group filter on Keycloak'''s LDAP group mapper**, matching the
+  `OpenBerat-` prefix — e.g. `(&(objectClass=group)(cn=OpenBerat-*))`. This is
+  not tidiness. Group names reach the backend joined with commas, so a group
+  *named* `Payroll,OpenBerat-Admins` arrives as two names and the second one is
+  `ADMIN_GROUP`; the filter is what stops such a name from ever entering the
+  claim (ADR-0008, `docs/07`). Without it, anyone who can create a group in AD
+  can grant themselves the management plane.
 - Docker with Compose v2.
 - **Lab only:** the `samba-ad` container provisions a real AD domain, and that
   writes `security.*` extended attributes. A user namespace refuses them
@@ -32,7 +39,7 @@
   container (`docs/07`). A production install never starts `samba-ad`, so this
   does not apply there.
 
-The three Active Directory items are the operator's, not this repository's, and
+The four Active Directory items are the operator's, not this repository's, and
 none can be skipped — the same table is in both READMEs.
 
 ## 1. Certificate

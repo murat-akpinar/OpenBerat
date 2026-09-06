@@ -35,6 +35,7 @@ not the whole job. These are the operator's, and none of them can be skipped:
 | **Write access to Active Directory** for the `OpenBerat-` groups | Entitlements are AD groups. Somebody has to create them ([ADR-0008](docs/adr/0008-group-identity-name.md)) |
 | **An AD service account** for Keycloak's LDAP bind, read-only | [docs/03-keycloak-ad.md](docs/03-keycloak-ad.md) |
 | **One AD group for administrators**, named in `ADMIN_GROUP` | In a fail-closed system the first admin cannot come from the database |
+| **A group filter on Keycloak's LDAP group mapper** matching the `OpenBerat-` prefix | Not tidiness: names reach the backend comma-joined, so a group *named* `Payroll,OpenBerat-Admins` arrives as two and the second is `ADMIN_GROUP`. The filter is what keeps such a name out of the claim ([ADR-0008](docs/adr/0008-group-identity-name.md), [docs/07](docs/07-references.md)) |
 
 Realistically this asks for an operator who is comfortable with AD, Keycloak and
 nginx. It replaces a VPN; it is not lighter than one to set up, only lighter to

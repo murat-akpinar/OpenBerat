@@ -1272,6 +1272,192 @@ async fn decide_section(pool: &PgPool) {
         "a disabled application"
     );
 
+    // --- the whole management plane, not one route of it ---
+    // A portal user reaching /api/admin/* is the attack docs/02 names: the
+    // portal is open to every authenticated user, so if reaching it were enough
+    // then anyone could grant themselves entitlements. One route was checked
+    // above; the guard is a `route_layer`, so it protects a handler only if the
+    // handler was registered on `admin::routes()`. A route added to the main
+    // router in api.rs instead — the kill switch is the next one (Phase 5) —
+    // would be reachable and nothing would fail. Enumerated, with a valid
+    // Origin and a body that would really work, so the group check is the only
+    // thing left that can refuse and a hole shows up as a written row.
+    // Not any entitlement: `application_id` cascades on delete, and the admin
+    // pass below deletes `reports` two steps before it deletes this row.
+    let ent_id: Uuid = sqlx::query_scalar("select id from entitlement where application_id = $1")
+        .bind(finance)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    let rows = async || -> (i64, i64, bool) {
+        (
+            sqlx::query_scalar("select count(*) from application")
+                .fetch_one(pool)
+                .await
+                .unwrap(),
+            sqlx::query_scalar("select count(*) from entitlement")
+                .fetch_one(pool)
+                .await
+                .unwrap(),
+            sqlx::query_scalar("select enabled from application where slug = 'reports'")
+                .fetch_one(pool)
+                .await
+                .unwrap(),
+        )
+    };
+    let before = rows().await;
+    let sneak = async |method: &str, path: String, body: serde_json::Value| {
+        let mut request = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("content-type", "application/json")
+            .header("origin", "https://portal.apps.example.local");
+        for (name, value) in identity("OpenBerat-Finance") {
+            request = request.header(name, value);
+        }
+        router(shared.clone())
+            .oneshot(request.body(Body::from(body.to_string())).unwrap())
+            .await
+            .unwrap()
+    };
+    // The wildcard entitlement is the one that matters here: no application_id,
+    // so it grants every application present and future (docs/05 rule 4).
+    let plane = [
+        (
+            "GET",
+            "/api/admin/applications".to_string(),
+            serde_json::json!(null),
+        ),
+        (
+            "POST",
+            "/api/admin/applications".to_string(),
+            serde_json::json!({
+                "slug": "sneak", "name": "Sneak",
+                "upstream_url": "http://sneak-app:8080",
+                "external_hostname": "sneak.apps.example.local"
+            }),
+        ),
+        (
+            "PATCH",
+            format!("/api/admin/applications/{reports_id}"),
+            serde_json::json!({"enabled": true}),
+        ),
+        (
+            "DELETE",
+            format!("/api/admin/applications/{reports_id}"),
+            serde_json::json!(null),
+        ),
+        (
+            "GET",
+            "/api/admin/entitlements".to_string(),
+            serde_json::json!(null),
+        ),
+        (
+            "POST",
+            "/api/admin/entitlements".to_string(),
+            serde_json::json!({"subject_type": "ad_group",
+                               "subject_id": "OpenBerat-Finance", "effect": "allow"}),
+        ),
+        (
+            "DELETE",
+            format!("/api/admin/entitlements/{ent_id}"),
+            serde_json::json!(null),
+        ),
+    ];
+    for (method, path, body) in &plane {
+        let response = sneak(method, path.clone(), body.clone()).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "a portal user reached {method} {path}"
+        );
+    }
+    assert_eq!(
+        rows().await,
+        before,
+        "a refused portal user still changed something"
+    );
+    // The same seven with the admin group, and this is what stops the loop
+    // above from being vacuous: a mistyped path answers 404 and a wrong method
+    // 405, neither of which is the 403 asserted — but a route that quietly
+    // stopped existing would still need something to say so. Run last in this
+    // section, because these ones land.
+    for (method, path, body) in &plane {
+        let mut request = Request::builder()
+            .method(*method)
+            .uri(path)
+            .header("content-type", "application/json")
+            .header("origin", "https://portal.apps.example.local");
+        for (name, value) in identity("OpenBerat-Admins") {
+            request = request.header(name, value);
+        }
+        let response = router(shared.clone())
+            .oneshot(request.body(Body::from(body.to_string())).unwrap())
+            .await
+            .unwrap();
+        assert_ne!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "an admin was refused {method} {path}"
+        );
+        assert!(
+            response.status().is_success(),
+            "{method} {path} answered {}",
+            response.status()
+        );
+    }
+
+    // Refused for the same reason with no Origin and with a foreign one: the
+    // group check runs first, so a missing Origin cannot be what a reviewer
+    // mistakes for the thing keeping a non-admin out.
+    for origin in ["", "https://sample.apps.example.local"] {
+        let mut headers = identity("OpenBerat-Finance");
+        if !origin.is_empty() {
+            headers.push(("origin", origin.to_string()));
+        }
+        assert_eq!(
+            call("DELETE", "/api/admin/applications", headers)
+                .await
+                .status(),
+            StatusCode::FORBIDDEN,
+            "origin {origin:?}"
+        );
+    }
+
+    // --- the delimiter the group list is joined with ---
+    // Groups arrive comma-joined in one header (docs/07) and are split back
+    // apart here, so one AD group *named* `Payroll,OpenBerat-Admins` splits
+    // into two, and the second one is the management plane. This is pinned,
+    // not fixed: the array was flattened upstream by oauth2-proxy and the fact
+    // that it was ever one name is gone before the request arrives, so no
+    // amount of care on this side can tell the two apart. The control is
+    // ADR-0008 mitigation 1 — the Keycloak mapper filter, which matches the
+    // whole `cn` against `OpenBerat-*` and never lets such a name into the
+    // claim. The day this assertion fails, the split changed.
+    assert_eq!(
+        call(
+            "GET",
+            "/api/admin/applications",
+            identity("Payroll,OpenBerat-Admins")
+        )
+        .await
+        .status(),
+        StatusCode::OK,
+        "a comma in an AD group name is the whole management plane (docs/07)"
+    );
+    // The other half of the same delimiter, and this one the backend can
+    // refuse: an `ad_group` grant whose name contains a comma can never match
+    // anything, because the list it is matched against was split on commas. A
+    // rule that silently never fires is worse than a refusal — the admin
+    // believes the access was granted.
+    let response = post(
+        "/api/admin/entitlements",
+        serde_json::json!({"application_id": reports_id, "subject_type": "ad_group",
+                           "subject_id": "Payroll,OpenBerat-Finance", "effect": "allow"}),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
     // --- how many AD groups the backend's own HTTP client survives ---
     // nginx's half of this is measured (docs/07): the group list travels
     // comma-joined in one header, and a 4 KB buffer breaks between 100 and 200

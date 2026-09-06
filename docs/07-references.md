@@ -690,6 +690,59 @@ and in [ADR-0010](adr/0010-lab-ad-samba.md)'s consequences; it does not change
 the decision, only the ground it needs. Every remaining Phase 1 box waits on
 it.
 
+### A comma in a group name is the management plane
+
+The group list is joined with a comma into one header and split back apart on
+the other side (measured two sections above: one header, never one per group).
+Nothing in that round trip records where a name ended and the next began, so a
+single group **named** `Payroll,OpenBerat-Admins` arrives as two — and the
+second one is `ADMIN_GROUP`.
+
+Measured end to end on the lab stack, with `labuser`, an ordinary portal user
+in `OpenBerat-Finance` and nothing else:
+
+| step | result |
+|---|---|
+| Create a Keycloak group named `Payroll,OpenBerat-Admins` | accepted, no complaint |
+| Add `labuser` to it — one group, not two | accepted |
+| Fresh login, `GET /api/me` | `groups: ["OpenBerat-Finance","Payroll","OpenBerat-Admins"]`, **`admin: true`** |
+| `GET /api/admin/applications` | **200** |
+| `POST /api/admin/entitlements`, a wildcard grant with no `application_id` | **201 Created** |
+
+The last row is the whole product: a wildcard entitlement grants every
+application, present and future (`docs/05` rule 4). Harness: `verify-comma.sh`
+on the lab host, which restores the realm and the table afterwards.
+
+**It cannot be fixed on our side of the header.** The claim leaves Keycloak as a
+JSON array, oauth2-proxy flattens it to a string, and the request reaches the
+backend with the boundary information already gone. Splitting more carefully
+does not help: `["Payroll,OpenBerat-Admins"]` and `["Payroll",
+"OpenBerat-Admins"]` produce the same bytes. Reading the array instead would
+mean either decrypting oauth2-proxy's Redis session — reimplementing its session
+format — or moving to oauth2-proxy's alpha configuration, and neither is a v1
+change ([ADR-0006](adr/0006-group-membership-source.md) chose the header path).
+
+**What does close it is upstream, and it is `OpenBerat-`.** The prefix in
+[ADR-0008](adr/0008-group-identity-name.md) was introduced to keep the claim
+small; it turns out to be the control that stops this, because the Keycloak LDAP
+group filter matches the **whole** `cn` and `Payroll,OpenBerat-Admins` does not
+match `OpenBerat-*`. A group that never enters Keycloak never reaches the
+header. That makes the filter load-bearing rather than an optimisation, and
+`docs/05` and ADR-0008 now say so. Still unverified against a real filter —
+listed below, and a Phase 1 box.
+
+Two things the backend *can* do, and now does:
+
+- An `ad_group` entitlement whose `subject_id` contains a comma is **refused**
+  at `POST /api/admin/entitlements`. It could never have matched anything — the
+  list it is compared against was split on commas — so storing it would give an
+  admin a rule that silently never fires.
+- The whole management plane is tested against a portal user, route by route,
+  in and out of process. Seven routes, a valid `Origin` and bodies that would
+  really work: all 403, nothing written, each refusal logged with the actor.
+  The same seven answer 200/204 for `labadmin`, which is what stops the seven
+  403s from being seven typos.
+
 ## Unverified, to be tested
 
 These claims have not been confirmed against a source; they will be tried in the
@@ -735,6 +788,11 @@ Phase 1 lab:
       reference environment variables for the OIDC client secret at import, or
       does the secret need a post-import step? The repository is public, so the export is committed scrubbed
       (`keycloak/README.md`) and the real value has to arrive some other way.
+- [ ] Does the Keycloak **LDAP group filter** exclude a group whose `cn`
+      contains a comma — `Payroll,OpenBerat-Admins` against `(cn=OpenBerat-*)`?
+      Measured above: such a group reaching the claim is a management-plane
+      escalation, and this filter is the only thing that stops it
+      ([ADR-0008](adr/0008-group-identity-name.md) mitigation 1). Needs samba-ad.
 - [ ] Does the vendored Alpine.js run under a `default-src 'self'` CSP
       **without** `unsafe-eval`? The standard build evaluates expressions with
       `new Function()`; the CSP build restricts the expression syntax.

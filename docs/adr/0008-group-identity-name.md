@@ -43,6 +43,18 @@ carries no SID column. A nullable column that nothing ever writes is exactly the
    bloat), it narrows the authorisation surface, and it makes the blast radius
    of a recreated group visible to whoever administers AD. The prefix lives in
    the Keycloak group mapper filter — customer configuration, not our code.
+
+   **It does a fourth job that was not known when this ADR was written, and it
+   is the reason the filter is now mandatory rather than advisable.** The group
+   list travels comma-joined in one header and is split back apart in the
+   backend, so one group *named* `Payroll,OpenBerat-Admins` arrives as two and
+   the second is `ADMIN_GROUP`. Measured on the lab: an ordinary portal user in
+   that single group reached `/api/admin/*` and created a wildcard entitlement
+   (`docs/07`, "A comma in a group name is the management plane"). The backend
+   cannot detect it — oauth2-proxy flattens the claim array before the request
+   arrives — so the filter, which matches the whole `cn` against `OpenBerat-*`
+   and rejects that name, is the control. An installation that skips it has an
+   escalation path, not merely a large token.
 2. **Change control on deletion and recreation** of prefixed groups, on the AD
    side. This is an operational control, written into the installation
    documentation, not something the software can enforce.
@@ -54,7 +66,12 @@ carries no SID column. A nullable column that nothing ever writes is exactly the
 ## Consequences
 
 - The recreation hole is **accepted, documented debt**, not a solved problem. It
-  belongs in the risk section of any security review of this product.
+  belongs in the risk section of any security review of this product. So does
+  the comma above: both are consequences of identifying a group by a string
+  somebody else controls.
+- The decision is unchanged — matching by name still costs less than an LDAP
+  dependency — but mitigation 1 is no longer optional, and `INSTALL.md` has to
+  say so where it configures the mapper.
 - If ADR-0006's path B is ever triggered, SID matching comes for free and this
   ADR is superseded rather than patched.
 - The `ZTNA-` prefix used in earlier drafts is replaced by `OpenBerat-`: the
