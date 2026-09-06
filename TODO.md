@@ -93,6 +93,15 @@ Verify the architecture actually works before writing code.
       `nginx/conf.d/README.md`, both halves in `docs/07`*
 - [ ] **VERIFY (2):** Keycloak LDAP provider `Cache Policy` — does group membership
       go stale at anything other than `NO_CACHE`? ADR-0006 rests on this claim
+      *Blocked with the five boxes below it: `samba-ad` cannot provision on the
+      current lab host. Two failures, both in `docs/07` — the DC's short name
+      collided with the domain's NetBIOS name (fixed: `dc01` in
+      `example.local`), and then provisioning panicked writing the sysvol ACLs
+      because the host is an unprivileged LXC and a user namespace refuses
+      `security.*` xattrs, as root, outside Docker. Not the image: the same
+      wall with Samba 4.15 and 4.22, privileged, unconfined, on a volume, with
+      `posix:eadb`. Needs bare metal, a VM or a privileged container
+      (ADR-0010, `INSTALL.md`)*
 - [x] **VERIFY (3):** does an nginx subrequest itself trigger `auth_request`? If it
       does, the internal HTTP call in the backend can go away. Also: does the
       subrequest inherit the main request's headers (`X-Original-URI` spoofing)?

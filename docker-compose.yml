@@ -109,13 +109,25 @@ services:
   samba-ad:
     restart: unless-stopped
     # Lab directory only, ships in no release (ADR-0010). Test users, nested
-    # groups and disabled accounts are provisioned here in Phase 1.
-    image: nowsci/samba-domain
-    hostname: ad
+    # groups and disabled accounts are provisioned here in Phase 1. Pinned by
+    # digest like every other image: the fixture is only reproducible if the
+    # directory it is built in is.
+    image: nowsci/samba-domain@sha256:ce27adb35a4cf04a14fc9f98d3cbac00e1f4429ba5e1c4f663919101f98c6f88
+    # Samba refuses to provision when the DC's short name equals the domain's
+    # NetBIOS name — `hostname: ad` with `ad.example.local` is a fatal
+    # `Domain 'AD' must not be equal to short host name 'AD'`. dc01 in
+    # example.local is the pair docs/03 already documents.
+    hostname: dc01
     environment:
       DOMAIN: ${AD_DOMAIN}
       DOMAINPASS: ${AD_ADMIN_PASSWORD}
-    networks: [core]
+      # Lab fixture passwords are not AD-complex; without this the fixture
+      # script fails halfway and leaves a half-populated directory.
+      NOCOMPLEXITY: "true"
+    networks:
+      core:
+        # Keycloak reaches the DC by the name its LDAPS certificate carries.
+        aliases: [dc01.example.local]
 
   # The two protected sample applications (lab): one plain HTTP, one WebSocket.
   # On edge only — all they can reach is nginx.

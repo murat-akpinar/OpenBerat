@@ -605,6 +605,52 @@ with PKCE `S256`, credentials posted, session cookie minted, portal served 200.
 The throwaway project and its checkout were removed and the lab put back on the
 committed configuration.
 
+### Samba AD DC does not provision in an unprivileged container
+
+Two failures, one after the other, bringing `samba-ad` up for the first time.
+
+**The DC's short name may not equal the domain's.** `hostname: ad` with
+`AD_DOMAIN=ad.example.local` gives both the NetBIOS name `AD`, and Samba stops
+at `guess_names: Domain 'AD' must not be equal to short host name 'AD'`. Fatal,
+before anything is written. The pair is now `dc01` in `example.local` — the one
+`docs/03` already documents, which also makes its example DNs (`DC=example,
+DC=local`) literally correct.
+
+**Provisioning then panics setting the sysvol ACLs.** `set_nt_acl` →
+`try_chown` → `Security context active token stack underflow`, in the middle of
+"Setting up self join". The cause is one layer below Docker: writing the
+`security.NTACL` extended attribute returns `EPERM` **on the lab host, as root,
+outside any container**. `systemd-detect-virt` reports `lxc` and
+`/proc/sys/kernel` is owned by `nobody:nogroup` — the host is an unprivileged
+Proxmox container, and a user namespace refuses writes to the `security.*`
+namespace no matter which capabilities are held. `user.*` xattrs work; only
+`security.*` are refused, and that is the namespace Samba's `acl_xattr` module
+needs.
+
+It is not the image or the configuration. The same wall with
+`nowsci/samba-domain` (Samba 4.15) and with a Debian 13 image built for the
+purpose (Samba 4.22), under `--privileged`, `seccomp=unconfined`,
+`apparmor=unconfined`, `--cap-add SYS_ADMIN`, with `/var/lib/samba` on a named
+volume rather than overlayfs, with `posix:eadb` pointing the xattrs at a tdb,
+with `posix_eadb` named explicitly in `vfs objects`, and with `--targetdir`.
+Samba 4.22 has also **removed** `--use-xattrs=no`, the flag the wiki still
+names for filesystems without xattr support; `posix:eadb` is what is left of
+it, and on its own it only gets as far as
+`posix_eadb_fremovexattr() failed to get vfs_handle->data!` before the same
+panic.
+
+The database itself survives the panic — `samba-tool user list` returns
+`Administrator`, `Guest`, `krbtgt` and the domain reports function level 2008
+R2 — but the run aborts before the machine account reaches `secrets.ldb`, so
+`samba` exits at startup with `Failed to obtain server credentials, perhaps a
+standalone server?`. There is no usable half-state.
+
+Consequence: the lab needs a host that is not a user namespace — bare metal, a
+VM, or a privileged container. Recorded as a lab prerequisite in `INSTALL.md`
+and in [ADR-0010](adr/0010-lab-ad-samba.md)'s consequences; it does not change
+the decision, only the ground it needs. Every remaining Phase 1 box waits on
+it.
+
 ## Unverified, to be tested
 
 These claims have not been confirmed against a source; they will be tried in the

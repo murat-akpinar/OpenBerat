@@ -46,4 +46,10 @@ identical to it.
   behaviour is re-tested on Windows Server before it is believed. This applies
   especially to the nested-group `memberOf` test, where Samba's and AD's
   behaviour is the very thing under examination.
+- **The lab host cannot be a user namespace.** Provisioning writes
+  `security.*` extended attributes, which an unprivileged container refuses
+  whatever capabilities it is given — bare metal, a VM or a privileged
+  container is required (`docs/07`). This does not change the decision; it is
+  the ground the decision needs, and N-05's "one machine" now carries a
+  condition on which machine.
 - The lab is a development dependency only; it ships in no release image.

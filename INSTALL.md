@@ -25,6 +25,12 @@
 - **One AD group for administrators**, named in `ADMIN_GROUP`. In a fail-closed
   system the first admin cannot come from the database.
 - Docker with Compose v2.
+- **Lab only:** the `samba-ad` container provisions a real AD domain, and that
+  writes `security.*` extended attributes. A user namespace refuses them
+  whatever capabilities the container is given, so the lab does not come up
+  inside an unprivileged LXC — it needs bare metal, a VM, or a privileged
+  container (`docs/07`). A production install never starts `samba-ad`, so this
+  does not apply there.
 
 The three Active Directory items are the operator's, not this repository's, and
 none can be skipped — the same table is in both READMEs.
@@ -76,7 +82,7 @@ the values are not free-form passwords and carry their own command:
 POSTGRES_PASSWORD=…
 KC_ADMIN_USER=admin
 KC_ADMIN_PASSWORD=…
-AD_DOMAIN=ad.example.local
+AD_DOMAIN=example.local
 AD_ADMIN_PASSWORD=…
 # The OIDC client secret. The committed realm export carries a placeholder;
 # this is the real value, injected at import and read by oauth2-proxy.
