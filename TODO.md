@@ -381,11 +381,11 @@ has a first draft, and there is still not one line of code.
       allow means a denied user never refreshes again and their groups freeze
       until the cookie expires — ADR-0006 collapsing quietly, one denial at a
       time. `docs/02` says so now.*
-- [ ] Timeout budget decreasing outward-in: `/decide` 2s → oauth2-proxy 1s → sqlx 500ms
-      *Two of the three are in: oauth2-proxy at 1 s per request, the entitlement
-      query at 500 ms, both denying rather than hanging. The outer 2 s is
-      nginx's `proxy_read_timeout` on the subrequest location and closes with
-      `00-auth.conf` below.*
+- [x] Timeout budget decreasing outward-in: `/decide` 2s → oauth2-proxy 1s → sqlx 500ms
+      *All three: `proxy_connect_timeout 1s` + `proxy_read_timeout 2s` on the
+      subrequest location, oauth2-proxy at 1 s inside the backend, the
+      entitlement query at 500 ms. nginx's default is 60 s, which is how a slow
+      backend becomes a stopped system rather than a denied request.*
 - [x] Decision cache: key `(cookie_hash, app_slug)`, value **identity + the
       matching rule list + per-outcome counters**; `policy.rs` evaluates the
       cached rules against the normalised path on every hit. Single-flight
@@ -450,13 +450,35 @@ has a first draft, and there is still not one line of code.
       SIGTERM produced exactly two — one allow with `count=20, distinct=20`, one
       deny with `count=1` — which is the whole of what "count decisions,
       summarise rows" was supposed to mean.*
-- [ ] `backend/Dockerfile`: multi-stage build
-- [ ] `nginx/conf.d/00-auth.conf`: `auth_request`, `error_page 401 = @signin`,
+- [x] `backend/Dockerfile`: multi-stage build
+      *Written with the compose skeleton in Phase 1 and only confirmed here:
+      the image builds from a clean context with the modules, migrations and
+      the three new dependencies in it, and the container it produces is what
+      the local stack below ran.*
+- [x] `nginx/conf.d/00-auth.conf`: `auth_request`, `error_page 401 = @signin`,
       `error_page 403 = @denied` → **302** to the portal host,
       `error_page 500 502 503 504 = @unavailable` → local static page
-- [ ] `/oauth2/*` anonymous; the portal host open to every authenticated user
-- [ ] **Test:** an unauthorised user sees the `/denied` page (no loop)
-- [ ] The `/decide` include: `X-App-Slug` (fixed), `X-Original-URI`,
+      *Split across four files rather than one, because `nginx.conf` includes
+      `conf.d/*.conf` into the `http` block and a bare `location` there is a
+      syntax error — the shared pieces are `errors.inc`, `decide.inc` and
+      `protected.inc`, and `00-auth.conf` holds only what belongs at http
+      level. The README table said otherwise and is corrected. One more
+      correction the writing forced: the unavailable handler takes **no `=`**.
+      With it nginx answers with the handler's status — 200 for a static
+      file — and an outage becomes indistinguishable from a working page. The
+      `=` on `error_page 401` is still load-bearing for the opposite reason.*
+- [x] `/oauth2/*` anonymous; the portal host open to every authenticated user
+      *Both confirmed against the running stack: the portal answers 200 to any
+      authenticated user without consulting `/decide`, and an unknown vhost now
+      answers 404 rather than being served by the default server — with a
+      wildcard certificate, the first `:443` block otherwise answers for every
+      name in the domain.*
+- [x] **Test:** an unauthorised user sees the `/denied` page (no loop)
+      *`/admin/users` → 302 to `portal…/denied?app=sample.apps.example.local`,
+      and that page answers 200. One hop, no loop. `/%61dmin/users` takes the
+      same road, which is `policy.rs`'s normalisation showing up at the far end
+      of the chain rather than in a unit test.*
+- [x] The `/decide` include: `X-App-Slug` (fixed), `X-Original-URI`,
       `X-Original-Method`, `X-Real-IP`, `X-Request-Id` — written unconditionally,
       **and the `X-Auth-*` family cleared** (`proxy_set_header … "";`). The
       subrequest inherits client headers verbatim (VERIFY (3)); the upstream
@@ -464,32 +486,63 @@ has a first draft, and there is still not one line of code.
       Also `proxy_buffer_size 32k` + `proxy_buffers 4 32k`: `/decide` returns the
       user's whole group list in one header, and the 4 KB default turns a
       many-group user into a 500 (measured, `docs/07`)
+      *`decide.inc`. `X-App-Slug` comes from `$app_slug`, `set` once per server
+      block — a variable rather than a literal only so the include can stay
+      shared; the value is still nginx's, never the request's. A server that
+      forgets to set it sends empty and the backend denies `missing_context`,
+      which is the right direction to fail in.*
 - [ ] **Check the backend's own HTTP client header limit** the same way — it
       reads oauth2-proxy's response, which carries that same group list. The
       nginx half is measured; this half is not
-- [ ] `nginx/conf.d/20-apps.conf`: protected applications, **strip** incoming
+- [x] `nginx/conf.d/20-apps.conf`: protected applications, **strip** incoming
       `X-Auth-*` headers
-- [ ] **Strip the `_oauth2_proxy` session cookie before proxying** — a `map`
+      *Hand-written for the two lab samples, and deliberately shaped as the
+      template ADR-0011 will generate in Phase 4: a constant `$app_slug`, two
+      includes, one `proxy_pass`. Nothing per-application is left to remember.*
+- [x] **Strip the `_oauth2_proxy` session cookie before proxying** — a `map`
       rewriting `$http_cookie` in the shared include, applied to every protected
       location **and to the Keycloak host**, which forwards it today. An upstream
       that receives it holds a credential valid for every host on
       `.apps.<domain>` (`docs/05` attack table, ADR-0015). `docs/05` already
       names the test; nothing built the thing it tests
-- [ ] `proxy_read_timeout 300s` on protected locations — cuts idle long-lived
+      *Done, and it is a rewrite of the header rather than dropping it: an
+      application that loses its own cookies is broken, not secured. Confirmed
+      against the running stack — the upstream saw `mode=valid; app_pref=dark`
+      and no `_oauth2_proxy`. The Keycloak host has it too.*
+- [x] `proxy_read_timeout 300s` on protected locations — cuts idle long-lived
       connections only; active ones are outside the N-03 guarantee (ADR-0016)
+      *Set in `protected.inc`, alongside the `Upgrade`/`Connection` pair a
+      WebSocket needs. Verified: `101 Switching Protocols` through the PEP.*
 - [ ] `Origin` check on state-changing `/api/admin/*` endpoints
 - [ ] Rate limiting (pulled forward from Phase 6 — audit and backend are a single
       point of failure)
-- [ ] **Test:** a forged `X-Auth-Groups` grants no access
-- [ ] **Test:** a forged `X-Auth-Request-Groups` does not reach `/decide` either —
+- [x] **Test:** a forged `X-Auth-Groups` grants no access
+      *Against the running stack, not a unit test: a client sending
+      `X-Auth-Groups: OpenBerat-Admins`, `X-Auth-Subject: root` and
+      `X-Auth-Request-User: root` reached the upstream with
+      `X-Auth-Groups: OpenBerat-Finance` and `X-Auth-Subject: sub-labuser` —
+      the verified identity, overwriting all of it.*
+- [x] **Test:** a forged `X-Auth-Request-Groups` does not reach `/decide` either —
       the subrequest path, not just the upstream one (VERIFY (3))
+      *`X-Auth-Request-Groups: OpenBerat-Admins` on a path the user's real
+      groups are denied still denies. Two independent things have to fail for
+      this to pass: `decide.inc` clears the family on the subrequest, and the
+      backend reads identity only from oauth2-proxy's response.*
 - [ ] **Test:** every location carrying `auth_request` answers from the content
       phase — no `return` (VERIFY (3): `return` runs before `auth_request` and
       leaves the location open). Cheap form: grep the generated and
       hand-written blocks
-- [ ] **Test:** a forged `X-Original-URI` / `Host` cannot borrow another
+- [x] **Test:** a forged `X-Original-URI` / `Host` cannot borrow another
       application's entitlements
-- [ ] **Test:** an unauthenticated request is redirected to login
+      *Three forgeries, all refused: `X-Original-URI: /` on a request for
+      `/admin/users`, `X-Forwarded-Host: portal…`, and `X-App-Slug: ws` naming
+      an application the user can reach. Each is overwritten by the include
+      before the subrequest leaves nginx. `X-Request-Id` too — the upstream saw
+      nginx's `$request_id`, not the client's.*
+- [x] **Test:** an unauthenticated request is redirected to login
+      *302 into the login flow with the query string whole —
+      `/reports?a=1&b=2` came back intact, which is the Phase 1 finding about
+      `rd=` still holding now that the handler lives in a shared include.*
 - [ ] `GET /healthz` and `GET /readyz` (`docs/02`) — internal network only.
       Without them a fail-closed blackout and a working deny policy look identical
       from outside, and there is nothing for the Phase 6 health check to poll

@@ -6,13 +6,20 @@ authorisation decision. Reference pattern and verified details:
 
 | File | Contents | |
 |---|---|---|
-| `openberat.conf` | The `:80` → `:443` redirect and the default `server` block | now |
+| `openberat.conf` | The `:80` → `:443` redirect and the default `server`, which answers 404 | now |
+| `00-auth.conf` | http-level only: the `map` that strips the session cookie, and the WebSocket upgrade map | now |
 | `10-portal.conf` | Portal and admin: frontend static files, `/api/*` → backend — **and the two anonymous hosts**, `/oauth2/*` and Keycloak's `/realms/` + `/resources/` | now, minus `/api/*` |
-| `00-auth.conf` | `auth_request /decide` + `error_page 401/403` + the shared `X-Auth-*` stripping | Phase 3 |
-| `20-apps.conf` | Protected applications (`*.apps.<domain>`) → upstream | Phase 4 (generated, ADR-0011) |
+| `20-apps.conf` | Protected applications (`*.apps.<domain>`) → upstream | now, hand-written for the lab samples; generated in Phase 4 (ADR-0011) |
+| `errors.inc` | `@signin`, `@denied`, and the `/unavailable.html` location — included at **server** level | now |
+| `decide.inc` | `location = /decide` — included at **server** level | now |
+| `protected.inc` | `auth_request` and the whole header rewrite — included inside a **location** | now |
 
-The rules below apply to all four. The last two do not exist yet, which is why
-several of the rules read as requirements rather than as descriptions.
+The three shared pieces are `.inc` and not `.conf` for a mechanical reason:
+`nginx.conf` includes `conf.d/*.conf` into the `http` block, and a bare
+`location` there is a syntax error. An earlier draft of this table had them all
+in `00-auth.conf`, which cannot work.
+
+The rules below apply to all of them.
 
 ## Do not skip these
 
@@ -69,14 +76,19 @@ several of the rules read as requirements rather than as descriptions.
    like infrastructure rather than a page the browser visits. Proxy only
    `/realms/*` and `/resources/*` on the Keycloak host — never `/admin` (the
    Keycloak admin console) or `/metrics`. The Keycloak host defaults to
-   `auth.apps.<domain>`, covered by the wildcard certificate. It needs the same
-   session-cookie strip as item 16 and **does not have it yet** — the `map` that
-   item describes is Phase 3 work, so today `_oauth2_proxy` reaches Keycloak
-   with every login request (TODO.md Phase 3).
+   `auth.apps.<domain>`, covered by the wildcard certificate. It carries the
+   same session-cookie strip as item 16: Keycloak has no use for our session
+   cookie, and forwarding it hands a credential valid for every host on
+   `.apps.<domain>` to a service that access-logs requests.
 9. **Timeout budget.** For `/decide`: `proxy_connect_timeout 1s; proxy_read_timeout 2s;`
    The default is 60 seconds; if the backend slows down, workers fill up and
-   everything stops. `error_page 500 502 503 504 = @unavailable` → a local static
-   page, never a bare 500.
+   everything stops. `error_page 500 502 503 504 /unavailable.html;` → a local
+   static page, never a bare 500. **No `=` on that one**, unlike item 1: with
+   it, nginx answers with the status the handler produces — 200 for a static
+   file — and an outage becomes indistinguishable from a working page. Without
+   it the original 502/503 reaches the client and the page explains it. The
+   two rules pull in opposite directions because they are answering different
+   questions: item 1 needs the handler's status, this one needs the error's.
 10. **Relay `Set-Cookie`.** `auth_request_set $auth_cookie $upstream_http_set_cookie;`
    plus `add_header Set-Cookie $auth_cookie always;` Without it `cookie_refresh`
    does not work.
