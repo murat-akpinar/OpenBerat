@@ -156,6 +156,11 @@ LAB_USER_PASSWORD=…
 # default. Whatever it names has to match the group mapper's filter, or the
 # management plane is unreachable — §4, "The groups".
 ADMIN_GROUP=OpenBerat-Admins
+# Optional: how long the audit log is kept, in whole months. Empty takes the
+# backend's 12. Set it to your own retention policy — KVKK asks for a stated
+# period and this is where it is stated. A month is dropped whole, so the
+# figure is a floor; if your policy is a maximum, set one month less.
+AUDIT_RETENTION_MONTHS=
 ```
 
 ## 4. Active Directory
@@ -518,5 +523,5 @@ restore.
 > Phase 1 and the phases after it are done and this file follows them: the
 > certificate, the realm import, the AD federation, the first login, adding an
 > application and integrating one are all written above and were replayed on a
-> clean checkout. What is still missing belongs to Phase 6 — the audit
-> retention job, monitoring and the release image (`TODO.md`).
+> clean checkout. What is still missing belongs to Phase 6 —
+> monitoring and the release image (`TODO.md`).

@@ -18,6 +18,12 @@ const AUDIT_QUEUE: usize = 1024;
 const SWEEP_INTERVAL: Duration = Duration::from_secs(5);
 /// How long shutdown waits for the audit queue to reach Postgres.
 const SHUTDOWN_DRAIN: Duration = Duration::from_secs(5);
+/// Audit partitions are created a month ahead and expire a month at a time, so
+/// there is nothing a run more often than daily could find to do.
+const RETENTION_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+/// The retention nobody configured. Long enough to cover an annual audit, and
+/// deliberately not longer: the log is personal data (ADR-0022).
+const RETENTION_MONTHS: u32 = 12;
 
 fn fatal(message: &str) -> ! {
     tracing::error!("{message}");
@@ -69,6 +75,43 @@ async fn main() {
             loop {
                 tick.tick().await;
                 cache.sweep();
+            }
+        }
+    });
+
+    // --- Feature Start ---
+    // The retention job, and the reason a bad value is fatal rather than
+    // defaulted: this is the one background task that deletes, and a typo in an
+    // environment variable must not be able to shorten how long the audit log
+    // survives. The first tick fires immediately, so a fresh install has its
+    // partitions before the first decision is written (ADR-0022).
+    // --- Feature End ---
+    // Empty is unset, not zero: compose substitutes an empty string for a
+    // variable left out of .env (.env.example), and the default belongs in one
+    // place — here, rather than repeated in the compose file.
+    let months = match std::env::var("AUDIT_RETENTION_MONTHS")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+    {
+        Some(value) => value
+            .trim()
+            .parse::<u32>()
+            .ok()
+            .filter(|months| *months > 0)
+            .unwrap_or_else(|| {
+                fatal("AUDIT_RETENTION_MONTHS must be a whole number of months, 1 or more")
+            }),
+        None => RETENTION_MONTHS,
+    };
+    tokio::spawn({
+        let pool = pool.clone();
+        async move {
+            let mut tick = tokio::time::interval(RETENTION_INTERVAL);
+            loop {
+                tick.tick().await;
+                if let Err(e) = store::maintain_audit(&pool, months).await {
+                    tracing::error!(error = %e, "audit retention did not finish");
+                }
             }
         }
     });

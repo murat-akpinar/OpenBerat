@@ -2,7 +2,7 @@
 // Schema: migrations/0001_init.sql, model: docs/02-architecture.md
 
 use crate::policy::{Decision, Effect, Rule};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Utc};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use std::net::IpAddr;
@@ -336,4 +336,85 @@ pub async fn write_audit(pool: PgPool, mut rx: mpsc::Receiver<AuditEvent>) {
             tracing::error!(error = %e, dropped = audit_dropped(), "audit row lost");
         }
     }
+}
+
+// --- Feature Start ---
+// Audit rows leave the database as a DROP and not as a DELETE: `audit_event` is
+// partitioned by month (0001_init.sql), so a month falling out of retention is
+// one DDL statement instead of a row-by-row delete of everything in it. The two
+// halves belong together — the partitions created ahead here are the ones a
+// later run drops. `audit_event_default` is never dropped: it is what keeps an
+// INSERT for an uncovered month from failing off the request path, so rows that
+// land in it are deleted rather than detached. Retention is counted in months
+// because the unit that leaves is a month; a figure in days would promise a
+// precision the mechanism does not have (ADR-0022).
+// --- Feature End ---
+pub async fn maintain_audit(pool: &PgPool, months: u32) -> Result<(), sqlx::Error> {
+    let this_month = Utc::now()
+        .date_naive()
+        .with_day(1)
+        .expect("every month has a first day");
+
+    for ahead in 0..=1 {
+        let from = this_month + chrono::Months::new(ahead);
+        let to = from + chrono::Months::new(1);
+        let create = format!(
+            "create table if not exists audit_event_{} partition of audit_event \
+             for values from ('{from} 00:00:00+00') to ('{to} 00:00:00+00')",
+            from.format("%Y_%m"),
+        );
+        // Deliberately not `?`: a month whose rows are already in the default
+        // partition cannot be split out from under them, and the expiry below
+        // is the half that still has to run. It heals itself next month.
+        if let Err(e) = sqlx::query(sqlx::AssertSqlSafe(create)).execute(pool).await {
+            tracing::warn!(error = %e, month = %from, "cannot create the audit partition");
+        }
+    }
+
+    // A deletion that cannot compute its own cutoff deletes nothing.
+    let Some(cutoff) = this_month.checked_sub_months(chrono::Months::new(months)) else {
+        tracing::error!("AUDIT_RETENTION_MONTHS={months} puts the cutoff off the calendar");
+        return Ok(());
+    };
+
+    // The name pattern is what makes interpolating the result below safe, and it
+    // is also what excludes audit_event_default — by shape rather than by an
+    // equality test somebody can delete.
+    let expired: Vec<String> = sqlx::query_scalar(
+        r#"select c.relname::text from pg_class c
+             join pg_inherits i on i.inhrelid = c.oid
+            where i.inhparent = 'audit_event'::regclass
+              and c.relname::text ~ '^audit_event_[0-9]{4}_[0-9]{2}$'
+              and c.relname::text collate "C" < $1"#,
+    )
+    .bind(format!("audit_event_{}", cutoff.format("%Y_%m")))
+    .fetch_all(pool)
+    .await?;
+    for name in &expired {
+        sqlx::query(sqlx::AssertSqlSafe(format!("drop table {name}")))
+            .execute(pool)
+            .await?;
+    }
+
+    let rows = sqlx::query("delete from audit_event_default where ts < $1")
+        .bind(
+            cutoff
+                .and_hms_opt(0, 0, 0)
+                .expect("midnight exists")
+                .and_utc(),
+        )
+        .execute(pool)
+        .await?
+        .rows_affected();
+
+    // The record of a deletion cannot be a row in the table it deletes from, so
+    // it goes to the structured stream the SIEM reads (F-23).
+    if !expired.is_empty() || rows > 0 {
+        tracing::info!(
+            partitions = ?expired,
+            stray_rows = rows,
+            "audit retention: everything before {cutoff} removed"
+        );
+    }
+    Ok(())
 }

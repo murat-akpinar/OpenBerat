@@ -1722,6 +1722,48 @@ returns `migration 2 was previously applied but is missing in the resolved
 migrations` and the process exits. There is no down migration to reach for —
 the way back to the previous version is the dump taken before the upgrade.
 
+### TEST — audit retention, and the month that could not be partitioned
+
+[ADR-0022](adr/0022-audit-retention.md) answers N-04 as a mechanism rather than
+a number: the operator sets `AUDIT_RETENTION_MONTHS`, the backend creates the
+current and next month's partitions on a daily tick, and an expired month leaves
+as a `drop table`. Run against the lab stack, with the default 12 months, after
+planting an expired month **with** a partition of its own and an expired row
+**without** one:
+
+| | Before | After one startup tick |
+|---|---|---|
+| Partitions | `audit_event_2020_01`, `audit_event_default` | `audit_event_2026_10`, `audit_event_default` |
+| Probe rows | 2 (one in the old partition, one in the default) | **0** |
+| Live rows in the default partition | 91 | **91**, untouched |
+
+```
+INFO openberat::store: audit retention: everything before 2025-09-01 removed
+                       partitions=["audit_event_2020_01"] stray_rows=1
+```
+
+**The month that is missing from that table is the result.** `audit_event_2026_09`
+was not created, and the reason is the one the ADR is built around:
+
+```
+WARN openberat::store: cannot create the audit partition month=2026-09-01
+  error=updated partition constraint for default partition "audit_event_default"
+        would be violated by some row
+```
+
+Every row this lab has ever written is in the default partition, so Postgres
+cannot carve September out from under them. Treating that as an error to return
+would have skipped the expiry — the half with data to delete — so it is logged
+and the run continues. October, which has no rows yet, is created normally, and
+from next month on every row is partitioned. The same is true of any
+installation upgrading into this: one month stays in the default partition and
+expires there on the same cutoff as everyone else.
+
+`AUDIT_RETENTION_MONTHS=0` stops the backend at startup —
+*"must be a whole number of months, 1 or more"* — rather than being read as
+"keep nothing". It is the only background task in the product that deletes, so
+it is the one variable where a typo is fatal rather than defaulted.
+
 ### TEST — one page load, two login flows, one CSRF cookie
 
 Reported from the lab as a 403 on the OAuth callback: *"Unable to find a valid

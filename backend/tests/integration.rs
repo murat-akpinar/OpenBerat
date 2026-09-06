@@ -87,6 +87,7 @@ async fn backend_against_postgres() {
     store_section(&pool).await;
     decide_section(&pool).await;
     publish_section(&pool).await;
+    retention_section(&pool).await;
     // Last: it leaves the migration table poisoned.
     startup_section(&pool).await;
 }
@@ -332,6 +333,121 @@ async fn startup_section(pool: &PgPool) {
     openberat::store::connect(&url)
         .await
         .expect_err("a checksum mismatch stops the process");
+}
+
+/// Audit retention (N-04, [ADR-0022]): a month leaves the database as a DROP,
+/// the default partition never does, and a partition that cannot be created
+/// does not stop the run that has rows to delete.
+async fn retention_section(pool: &PgPool) {
+    // The sections above wrote this month's rows into the default partition,
+    // and a month cannot be split out from under rows already in it.
+    sqlx::query("delete from audit_event")
+        .execute(pool)
+        .await
+        .expect("empty the audit table");
+    let app = insert_app(pool, "retention").await;
+    let month: String = sqlx::query_scalar("select to_char(now(), 'YYYY_MM')")
+        .fetch_one(pool)
+        .await
+        .expect("this month");
+
+    // An expired month with a partition of its own, and an expired month
+    // without one: the two roads a row can take out of this table.
+    sqlx::query(
+        "create table audit_event_2020_01 partition of audit_event
+         for values from ('2020-01-01 00:00:00+00') to ('2020-02-01 00:00:00+00')",
+    )
+    .execute(pool)
+    .await
+    .expect("an old partition");
+    insert_audit(pool, app, "2020-01-15T12:00:00Z")
+        .await
+        .expect("a row in the old partition");
+    insert_audit(pool, app, "2019-06-15T12:00:00Z")
+        .await
+        .expect("a row in the default partition");
+
+    openberat::store::maintain_audit(pool, 12)
+        .await
+        .expect("maintenance runs");
+
+    assert!(
+        !partition(pool, "audit_event_2020_01").await,
+        "an expired month is dropped whole"
+    );
+    assert!(
+        partition(pool, "audit_event_default").await,
+        "the default partition is never dropped — it is what stops an INSERT \
+         for an uncovered month failing off the request path"
+    );
+    assert!(
+        partition(pool, &format!("audit_event_{month}")).await,
+        "this month is created before a row needs it"
+    );
+    let left: i64 = sqlx::query_scalar("select count(*) from audit_event")
+        .fetch_one(pool)
+        .await
+        .expect("count");
+    assert_eq!(left, 0, "the expired row in the default partition goes too");
+
+    // A row written now lands in this month's partition, not in the default.
+    insert_audit(pool, app, "now")
+        .await
+        .expect("a row for today");
+    let landed: String = sqlx::query_scalar("select tableoid::regclass::text from audit_event")
+        .fetch_one(pool)
+        .await
+        .expect("where the row landed");
+    assert_eq!(landed, format!("audit_event_{month}"));
+
+    // --- the half that must not stop at an error ---
+    // Drop this month's partition and write a row without one: the month is now
+    // in the default partition and cannot be created. The drops still have to
+    // happen — a create that fails is not a reason to keep expired rows.
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "drop table audit_event_{month}"
+    )))
+    .execute(pool)
+    .await
+    .expect("drop this month");
+    insert_audit(pool, app, "now")
+        .await
+        .expect("a row with no partition to take it");
+    sqlx::query(
+        "create table audit_event_2020_02 partition of audit_event
+         for values from ('2020-02-01 00:00:00+00') to ('2020-03-01 00:00:00+00')",
+    )
+    .execute(pool)
+    .await
+    .expect("another old partition");
+
+    openberat::store::maintain_audit(pool, 12)
+        .await
+        .expect("maintenance survives a partition it cannot create");
+
+    assert!(
+        !partition(pool, "audit_event_2020_02").await,
+        "the drop happens even though this month could not be created"
+    );
+    let kept: i64 = sqlx::query_scalar("select count(*) from audit_event")
+        .fetch_one(pool)
+        .await
+        .expect("count");
+    assert_eq!(
+        kept, 1,
+        "the row inside the window survives in the default partition"
+    );
+}
+
+async fn partition(pool: &PgPool, name: &str) -> bool {
+    sqlx::query_scalar(
+        "select exists (select 1 from pg_class c join pg_inherits i on i.inhrelid = c.oid
+                         where i.inhparent = 'audit_event'::regclass and c.relname = $1)",
+    )
+    .bind(name)
+    .fetch_one(pool)
+    .await
+    .expect("look the partition up")
 }
 
 /// The generated application blocks are a pure function of the `application`

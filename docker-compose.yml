@@ -68,6 +68,12 @@ services:
       # check that passes for somebody else's portal.
       ADMIN_GROUP: ${ADMIN_GROUP:-OpenBerat-Admins}
       PORTAL_ORIGIN: https://portal.apps.example.local
+      # How long the audit log is kept (ADR-0022). Deliberately passed through
+      # with no default of its own: the backend holds the 12, and a second copy
+      # here is a number that would go stale. Empty means unset; anything that
+      # is not a whole number stops the backend, because this is the one
+      # background task that deletes.
+      AUDIT_RETENTION_MONTHS: ${AUDIT_RETENTION_MONTHS}
       NGINX_CONF_DIR: /generated
     volumes:
       - apps_conf:/generated

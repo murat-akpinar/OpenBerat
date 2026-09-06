@@ -48,7 +48,7 @@
 | N-01 | Authorisation decision latency (cache hit) | **< 2 ms** *(drafted from measurement; fixed under load in Phase 6)*. Measured overhead of the hop itself: **+74 µs** (`docs/07`). The cache entry must carry the identity too, otherwise this is unreachable — `docs/05`. |
 | N-02 | Authorisation decision latency (cache miss) | **< 10 ms** *(drafted from measurement; fixed under load in Phase 6)*. Measured: **+571 µs** for the double hop, before the entitlement query and the index write, which do not exist yet (`docs/07`). |
 | N-03 | Revocation delay | **≤ 6 min** for an AD change, **≤ 5 s** for the kill switch ([ADR-0016](adr/0016-n03-revocation-targets.md)). Measured for the AD change: **330 s**, a reachable ceiling rather than a tail — `cookie_refresh` + cache TTL, with 30 s of margin left. Re-measured in Phase 6 against the finished chain and unchanged; the ceiling is the only figure that is a property of the system, because the cut lands at a fixed session age and the delay from the AD change moves with how late the change fell after the session was minted (`docs/07`). Measured for the kill switch: **0.085 s** end to end (`docs/07`), on the session index of [ADR-0019](adr/0019-kill-switch-session-index.md). WebSocket/SSE connections already upgraded are excluded from the guarantee, idle or active — measured, `docs/07`. |
-| N-04 | Audit log retention period | **? — depends on KVKK and internal policy** |
+| N-04 | Audit log retention period | **The operator's, defaulting to 12 months** ([ADR-0022](adr/0022-audit-retention.md)). `AUDIT_RETENTION_MONTHS`; a month leaves the database as a dropped partition, so the figure is a floor — the oldest surviving row can be a little over 13 months old. |
 | N-05 | Must come up with `docker compose up` on a single machine | v1 |
 | N-06 | High availability (HA) | No in v1; the design will not prevent it |
 | N-07 | Target concurrent users | **? — undecided** |
@@ -83,6 +83,7 @@ answered and write the decision to `docs/adr/`.
 | Finding a user's oauth2-proxy session for the kill switch | The backend keeps a `sub → session` index in Redis | [0019](adr/0019-kill-switch-session-index.md) |
 | Frontend packaging | Static files copied into the nginx image at build; no frontend container | [0020](adr/0020-frontend-in-nginx-image.md) |
 | How a protected application learns who the user is | Trusted `X-Auth-*` headers; isolating the upstream becomes a requirement, not a deployment default | [0021](adr/0021-application-identity-trusted-headers.md) |
+| Audit retention | The operator sets `AUDIT_RETENTION_MONTHS` (default 12); a month is dropped whole | [0022](adr/0022-audit-retention.md) |
 | AD group strategy | `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` | `docs/03`, `docs/07` |
 
 ### 🔴 Needs an answer about the target environment
@@ -124,7 +125,6 @@ network and policy. Phase 1 exists partly to establish them.
       higher.
 - [ ] Is Kerberos/SPNEGO (passwordless domain SSO) wanted?
 - [ ] Is there more than one AD domain / forest?
-- [ ] Audit log retention period (N-04) — KVKK and internal policy.
 - [ ] Target concurrent user count (N-07), and how many applications, users and
       AD groups. Without N-07 the Phase 6 load test has no target. **How many
       groups a single user is in is now a sizing input, not only a load-test

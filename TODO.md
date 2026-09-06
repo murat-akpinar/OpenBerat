@@ -35,6 +35,9 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       `X-Auth-*` headers; isolating the upstream stops being a deployment
       default and becomes a requirement, because with this mechanism a
       reachable port is impersonation (measured, `docs/07`)
+- [x] ADR-0022 Audit retention: the operator sets `AUDIT_RETENTION_MONTHS`
+      (default 12) and a month leaves the database as a dropped partition —
+      N-04 answered as a mechanism with a default, not as a number
 
 **Phase 0 is closed.** Everything decidable from the design has been decided;
 what remains needs facts about the target environment and is tracked in
@@ -1185,7 +1188,23 @@ So the portal's data does not have to be filled in by hand with SQL.
       is the restore and the rest is Keycloak importing its realm. Rolling a
       version back is restoring that dump — the older binary refuses to start
       against a schema migrated past it (`docs/07`).*
-- [ ] Audit retention job (N-04) and partition maintenance
+- [x] Audit retention job (N-04) and partition maintenance
+      *N-04 was open because the period is the operator's, not ours; ADR-0022
+      answers it as a mechanism with a default instead — `AUDIT_RETENTION_MONTHS`,
+      12 months, fatal at startup if it is not a whole number, because this is
+      the only background task in the product that deletes. The unit is months
+      because the unit that leaves is a month: `audit_event` has been
+      partitioned since `0001_init.sql` and an expired month is one `drop
+      table`, not a pass over every row in it. The default partition is never
+      dropped — it is what stops an `INSERT` for an uncovered month failing off
+      the request path — so expired rows in it are deleted at the same cutoff.
+      **The interesting half is the failure:** a month whose rows are already in
+      the default partition cannot be split out from under them, Postgres
+      refuses with `updated partition constraint for default partition would be
+      violated by some row`, and a run that treated that as fatal would keep
+      expired data forever. It is logged and the expiry continues; the month
+      after heals itself. Both halves are tested, and both assertions were seen
+      to fail against a deliberately broken implementation.*
 - [ ] Monitoring: decision latency, error rate, cache hit rate, audit loss counter
 - [ ] Versioning, release image, offline bundle for air-gapped installation.
       Rewrite the `SECURITY.md` scope section — it says there is no released
