@@ -21,6 +21,9 @@ services:
   # applies to a host reboot for all of them.
   nginx:
     restart: unless-stopped
+    # Named so that break-glass below is literally the same image and not a
+    # second build that could drift from it (ADR-0017).
+    image: openberat-nginx
     build:
       context: .
       dockerfile: nginx/Dockerfile
@@ -51,6 +54,29 @@ services:
       OAUTH2_PROXY_URL: http://oauth2-proxy:4180
     depends_on: [postgres, redis]
     networks: [core]
+
+  # --- Break-glass (ADR-0017) ------------------------------------------------
+  # Inert: `profiles` keeps it out of every ordinary `docker compose` command,
+  # and it takes the same :443 as nginx, so starting it means stopping that one
+  # first. Both of those are deliberate — this serves the applications with no
+  # authorisation at all, and it must not be something that happens by itself.
+  # The procedure is docs/08-breakglass.md.
+  nginx-breakglass:
+    profiles: [breakglass]
+    restart: unless-stopped
+    image: openberat-nginx
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    command: ["nginx", "-c", "/etc/nginx/breakglass.conf", "-g", "daemon off;"]
+    ports:
+      - "443:443"
+    volumes:
+      - ./certs:/etc/nginx/certs:ro
+    # `edge` only. It has no business reaching the backend, Redis or Postgres —
+    # it is not making decisions, and an incident is the wrong moment to widen
+    # what a container can talk to.
+    networks: [edge]
 
   oauth2-proxy:
     restart: unless-stopped

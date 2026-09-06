@@ -593,13 +593,34 @@ has a first draft, and there is still not one line of code.
       reach the client: `auth_request` response headers stop at nginx. `docs/02`
       updated.*
 
-- [ ] `docs/08-breakglass.md`: the runbook itself — the symptom that justifies
+- [x] `docs/08-breakglass.md`: the runbook itself — the symptom that justifies
       pulling it (`/readyz` is what tells you), the command, how to verify the
       applications came back, what is unprotected while it is active, and how to
       go back. **It lives in the repository, not on the maintainer's machine:**
       the moment it is needed is the moment one laptop is not enough
-- [ ] **Rehearse it** and write the measured time into the runbook. ADR-0017 is
+      *Plus a `nginx-breakglass` compose service behind `profiles: [breakglass]`
+      and a second complete nginx configuration inside the same image. It takes
+      the same `:443`, so the two cannot run at once and there is no state where
+      half the traffic is authorised. Incoming `X-Auth-*` are **still** stripped
+      while it is active: an upstream that trusts those headers cannot tell the
+      PEP has been bypassed, and leaving them alone would turn "no
+      authorisation" into "authorisation the client writes for itself". Every
+      request is logged with a `BREAKGLASS` prefix and answered with
+      `X-OpenBerat-Breakglass: active`, so the window is greppable afterwards
+      and "is it still on?" is one curl.*
+- [x] **Rehearse it** and write the measured time into the runbook. ADR-0017 is
       satisfied by the rehearsal, not by the file existing
+      *Rehearsed on a local `docker compose` stack with the backend stopped —
+      the real outage, not a simulated one. **2.4 s off → on, 4.4 s back**,
+      both from the first command to the verification passing. Two things the
+      rehearsal found that reading the procedure would not have: the first
+      attempt silently started a **stale `openberat-nginx` image** — a container
+      that came up, published `:443` and was not listening on it, with nothing
+      in `docker compose ps` to say so, which is why both services now share one
+      `image:` name; and the verification after going back has to be "not 200"
+      rather than "302", because with the chain still broken a correctly
+      restored nginx answers with the unavailable page and a check insisting on
+      a redirect would read that as failure. Both are in the runbook.*
 
 **Exit criterion:** end-to-end access control **and a rehearsed break-glass**
 (a second nginx config in the same image, `--profile breakglass`). Everything up

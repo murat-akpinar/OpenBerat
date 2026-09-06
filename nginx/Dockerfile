@@ -8,4 +8,9 @@ FROM nginx:1.29-alpine
 RUN apk upgrade --no-cache && rm /etc/nginx/conf.d/default.conf
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY nginx/conf.d/ /etc/nginx/conf.d/
+# The break-glass configuration ships in the same image on purpose: nobody
+# should have to build one at 3 a.m. to restore access (ADR-0017). It is inert
+# until `docker compose --profile breakglass` runs nginx against it.
+COPY nginx/breakglass.conf /etc/nginx/breakglass.conf
+COPY nginx/breakglass/ /etc/nginx/breakglass/
 COPY frontend/src/ /usr/share/nginx/html/
