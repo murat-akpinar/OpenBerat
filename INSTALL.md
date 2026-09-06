@@ -1,7 +1,9 @@
 # INSTALL
 
 > **Draft.** Started in Phase 1 and grows with it (TODO.md); rewritten for v1.
-> Steps are in install order — each was executed on the lab host as written.
+> Steps are in install order. §1–§4 have been replayed from a fresh checkout on
+> the lab host, as written, by someone who had nothing but this file — three
+> things in §1 and §3 were wrong and are fixed (`docs/07`).
 
 ## Prerequisites
 
@@ -31,11 +33,13 @@ none can be skipped — the same table is in both READMEs.
 
 nginx expects `certs/wildcard.crt` and `certs/wildcard.key` in the repository's
 `certs/` directory, mounted read-only at `/etc/nginx/certs`. The directory is
-gitignored — private keys are never committed and never baked into an image.
+gitignored — private keys are never committed and never baked into an image —
+so a fresh clone does not have it yet and `mkdir` is part of the step.
 
 Lab, self-signed, 2 years:
 
 ```sh
+mkdir -p certs
 openssl req -x509 -newkey rsa:2048 -nodes -days 730 \
   -keyout certs/wildcard.key -out certs/wildcard.crt \
   -subj "/CN=*.apps.example.local" \
@@ -60,9 +64,15 @@ machine whose browser you test from:
 ## 3. Environment
 
 Create `.env` next to `docker-compose.yml` (gitignored). Generate the
-passwords — e.g. `openssl rand -base64 24` — do not reuse them anywhere:
+passwords — e.g. `openssl rand -base64 24` — do not reuse them anywhere. Two of
+the values are not free-form passwords and carry their own command:
 
 ```
+# Goes into DATABASE_URL, so it has to survive URL parsing. A base64 password
+# containing `/` ends the authority component and the client reports
+# `invalid integer value "…" for connection option "port"` — nothing points at
+# the password. Hex avoids the question:
+#   openssl rand -hex 24
 POSTGRES_PASSWORD=…
 KC_ADMIN_USER=admin
 KC_ADMIN_PASSWORD=…
@@ -71,8 +81,11 @@ AD_ADMIN_PASSWORD=…
 # The OIDC client secret. The committed realm export carries a placeholder;
 # this is the real value, injected at import and read by oauth2-proxy.
 OPENBERAT_CLIENT_SECRET=…
-# Must decode to 16, 24 or 32 bytes — oauth2-proxy refuses to start otherwise:
-#   openssl rand -base64 32 | tr -d '\n'
+# oauth2-proxy measures the string it is given, not the bytes it decodes to,
+# and only decodes the URL-safe alphabet — plain `openssl rand -base64 32` is
+# 44 characters and is refused. `cookie_refresh` (ADR-0006) is what makes the
+# check strict at all, so this cannot be relaxed:
+#   openssl rand -base64 32 | tr -- '+/' '-_'
 OAUTH2_PROXY_COOKIE_SECRET=…
 # Lab users only (labuser, labadmin). Gone once AD federation lands.
 LAB_USER_PASSWORD=…
@@ -84,6 +97,17 @@ LAB_USER_PASSWORD=…
 docker compose build
 docker compose up -d nginx keycloak redis oauth2-proxy
 ```
+
+The build compiles the backend in release mode and takes a few minutes the
+first time; afterwards it is cached.
+
+`oauth2-proxy` performs OIDC discovery once at startup and exits if Keycloak is
+not answering yet, so for the ~25 s Keycloak needs to boot and import the realm
+`docker compose ps` shows it `restarting` — that is the `restart:
+unless-stopped` policy doing its job, and it settles by itself. A restart loop
+that does **not** settle is a configuration error, and
+`docker compose logs oauth2-proxy` names it on the first line; a rejected
+`OAUTH2_PROXY_COOKIE_SECRET` looks exactly the same from `ps`.
 
 Keycloak imports `keycloak/realm/` at boot. Its H2 database is deliberately
 not on a volume, so after changing the export the way to re-import is
@@ -111,6 +135,6 @@ configuration changes this — it is what "authorise the request" means when the
 is only ever one request.
 
 > Phase 1 is in progress. The certificate, the realm import, the oauth2-proxy
-> configuration and the first login are done and written above. Still to come:
-> the LDAP bind account and everything downstream of it, which waits on the
-> lab AD (TODO.md Phase 1).
+> configuration and the first login are done, written above, and verified by
+> replaying them on a clean checkout. Still to come: the LDAP bind account and
+> everything downstream of it, which waits on the lab AD (TODO.md Phase 1).

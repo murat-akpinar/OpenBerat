@@ -233,7 +233,17 @@ Verify the architecture actually works before writing code.
       *First draft landed with the certificate item: prerequisites,
       certificate, name resolution, `.env`, start. Grown since with the OIDC
       client secret, the cookie secret and the lab user password, and with how
-      the realm is re-imported*
+      the realm is re-imported. §1–§4 then **replayed from a clean checkout** on
+      the lab host, following only the document: three things were wrong, all
+      of them something the lab host already had and the document never said.
+      `certs/` is gitignored so a fresh clone cannot write the key into it; the
+      documented `openssl rand -base64 32` cookie secret is **refused** by
+      oauth2-proxy (44 characters, non-URL-safe alphabet — and the check is
+      strict only because ADR-0006 mandates `cookie_refresh`); and a base64
+      `POSTGRES_PASSWORD` breaks `DATABASE_URL` with an error that names the
+      port. Fixed, and the replay then ran through to a 200 on the portal
+      (`docs/07`). The box stays open for the LDAP bind account and
+      `ADMIN_GROUP`, which wait on samba-ad*
 
 **Output:** authentication works end to end, the latencies are known, `INSTALL.md`
 has a first draft, and there is still not one line of code.

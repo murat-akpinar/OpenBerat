@@ -552,6 +552,59 @@ Harness: `verify-ws.sh` and `wsclient.py` (stdlib only — the lab host has no
 were removed afterwards, `labuser` was put back in `OpenBerat-Finance`, and the
 stack is back on the committed configuration.
 
+### Installing from a clean checkout — three steps that were wrong
+
+`INSTALL.md` §1–§4 replayed on the lab host from a `git archive` of `HEAD`, as a
+second compose project beside the running lab, following the document and
+nothing else. Three failures, each of them something the lab host already had
+and the document therefore never had to say:
+
+- **`certs/` is not in the repository.** It is gitignored, so a fresh checkout
+  has no such directory and §1's `openssl req` exits 1 with `Can't open
+  "certs/wildcard.key" for writing, No such file or directory` — after printing
+  a full screen of key-generation progress, which reads like success.
+  `mkdir -p certs` is now part of the step.
+- **The cookie secret the document told you to generate is refused.** `openssl
+  rand -base64 32` is 44 characters, and oauth2-proxy v7.8.2 answers
+  `cookie_secret must be 16, 24, or 32 bytes to create an AES cipher, but is 44
+  bytes` and crash-loops. It measures the **string**, and decodes it first only
+  if it is in the URL-safe alphabet — so the fix is one `tr`, not a shorter
+  secret. Five recipes tested against v7.8.2:
+
+  | Command | Length | Result |
+  |---|---|---|
+  | `openssl rand -base64 32` | 44 | **refused** |
+  | `openssl rand -base64 32 \| tr -- '+/' '-_'` | 44 | accepted |
+  | the same, `=` stripped | 43 | accepted |
+  | `openssl rand -base64 24` | 32 | accepted, as 32 raw bytes |
+  | `openssl rand -hex 16` | 32 | accepted, as 32 raw bytes |
+
+  The check is strict **only because `cookie_refresh` is set**: the same 44
+  character secret starts cleanly with `cookie_refresh` off, since without it
+  no session is ever re-encrypted. ADR-0006 makes `cookie_refresh` mandatory,
+  so this is not a knob — it is a permanent condition of the design, and the
+  document's own reason ("must decode to 16, 24 or 32 bytes") was wrong twice
+  over.
+- **A base64 `POSTGRES_PASSWORD` breaks `DATABASE_URL`.** The document says to
+  generate every password with `openssl rand -base64 24`; 394 of 1000 generated
+  that way carry a `/`, which ends the URL's authority component. `psql
+  "postgres://openberat:ab/cd+ef@127.0.0.1:5432/openberat"` fails with `invalid
+  integer value "ab" for connection option "port"` — an error that names
+  neither the password nor the character. Percent-encoding works and hex
+  sidesteps it; §3 now says hex for that one variable. Nothing has hit this yet
+  because the backend does not connect to Postgres until Phase 2.
+
+Two more things the replay showed that are not errors but read like them: the
+first `docker compose build` spends about five minutes in the backend's release
+compile, and for the ~25 s Keycloak needs to boot and import the realm,
+`docker compose ps` reports oauth2-proxy `restarting` — indistinguishable, from
+`ps` alone, from the fatal secret above. Both are in §4 now.
+
+After the three fixes the replay completed: anonymous request → 302 to Keycloak
+with PKCE `S256`, credentials posted, session cookie minted, portal served 200.
+The throwaway project and its checkout were removed and the lab put back on the
+committed configuration.
+
 ## Unverified, to be tested
 
 These claims have not been confirmed against a source; they will be tried in the
