@@ -54,8 +54,9 @@ async fn insert_audit(pool: &PgPool, app: Uuid, ts: &str) -> Result<(), sqlx::Er
     .map(|_| ())
 }
 
-// One test, not five: they all reset the same database and cargo test runs
-// tests in parallel.
+// ponytail: one test, not five — they all reset the same database and cargo
+// test runs tests in parallel. Split it when it stops being readable, giving
+// each its own Postgres schema and a search_path on the pool.
 #[tokio::test]
 async fn migration_0001() {
     let Some(pool) = fresh_db().await else {
@@ -243,4 +244,35 @@ async fn migration_0001() {
     .await
     .unwrap();
     assert_eq!(pk, ["id", "ts"], "audit_event primary key");
+
+    // --- startup ---
+    // The operator never runs the migration by hand, so these three are the
+    // whole of what stands between an install and a process deciding /decide
+    // against a schema it has not seen.
+    for stmt in ["drop schema public cascade", "create schema public"] {
+        sqlx::query(stmt)
+            .execute(&pool)
+            .await
+            .expect("reset schema");
+    }
+    let url = std::env::var("DATABASE_URL").unwrap();
+    openberat::store::connect(&url)
+        .await
+        .expect("startup migrates an empty database");
+
+    // Nothing is listening yet, and a database that refuses the connection must
+    // come back as an error rather than a hang or a panic.
+    openberat::store::connect("postgres://openberat:test@127.0.0.1:1/openberat")
+        .await
+        .expect_err("an unreachable database is an error");
+
+    // What an edited migration looks like on the second install. Left last: it
+    // leaves the migration table poisoned.
+    sqlx::query("update _sqlx_migrations set checksum = '\\x00' where version = 1")
+        .execute(&pool)
+        .await
+        .expect("tamper with the applied migration");
+    openberat::store::connect(&url)
+        .await
+        .expect_err("a checksum mismatch stops the process");
 }

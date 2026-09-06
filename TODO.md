@@ -286,9 +286,19 @@ has a first draft, and there is still not one line of code.
       otherwise the migration would reach an operator having never been run.
       Both new assertions were checked by mutation (drop the DEFAULT partition,
       loosen the slug CHECK → both fail)*
-- [ ] The backend applies `migrations/` itself on startup (sqlx runtime migrator)
+- [x] The backend applies `migrations/` itself on startup (sqlx runtime migrator)
       and **exits if a migration fails** rather than serving on an unknown schema.
       An operator should never have to run a migration by hand on first install
+      *`store::connect` — connect, migrate, and a failure of either is fatal.
+      All four outcomes run against the real binary, not only the test: empty
+      database → applied, exit 0; an applied migration edited underneath it →
+      `exit 1`; no `DATABASE_URL` → `exit 1`; unreachable database → `exit 1`.
+      That last one cost 30 s of the test suite before the pool grew an explicit
+      5 s `acquire_timeout` — sqlx's default is 30 s, so an absent Postgres held
+      the process half a minute before compose could retry it. `src/lib.rs`
+      arrives with this box so integration tests can reach the modules at all.
+      Documented in `INSTALL.md` §4: no `psql` on a first install, no migration
+      step on an upgrade*
 - [ ] `backend/src/policy.rs`: the decision function — pure, no DB, no HTTP
 - [ ] `policy.rs`: URI normalisation (drop the query, one decode round, resolve
       `..`/`//`, lowercase) + matching **at a segment boundary**

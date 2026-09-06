@@ -121,6 +121,17 @@ not on a volume, so after changing the export the way to re-import is
 together in the admin console is lost the same way, on purpose
 (`keycloak/README.md`).
 
+The database schema is not in this list because nobody applies it: the backend
+runs `backend/migrations/` itself at startup and **exits** if a migration fails
+rather than serving against a schema it has not seen. So a first install needs
+no `psql`, and an upgrade needs no migration step — `docker compose up -d`
+is the whole of it. If the backend will not stay up,
+`docker compose logs backend` says which of the two happened on its last line:
+it could not reach Postgres, or a migration would not apply.
+
+`backend` and `postgres` join the start list in Phase 3, when the backend has
+something to listen on.
+
 Then browse to `https://portal.apps.example.local/`; you are redirected to
 Keycloak, and after logging in as `labuser` you land back on the portal.
 
