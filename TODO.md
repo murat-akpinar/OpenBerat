@@ -1139,9 +1139,11 @@ So the portal's data does not have to be filled in by hand with SQL.
       shared-browser identity confusion that mechanism belongs to the *other*
       option: the header is read per request, so user B carrying user A's
       application cookie is still served as B (`docs/07`).*
-      **Left open by it:** the lab's Jenkins port is still open to the LAN. The
-      `DOCKER-USER` rule that closes it is in `INSTALL.md` §7 and has not been
-      applied to the lab host, so the bypass above is live there until it is.
+      *The bypass was then closed on the lab host with the `DOCKER-USER` rule
+      from `INSTALL.md` §7 and both directions re-measured: the forged request
+      from an unrelated host is dropped, the same request from the PEP's address
+      still answers 200, the proxy path is unchanged and the build agent — which
+      reaches the controller over the Docker bridge — never noticed.*
 - [ ] Security headers, TLS settings, the certificate renewal path
 - [ ] Backup/restore procedure, migration rollback
 - [ ] Audit retention job (N-04) and partition maintenance

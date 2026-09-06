@@ -359,7 +359,12 @@ curl -H 'X-Auth-Username: someone' -H 'X-Auth-Groups: OpenBerat-Admins' \
      http://<application-host>:<port>/
 ```
 
-A refused connection is the answer you want. A page is a finding.
+A dropped or refused connection is the answer you want. A page is a finding.
+Repeat it **from the proxy's own address** as well: the same request has to
+succeed there, or you have not tested the filter, you have broken the
+application. And make the rule survive a reboot — `netfilter-persistent` on
+Debian and Ubuntu, `iptables-services` on RHEL — because an upstream that comes
+back up unfiltered is the one case nothing in this product can see.
 
 ### Two things to know before mapping roles from `X-Auth-Groups`
 

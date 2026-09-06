@@ -1461,7 +1461,24 @@ and full-control-once-logged-in with anonymous read denied — the recipe is in
 | no cookie at all | **302** to `auth.apps.example.local/realms/openberat/protocol/openid-connect/auth` |
 | **`X-Auth-Username: labadmin` + `X-Auth-Groups: OpenBerat-Admins`, sent straight to the published port from an unrelated host on the LAN** | **200**, `name: labadmin`, `authorities: [… OpenBerat-Admins]` |
 
-**The last row is what the mechanism costs.** No cookie, no session, no contact
+Then the rule from `INSTALL.md` §7 went on the application host — one line in
+`DOCKER-USER`, allowing the PEP's address and dropping the rest — and the same
+four requests were repeated:
+
+| Request, after the rule | Result |
+|---|---|
+| the forged header from an unrelated LAN host | **no answer**: the packet is dropped, `curl` times out at 8 s |
+| the forged header **from the PEP host**, the one address allowed | 200 — the rule is a source filter, not a fix to the application |
+| `labuser` through the proxy | **200**, `whoAmI` = `labuser`, unchanged |
+| the Jenkins build agent, which reaches the controller container-to-container | still connected — the rule matches on the LAN interface, so traffic on the Docker bridge never meets it |
+
+The second row is the point: nothing about the application changed, and nothing
+could. The mechanism's security is the source filter, which is why
+[ADR-0021](adr/0021-application-identity-trusted-headers.md) makes it a
+requirement and `INSTALL.md` hands the operator the forged request to test it
+with.
+
+**The first table's last row is what the mechanism costs.** No cookie, no session, no contact
 with the proxy — a header and a reachable port are the whole authentication.
 `denyAnonymousReadAccess` does not close it, because the forged request is not
 anonymous: it authenticates. This is why
