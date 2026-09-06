@@ -126,6 +126,15 @@ network and policy. Phase 1 exists partly to establish them.
       [ADR-0015](adr/0015-single-parent-domain.md) raised its priority: with a
       shared session cookie, a compromised protected application is a realistic
       path to the rest of the system.
+- [ ] **Should `worker_shutdown_timeout` be set, and to what?** Measured
+      (`docs/07`): it is the only lever short of restarting nginx that reaches a
+      WebSocket already up, and without it ADR-0011's reload-per-application-change
+      leaves one `shutting down` worker behind per reload while such a connection
+      is open. Setting it bounds both — but it also bounds *ordinary* reloads, so
+      the value is a trade between how long a revoked long-lived connection may
+      survive and how abruptly a normal config change cuts requests in flight.
+      An ADR, not a config tweak, because it changes what
+      [ADR-0016](adr/0016-n03-revocation-targets.md) excludes.
 - [ ] **How does an operator get into the machine when the identity chain is
       down?** [ADR-0017](adr/0017-fail-closed-availability.md) requires that host
       access does not depend on this product; the concrete mechanism (out-of-band

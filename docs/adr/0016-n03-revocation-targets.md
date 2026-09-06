@@ -64,4 +64,15 @@ connections, which is worth having and costs nothing.
   security depends on immediate revocation should not be exposed over a
   long-lived connection behind this proxy.
 - The Phase 1 WebSocket measurement is no longer a curiosity; it quantifies a
-  stated limitation.
+  stated limitation. **Measured** (`docs/07`): an active connection carried 500
+  exchanges over 499 s, 489 s of them after the group was removed, while the
+  HTTP path on the same cookie was cut at the `cookie_refresh` boundary. Neither
+  the kill switch nor `nginx -s reload` reached it — the connection ran 195 s
+  with no session in Redis at all. The exclusion above is the measured
+  behaviour, not a cautious guess.
+- **A reload is not a revocation, and it is not free either.** ADR-0011
+  regenerates the application blocks and reloads nginx; each reload leaves one
+  worker in `shutting down`, serving the old configuration, for as long as a
+  long-lived connection stays open. `worker_shutdown_timeout` would bound both —
+  it is the only lever measured to work short of a restart — and it is an open
+  question in `docs/06` because it also bounds ordinary reloads.

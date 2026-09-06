@@ -119,3 +119,13 @@ several of the rules read as requirements rather than as descriptions.
    upstream that receives the session cookie is holding — and probably
    access-logging — a credential valid for every host on `.apps.<domain>`
    (ADR-0015, `docs/05`).
+17. **A reload does not close an established WebSocket, and leaves a worker
+   behind.** ADR-0011 reloads nginx on every application change. The old worker
+   goes to `worker process is shutting down` and keeps serving its open
+   connections under the **old** configuration — measured across two reloads,
+   the same PID still shutting down 133 s later with a live connection on it
+   (`docs/07`). `worker_shutdown_timeout` is unset and nginx's default is no
+   timeout, so one worker accumulates per reload for as long as any long-lived
+   connection is open. Two things follow: a policy change does not reach a
+   connection that is already up (ADR-0016 states this; it is measured), and a
+   busy admin session can grow the worker count without bound.

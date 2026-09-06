@@ -486,6 +486,72 @@ Harness: `bench3.sh`, `99-bench.conf` and `bench-decide.conf` on the lab host;
 the vhost and the container were removed afterwards and the stack is back on
 the committed configuration.
 
+### MEASURE — an active WebSocket outlives the authorisation that opened it
+
+[ADR-0016](adr/0016-n03-revocation-targets.md) excludes an active WebSocket from
+the revocation guarantee. This measures the exclusion instead of asserting it.
+
+One echo connection through a protected vhost, carrying steady traffic — one
+text frame a second, echo read back, never idle — and one HTTP poller on the
+same cookie, the same vhost and the same `auth_request` target, so both paths
+answer to exactly one authorisation. The group decision was made by a throwaway
+oauth2-proxy started with `--allowed-group=OpenBerat-Finance`; the committed
+proxy authenticates only, and would not have noticed the group at all. Control
+first: with the group, `/oauth2/auth` returns **202** and
+`X-Auth-Request-Groups: OpenBerat-Finance`; with an unheld group name, **401**.
+
+| t | Event | HTTP path | WebSocket |
+|---|---|---|---|
+| 0 s | session minted, connection upgraded (`101`) | 200 | alive |
+| +10 s | `labuser` removed from `OpenBerat-Finance` in Keycloak | 200 | alive |
+| +300 s | `cookie_refresh` fires (`SessionAge: 5m1.9s`) | — | alive |
+| +303 s | refreshed session no longer carries the group | **401** | alive |
+| +427 s | Redis session gone since +303 s (see below) | 401 | alive |
+| +457 s | `nginx -s reload` | 401 | alive |
+| +498 s | nginx **container restarted** | 401 | **dead** |
+
+**The HTTP path was cut 292 s after the group was removed**, at session age
+5 m 1.9 s — the `cookie_refresh` boundary and nothing else, since this harness
+has no decision cache in front of it. The last `202` is logged at +300 s and the
+first `401` two seconds later. The 401 is the group check and not a lost
+session: oauth2-proxy logs `Refreshing session` and then `[AuthFailure] Invalid
+authorization via session (unauthorized): removing session` on the same request.
+
+**The WebSocket never noticed.** It carried 500 exchanges over 499 s, 489 s of
+them after the group was gone, and every one of them returned in ~0.2 ms. It
+was authorised once, at the upgrade, and after that no request of any kind
+crossed the access phase again — so there was nothing left for a policy to
+answer.
+
+Three consequences worth naming, because two of them are the levers an operator
+would reach for and neither works:
+
+- **The kill switch does not reach it.** oauth2-proxy deleted the session from
+  Redis itself, at +303 s, when the refreshed group check failed — the same
+  end state the kill switch produces ([ADR-0019](adr/0019-kill-switch-session-index.md)).
+  The connection then ran for another **195 s with no session in Redis at all**.
+  Revoking the session revokes the next *request*; there is no next request.
+- **`proxy_read_timeout` does not reach it either**, as ADR-0016 says. It was
+  set to 300 s and the connection lived through 499 s of it, because a frame a
+  second resets it. It bounds idle connections only.
+- **`nginx -s reload` does not reach it — and leaves a worker behind.** This is
+  the path [ADR-0011](adr/0011-nginx-config-generation.md) takes on every
+  application change. The old worker goes to `worker process is shutting down`
+  and stays there, still serving the connection under the **old** configuration:
+  measured across two reloads, the same PID was still shutting down 133 s later
+  with the connection healthy. `worker_shutdown_timeout` is unset and nginx's
+  default is no timeout, so one lingering worker accumulates per reload for as
+  long as any long-lived connection is open. Whether to set it — and to what,
+  given it also bounds ordinary reloads — is an open question in `docs/06`.
+
+Only restarting nginx cut the connection, at +498 s: `SSLEOFError` on the client
+one second later. That is not a revocation mechanism, it is an outage.
+
+Harness: `verify-ws.sh` and `wsclient.py` (stdlib only — the lab host has no
+`websocat`) with `99-ws.conf` on the lab host. The throwaway proxy and vhost
+were removed afterwards, `labuser` was put back in `OpenBerat-Finance`, and the
+stack is back on the committed configuration.
+
 ## Unverified, to be tested
 
 These claims have not been confirmed against a source; they will be tried in the

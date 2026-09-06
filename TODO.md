@@ -193,10 +193,23 @@ Verify the architecture actually works before writing code.
       p50s, and under contention the double hop degraded first and furthest.*
 - [ ] **MEASURE:** remove a user from a group in AD → how many seconds until access
       is cut? Verify the `cookie_refresh` + cache TTL sum, compare with N-03
-- [ ] **MEASURE:** an **active** WebSocket connection (steady traffic, not idle) —
+- [x] **MEASURE:** an **active** WebSocket connection (steady traffic, not idle) —
       how long does access survive after the user is removed from the group?
       `proxy_read_timeout` is an idle timeout and will not cut it; this measurement
       quantifies the limitation ADR-0016 states rather than testing a fix
+      *Answer: indefinitely — measured to 500 exchanges, 489 s of them after the
+      group was gone (`docs/07`). One connection and one HTTP poller on the same
+      cookie and the same authz target: the HTTP path was cut 292 s after the
+      group was removed, at the `cookie_refresh` boundary, and the WebSocket
+      carried on at 0.2 ms a frame. The two levers an operator would reach for
+      do not reach it either — the session was deleted from Redis at the cut
+      and the connection ran 195 s with no session at all, and `nginx -s reload`
+      (the ADR-0011 path on every application change) left the old worker
+      `shutting down` and still serving under the old configuration, 133 s and
+      two reloads later. `worker_shutdown_timeout` is unset, so a worker
+      accumulates per reload while a long-lived connection is open — new open
+      question in `docs/06`. Only restarting nginx cut it, which is an outage,
+      not a revocation. Harness: `verify-ws.sh` + `wsclient.py` on the lab host*
 
 - [x] Keycloak realm is **imported from `keycloak/realm/`** at first boot, not
       clicked together by hand — otherwise `docker compose up` does not produce a
