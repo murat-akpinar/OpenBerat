@@ -465,6 +465,9 @@ is the rehearsed break-glass below, not a promise of uptime.
                     ┌─────▼──────────┐
                     │  backend  :8081│──► Postgres :5432
                     └─────┬──────────┘──► Redis :6379 (sub → session index)
+                          │                └► shared volume: the generated
+                          │                   application blocks, which nginx
+                          │                   tests and installs (ADR-0011)
                           │ GET /oauth2/auth
                   ┌───────▼──────────┐
                   │ oauth2-proxy:4180│──► Redis :6379 (session)

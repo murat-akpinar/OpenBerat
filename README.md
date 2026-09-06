@@ -70,6 +70,7 @@ flowchart LR
     backend -->|"GET /oauth2/auth"| o2p
     backend -->|"entitlements · audit"| pg
     backend -.->|"kill switch · sub → session"| redis
+    backend -.->|"generated app blocks<br>(shared volume)"| nginx
     o2p -->|session| redis
     o2p -->|"token exchange"| kc
     kc -->|"bind · memberOf"| ad
@@ -85,6 +86,12 @@ protected application before that answer — including CSS, scripts and icons.
 3. No session → 401 → nginx redirects to oauth2-proxy → Keycloak → LDAPS bind to AD
 4. Session → the backend matches `X-Auth-Request-Groups` against the entitlements in Postgres
 5. ALLOW → nginx proxies upstream with the `X-Auth-*` headers stripped and rewritten. DENY → 403 → the portal's "no access" page
+
+An admin defines applications through the API rather than by editing
+configuration: the backend renders an nginx `server` block per application into
+a volume nginx shares, nginx tests it and reloads itself, and a block it refuses
+is rolled back with the previous configuration left serving
+([ADR-0011](docs/adr/0011-nginx-config-generation.md)).
 
 The full sequence, the failure modes and the decision cache are in
 [docs/02-architecture.md](docs/02-architecture.md).

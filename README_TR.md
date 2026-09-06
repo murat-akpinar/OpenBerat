@@ -69,6 +69,7 @@ flowchart LR
     backend -->|"GET /oauth2/auth"| o2p
     backend -->|"entitlement · audit"| pg
     backend -.->|"kill switch · sub → oturum"| redis
+    backend -.->|"üretilen uygulama blokları<br>(paylaşılan volume)"| nginx
     o2p -->|oturum| redis
     o2p -->|"token exchange"| kc
     kc -->|"bind · memberOf"| ad
@@ -84,6 +85,12 @@ korunan uygulamaya hiçbir şey ulaşmaz — CSS, script ve ikonlar dahil.
 3. Oturum yoksa → 401 → nginx oauth2-proxy'ye yönlendirir → Keycloak → AD'ye LDAPS bind
 4. Oturum varsa → backend `X-Auth-Request-Groups`'u Postgres'teki entitlement'larla eşleştirir
 5. ALLOW → nginx `X-Auth-*` header'ları silip yeniden yazarak upstream'e geçirir. DENY → 403 → portalın "erişim yok" sayfası
+
+Uygulamalar yapılandırma dosyası düzenlenerek değil, API üzerinden tanımlanır:
+backend her uygulama için bir nginx `server` bloğunu nginx'in paylaştığı bir
+volume'a üretir, nginx bunu test edip kendini yeniden yükler; kabul etmediği bir
+blok geri alınır ve önceki yapılandırma çalışmaya devam eder
+([ADR-0011](docs/adr/0011-nginx-config-generation.md)).
 
 Tam akış, arıza modları ve karar cache'i:
 [docs/02-architecture.md](docs/02-architecture.md).
