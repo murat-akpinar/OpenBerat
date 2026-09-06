@@ -1,7 +1,8 @@
 # INSTALL
 
 > **Draft.** Started in Phase 1 and grows with it (TODO.md); rewritten for v1.
-> Steps are in install order. §1–§4 have been replayed from a fresh checkout on
+> Steps are in install order. §1–§3 and the start-up in §5 have been replayed
+> from a fresh checkout on
 > the lab host, as written, by someone who had nothing but this file — three
 > things in §1 and §3 were wrong and are fixed (`docs/07`).
 
@@ -20,8 +21,8 @@
 - **Write access to Active Directory** to create the `OpenBerat-` groups.
   Entitlements *are* AD groups; somebody has to be able to make them
   (ADR-0008).
-- **A read-only AD service account** for Keycloak's LDAP bind
-  (`docs/03-keycloak-ad.md`).
+- **A read-only AD service account** for Keycloak's LDAP bind (§4;
+  settings in `docs/03-keycloak-ad.md`).
 - **One AD group for administrators**, named in `ADMIN_GROUP`. In a fail-closed
   system the first admin cannot come from the database.
 - **`NO_CACHE` on Keycloak's LDAP provider.** Measured (`docs/07`): at
@@ -121,9 +122,90 @@ AD_BIND_PASSWORD=…
 # Lab only: the password every user in samba-ad/fixture.sh gets. Keycloak holds
 # no local users — labuser and labadmin come from the directory.
 LAB_USER_PASSWORD=…
+# Optional: the AD group that grants /api/admin/*. Leave it out to take the
+# default. Whatever it names has to match the group mapper's filter, or the
+# management plane is unreachable — §4, "The groups".
+ADMIN_GROUP=OpenBerat-Admins
 ```
 
-## 4. Start
+## 4. Active Directory
+
+**Lab: skip this section.** `samba-ad/fixture.sh` (§5) builds a directory the
+committed realm export already matches. This is for pointing Keycloak at a real
+one.
+
+None of it comes from `.env`. `AD_DOMAIN` and `AD_ADMIN_PASSWORD` are read by
+the `samba-ad` container alone (`docker-compose.yml`), so changing them does not
+move a single DN — the directory's shape lives in the realm export and is
+edited there, before Keycloak first starts (§5).
+
+### The bind account
+
+One ordinary user, in no privileged group. AD has no read-only flag: the
+account is read-only because it is a member of nothing and because the
+provider's Edit Mode is `READ_ONLY` (`docs/03`). The shape to copy is the lab's,
+in `samba-ad/fixture.sh`:
+
+```sh
+samba-tool user create svc-keycloak "$AD_BIND_PASSWORD" \
+  --userou="OU=Service Accounts" --description="Keycloak LDAP bind (read-only)"
+samba-tool user setexpiry svc-keycloak --noexpiry
+```
+
+The non-expiring password is not laziness. This one credential sits on the path
+of every login; when it lapses nobody signs in, including whoever would go and
+change it. Its value belongs in `AD_BIND_PASSWORD` and nowhere else: the
+committed export carries a `${AD_BIND_PASSWORD}` placeholder that Keycloak
+resolves from its own environment at import, so the secret never enters a
+version-controlled file (`keycloak/README.md`).
+
+### The groups
+
+One `OpenBerat-<scope>` group per entitlement, plus one for `ADMIN_GROUP`. Both
+kinds have to match the group mapper's filter, and that is where the two traps
+are:
+
+- **`ADMIN_GROUP` has to be inside the filter.** It defaults to
+  `OpenBerat-Admins`, which is, and can be pointed anywhere else for a fixed AD
+  naming policy (ADR-0008). Point it at a name the filter excludes and it never
+  reaches the claim: `/api/admin/*` then answers 403 to everybody, permanently,
+  and no database row and no local Keycloak account can let you back in — in a
+  fail-closed system the first admin cannot come from the database. Measured
+  (`docs/07`): the account in the real admin group goes from 200 to 403 with
+  everyone else, and `/api/me` keeps listing that group while reporting
+  `"admin": false` — so the symptom reads as a membership problem. The one
+  place the two are named together is `docker compose logs backend | grep
+  'admin refused'`. Widen the filter to cover the new name in the same edit, or
+  leave the variable alone.
+- **Never delete and recreate a prefixed group.** Entitlements match on the name
+  (ADR-0008), so a group recreated later under an old name inherits that name's
+  entitlements and hands them to everyone in the new group. Renaming is safe; it
+  is recreation that re-grants, and nothing in the software can catch it. This
+  is a change-control rule on the AD side.
+
+### The four environment-specific values
+
+They are in `keycloak/realm/openberat-realm.json`: three on the `ad ldap`
+provider component, one on its `openberat-groups` mapper. Everything else there
+— the disabled-account filter, `NO_CACHE`, the `(cn=OpenBerat-*)` group filter,
+the group strategy — is verified against the lab directory (`docs/03`,
+`docs/07`) and is not yours to adjust.
+
+| Where | Key | Lab value |
+|---|---|---|
+| provider | `connectionUrl` | `ldaps://dc01.example.local:636` |
+| provider | `bindDn` | `CN=svc-keycloak,OU=Service Accounts,DC=example,DC=local` |
+| provider | `usersDn` | `OU=Users,DC=example,DC=local` |
+| mapper | `groups.dn` | `OU=Groups,DC=example,DC=local` |
+
+LDAPS, not plain LDAP on 389 (`docs/03`). The provider runs with
+`useTruststoreSpi=always`, so the certificate the DC presents has to be
+trusted: put its issuer as a file under `/opt/keycloak/conf/truststores/`.
+Keycloak loads every file in that directory at startup and names them in its
+first log lines. Without it the provider cannot connect and every login fails
+at once.
+
+## 5. Start
 
 ```sh
 docker compose build
@@ -189,7 +271,7 @@ log lines.
 Then browse to `https://portal.apps.example.local/`; you are redirected to
 Keycloak, and after logging in as `labuser` you land back on the portal.
 
-## 5. Adding an application
+## 6. Adding an application
 
 Applications are defined through the admin API, not by editing configuration.
 The backend renders an nginx `server` block per application into a volume nginx
@@ -210,7 +292,7 @@ stays in effect and the reason is in
 `/etc/nginx/conf.d/generated/apps.status` inside the nginx container. Nothing
 goes down while you read it.
 
-## 6. One limitation to know before you expose an application
+## 7. One limitation to know before you expose an application
 
 Revocation is bounded for HTTP requests — an account disabled in AD or removed
 from a group loses access within six minutes, and the kill switch cuts it in

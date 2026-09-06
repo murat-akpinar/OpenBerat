@@ -334,7 +334,7 @@ Verify the architecture actually works before writing code.
       the token carries no `aud` and oauth2-proxy rejects it. The LDAP
       federation half landed with VERIFY (2): the export now carries the
       provider, its eight mappers and no local users at all*
-- [ ] Start `INSTALL.md` **while doing all of the above**, not in Phase 6. Phase 1
+- [x] Start `INSTALL.md` **while doing all of the above**, not in Phase 6. Phase 1
       is an installation: DNS, the wildcard certificate, the realm import, the
       LDAP bind account, `ADMIN_GROUP` and the first login all happen here.
       Reconstructing them five phases later from memory is how installation
@@ -351,8 +351,13 @@ Verify the architecture actually works before writing code.
       strict only because ADR-0006 mandates `cookie_refresh`); and a base64
       `POSTGRES_PASSWORD` breaks `DATABASE_URL` with an error that names the
       port. Fixed, and the replay then ran through to a 200 on the portal
-      (`docs/07`). The box stays open for the LDAP bind account and
-      `ADMIN_GROUP`, which wait on samba-ad*
+      (`docs/07`). Closed with §4, "Active Directory": the read-only bind
+      account and its non-expiring password, the two group traps and the four
+      DNs an installation changes in the realm export. The `ADMIN_GROUP` trap
+      was written before it had been tried, so it was measured (`docs/07`) —
+      pointed outside `(cn=OpenBerat-*)` it takes the real admin from 200 to
+      403 with everybody else, while `/api/me` still lists the group and says
+      `"admin": false`*
 
 **Output:** authentication works end to end, the latencies are known, `INSTALL.md`
 has a first draft, and there is still not one line of code.

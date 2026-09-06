@@ -1035,6 +1035,44 @@ group behind on the first run: `docker compose exec -T` reads stdin, so a
 `while read` delete loop fed by a pipe loses every line after the first
 deletion. The cleanup list goes through a file.
 
+### `ADMIN_GROUP` outside the group filter — the management plane locks everyone out
+
+The comma experiment above measured one direction: a group name the filter lets
+through *is* the management plane. The other direction is the mistake an
+installation actually makes, and it was written into `INSTALL.md` §4 before it
+had been tried, so it was tried. `ADMIN_GROUP` arrives from the shell
+(`ADMIN_GROUP=… docker compose up -d --force-recreate backend`), so the lab's
+`.env` is never edited; harness `verify-admingroup.sh` on vaultscan.
+
+`GET /api/admin/applications` through the real proxy, with fresh logins:
+
+| `ADMIN_GROUP` | `labadmin` | `labuser` |
+|---|---|---|
+| `OpenBerat-Admins` (committed) | **200** | 403 |
+| `Payroll-Admins` — excluded by `(cn=OpenBerat-*)` | **403** | 403 |
+| `OpenBerat-Admins` again | **200** | 403 |
+
+So the failure is total rather than partial: the account that is in the real
+admin group is refused alongside everyone else, and because `ADMIN_GROUP` is
+checked against the claim there is no database row and no locally created
+Keycloak account that can grant it back — the group has to exist *in AD* and
+pass the filter. In a fail-closed system the first admin cannot come from the
+database, and this is what that costs when the variable is wrong.
+
+**The symptom points at the wrong thing.** `/api/me` still lists
+`OpenBerat-Admins` in `groups` and reports `"admin": false` in the same
+response, so from the portal it looks like a group-membership problem while it
+is a one-variable problem. The only place the two are named together is the
+backend log:
+
+```
+WARN openberat::admin: admin refused: not in ADMIN_GROUP actor=labadmin path=/api/admin/applications
+```
+
+That line, with an `actor` that is visibly in the group the installation thinks
+it configured, is the signature. `docker compose logs backend | grep 'admin
+refused'` is the first thing to read when nobody can reach `/api/admin/*`.
+
 ### MEASURE — a group removed in AD, and the 330 seconds it can take
 
 The claim under test is [ADR-0016](adr/0016-n03-revocation-targets.md)'s six

@@ -33,8 +33,8 @@ ibaret değil. Aşağıdakiler operatörün sorumluluğunda ve hiçbiri atlanama
 | Korunan tüm uygulamalar için **ortak bir üst alan adı** (`*.apps.<domain>`) | Oturum çerezi bunlar arasında paylaşılıyor; ilgisiz alan adlarındaki uygulamalar desteklenmiyor ([ADR-0015](docs/adr/0015-single-parent-domain.md)) |
 | **Wildcard DNS kaydı** ve onu kapsayan **wildcard TLS sertifikası** | Admin uygulama ekleyebilir ama ad çözümlemesi yaratamaz ([ADR-0011](docs/adr/0011-nginx-config-generation.md)). Sertifika dolduğunda her şey aynı anda düşer |
 | `OpenBerat-` gruplarını açmak için **Active Directory'de yazma yetkisi** | Yetkiler AD gruplarıdır; birinin onları oluşturması gerekir ([ADR-0008](docs/adr/0008-group-identity-name.md)) |
-| Keycloak'ın LDAP bind'i için **salt okunur bir AD servis hesabı** | [docs/03-keycloak-ad.md](docs/03-keycloak-ad.md) |
-| `ADMIN_GROUP`'ta adı geçen **bir yönetici AD grubu** | Fail-closed bir sistemde ilk admin veritabanından gelemez |
+| Keycloak'ın LDAP bind'i için **salt okunur bir AD servis hesabı** | Nasıl açılır ve ne gösterilir: [INSTALL.md](INSTALL.md) §4; ayarların kendisi: [docs/03-keycloak-ad.md](docs/03-keycloak-ad.md) |
+| `ADMIN_GROUP`'ta adı geçen **bir yönetici AD grubu** | Fail-closed bir sistemde ilk admin veritabanından gelemez — ve bu adın aşağıdaki grup filtresinden geçmesi gerekir, yoksa `/api/admin/*`'a hiç kimse ulaşamaz ([docs/07](docs/07-references.md)) |
 | Keycloak LDAP grup mapper'ında `OpenBerat-` önekini eşleyen **bir grup filtresi** | Düzen meselesi değil: adlar backend'e virgülle birleştirilmiş halde geliyor, dolayısıyla *adı* `Payroll,OpenBerat-Admins` olan tek bir grup iki ad olarak varıyor ve ikincisi `ADMIN_GROUP` oluyor. Böyle bir adı claim'e sokmayan şey bu filtre ([ADR-0008](docs/adr/0008-group-identity-name.md), [docs/07](docs/07-references.md)) |
 | Keycloak LDAP sağlayıcısında **`NO_CACHE`** | Ölçüldü: `DEFAULT`'ta AD'den çıkarılan bir grup yepyeni bir oturum açmadan sonra bile duruyor ve gecikmeyi sınırlayan hiçbir şey yok. Sistem çalışmaya devam ediyor, AD'yi izlemeyi bırakıyor ([ADR-0006](docs/adr/0006-group-membership-source.md), [docs/07](docs/07-references.md)) |
 

@@ -1,7 +1,9 @@
 # 03 — Keycloak ↔ Active Directory
 
-We are **not writing** this part; we configure it in Keycloak. These notes are
-research; the real settings will be verified once the lab is up.
+We are **not writing** this part; we configure it in Keycloak. The settings
+below are the ones the committed realm export carries, verified against the
+Phase 1 lab directory (`docs/07`); what an installation changes for its own
+directory is a short list, in `INSTALL.md` §4.
 
 ## Connection
 
