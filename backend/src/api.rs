@@ -59,7 +59,37 @@ pub struct Ctx {
 }
 
 pub fn router(ctx: Arc<Ctx>) -> Router {
-    Router::new().route("/decide", get(decide)).with_state(ctx)
+    Router::new()
+        .route("/decide", get(decide))
+        .route("/healthz", get(async || StatusCode::OK))
+        .route("/readyz", get(readyz))
+        .with_state(ctx)
+}
+
+// --- Feature Start ---
+// The fail-closed rule hides the outage: with Postgres down, /decide answers
+// 403 for everybody, which from outside is indistinguishable from a policy that
+// denies everybody. This endpoint is the only place the difference is visible,
+// and it is why it names the failed dependency rather than answering 503 bare.
+// --- Feature End ---
+async fn readyz(State(ctx): State<Arc<Ctx>>) -> Response {
+    let mut down = Vec::new();
+    let query = sqlx::query("select 1").execute(&ctx.pool);
+    if !matches!(tokio::time::timeout(QUERY_TIMEOUT, query).await, Ok(Ok(_))) {
+        down.push("postgres");
+    }
+    let ping = tokio::time::timeout(QUERY_TIMEOUT, ctx.index.ping()).await;
+    if !matches!(ping, Ok(Ok(()))) {
+        down.push("redis");
+    }
+    if down.is_empty() {
+        return StatusCode::OK.into_response();
+    }
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        format!("unreachable: {}\n", down.join(" ")),
+    )
+        .into_response()
 }
 
 enum Authentication {

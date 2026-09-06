@@ -880,6 +880,41 @@ async fn decide_section(pool: &PgPool) {
     index.forget("sub-labuser").await.unwrap();
     while queue.try_recv().is_ok() {}
 
+    // --- the two endpoints that can tell an outage from a policy ---
+    let probe = async |ctx: Arc<Ctx>, path: &str| {
+        let request = Request::builder().uri(path).body(Body::empty()).unwrap();
+        router(ctx).oneshot(request).await.unwrap()
+    };
+    assert_eq!(
+        probe(shared.clone(), "/healthz").await.status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        probe(shared.clone(), "/readyz").await.status(),
+        StatusCode::OK
+    );
+
+    // With Postgres unreachable, /decide answers 403 for everybody — which from
+    // outside is a policy that denies everybody. This is the only place the
+    // difference shows, so it has to name the dependency and not just fail.
+    let dead = sqlx::postgres::PgPoolOptions::new()
+        .acquire_timeout(std::time::Duration::from_millis(100))
+        .connect_lazy("postgres://openberat:test@127.0.0.1:1/openberat")
+        .unwrap();
+    let blind = ctx(&upstream, dead);
+    let response = probe(blind.clone(), "/readyz").await;
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&body).trim(),
+        "unreachable: postgres"
+    );
+    // /healthz says nothing about dependencies, on purpose: it answers whether
+    // this process is alive, and a restart loop is a different problem.
+    assert_eq!(probe(blind, "/healthz").await.status(), StatusCode::OK);
+
     // And the counters the cache is holding reach the channel on shutdown.
     shared.cache.flush_all();
     let mut summaries = Vec::new();

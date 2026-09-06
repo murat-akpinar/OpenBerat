@@ -77,6 +77,12 @@ impl Index {
         self.0.clone().smembers(index_key(sub)).await
     }
 
+    /// For /readyz. The index is the backend's only Redis use, so this is the
+    /// whole of what "Redis is reachable" means to it.
+    pub async fn ping(&self) -> Result<(), redis::RedisError> {
+        redis::cmd("PING").exec_async(&mut self.0.clone()).await
+    }
+
     /// The kill switch's last step, after the cache entries are gone.
     pub async fn forget(&self, sub: &str) -> Result<(), redis::RedisError> {
         self.0.clone().del::<_, ()>(index_key(sub)).await

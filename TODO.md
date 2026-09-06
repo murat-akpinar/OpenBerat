@@ -550,9 +550,18 @@ has a first draft, and there is still not one line of code.
       *302 into the login flow with the query string whole —
       `/reports?a=1&b=2` came back intact, which is the Phase 1 finding about
       `rd=` still holding now that the handler lives in a shared include.*
-- [ ] `GET /healthz` and `GET /readyz` (`docs/02`) — internal network only.
+- [x] `GET /healthz` and `GET /readyz` (`docs/02`) — internal network only.
       Without them a fail-closed blackout and a working deny policy look identical
       from outside, and there is nothing for the Phase 6 health check to poll
+      *Internal by omission rather than by rule: nothing in nginx proxies them
+      and the backend sits only on `core`. `/readyz` **names** the dependency
+      that is down rather than answering 503 bare — with Postgres unreachable
+      `/decide` answers 403 for everybody, which from outside is a policy that
+      denies everybody, and the name is the whole difference. Live: Redis
+      stopped → `unreachable: redis` / 503, `/healthz` still 200 because it
+      answers a different question, and both back to 200 when Redis returned.
+      No compose `healthcheck:` yet — the runtime image carries no HTTP client
+      to poll with, which is a Phase 6 packaging question.*
 - [x] `/decide` reachable only from the internal network (`internal;`)
       *`internal;` specifically, not an IP ACL: nginx skips the access phase for
       a subrequest, so `deny all` in that position does nothing (VERIFY (3)).
