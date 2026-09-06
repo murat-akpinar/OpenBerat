@@ -46,3 +46,4 @@
 ### ⚙️ Miscellaneous Tasks
 
 - Keep .claude/ out of the repository ([ea13122](https://github.com/murat-akpinar/OpenBerat/commit/ea13122ad1f99284d8154f0e40f00e6408d33ed5)) — The /basla slash command lives in .claude/commands/ and encodes the maintainer's own working loop, the same reason CLAUDE.md is not committed either.
+- *(nginx)* Fail on a protected location that answers before auth_request ([4b4a90f](https://github.com/murat-akpinar/OpenBerat/commit/4b4a90ff9d29796770e9bb67675be26e1d1cadee)) — `return` runs in the rewrite phase, before the access phase where `auth_request` lives: the subrequest never fires, the location is wide open, and `nginx -t` reports the configuration as fine. `try_files` without `=CODE` last has a quieter version of the same problem — the internal redirect re-runs the access phase, the second subrequest has nothing left to refresh, and the refreshed session cookie is lost.
