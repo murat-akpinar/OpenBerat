@@ -80,6 +80,12 @@ async fn main() {
         cache: cache.clone(),
         audit: audit.clone(),
         index,
+        // ADR-0008's default, overridable for a customer with a fixed AD naming
+        // policy. It is the one grant that cannot come from the database.
+        admin_group: std::env::var("ADMIN_GROUP").unwrap_or_else(|_| "OpenBerat-Admins".into()),
+        // No default: every deployment has a different portal hostname, and a
+        // default here would be a check that passes for the wrong origin.
+        portal_origin: required("PORTAL_ORIGIN").trim_end_matches('/').to_string(),
     });
 
     let listener = match tokio::net::TcpListener::bind(LISTEN).await {

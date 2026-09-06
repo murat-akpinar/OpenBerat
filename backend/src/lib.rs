@@ -1,6 +1,7 @@
 // The binary is a thin wrapper around this: everything worth testing lives in
 // the modules, and integration tests reach them through here.
 
+pub mod admin;
 pub mod api;
 pub mod cache;
 pub mod policy;

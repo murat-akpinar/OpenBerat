@@ -35,11 +35,12 @@ use crate::cache::{self, Cache, Cached, Identity, Key};
 use crate::policy::{self, Decision, Deny};
 use crate::session::{self, Index};
 use crate::store::{self, AuditEvent};
-use axum::Router;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use axum::{Json, Router};
+use serde::Serialize;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -56,14 +57,86 @@ pub struct Ctx {
     pub cache: Arc<Cache>,
     pub audit: store::Audit,
     pub index: Index,
+    /// The AD group that grants the management plane (ADR-0008). It comes from
+    /// the environment and never from the database: in a fail-closed system the
+    /// first admin cannot come from a table nobody can write to yet.
+    pub admin_group: String,
+    /// The origin state-changing admin calls must come from (docs/02).
+    pub portal_origin: String,
 }
 
 pub fn router(ctx: Arc<Ctx>) -> Router {
     Router::new()
         .route("/decide", get(decide))
+        .route("/api/me", get(me))
         .route("/healthz", get(async || StatusCode::OK))
         .route("/readyz", get(readyz))
+        .merge(crate::admin::routes(ctx.clone()))
         .with_state(ctx)
+}
+
+/// The signed-in user, as nginx rewrote them onto the request. Read from the
+/// `X-Auth-*` set — the same names a protected application receives — because
+/// the shared include clears the `X-Auth-Request-*` family before proxying
+/// anywhere, this endpoint included. Reading the cleared family here would need
+/// one location that must *not* run the shared strip, which is exactly the
+/// "forget it in one place" hazard the include exists to remove.
+pub struct Caller {
+    pub sub: String,
+    pub username: String,
+    pub email: String,
+    pub groups: Vec<String>,
+}
+
+impl Caller {
+    pub fn from(headers: &HeaderMap) -> Option<Caller> {
+        let value = |name: &str| {
+            headers
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string()
+        };
+        // nginx never proxies here without one; if it did, the request has no
+        // identity and there is nothing to answer it with.
+        let sub = value("x-auth-subject");
+        (!sub.is_empty()).then(|| Caller {
+            sub,
+            username: value("x-auth-username"),
+            email: value("x-auth-email"),
+            groups: value("x-auth-groups")
+                .split(',')
+                .filter(|g| !g.is_empty())
+                .map(str::to_owned)
+                .collect(),
+        })
+    }
+}
+
+#[derive(Serialize)]
+struct Me {
+    sub: String,
+    username: String,
+    email: String,
+    groups: Vec<String>,
+    admin: bool,
+}
+
+async fn me(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Response {
+    let Some(caller) = Caller::from(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    // The frontend uses this to hide things. Hiding is a convenience; the
+    // refusal is the guard in admin.rs (ADR-0007).
+    let admin = policy::is_admin(&caller.groups, &ctx.admin_group);
+    Json(Me {
+        sub: caller.sub,
+        username: caller.username,
+        email: caller.email,
+        groups: caller.groups,
+        admin,
+    })
+    .into_response()
 }
 
 // --- Feature Start ---
@@ -123,7 +196,7 @@ async fn decide(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Response {
         return refuse(Deny::MissingContext);
     }
     let cookie = headers.get("cookie");
-    let request = Request {
+    let request = Subrequest {
         key: Key::new(cookie.and_then(|v| v.to_str().ok()), slug),
         slug: slug.to_string(),
         uri: uri.to_string(),
@@ -210,7 +283,8 @@ async fn decide(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Response {
     response
 }
 
-struct Request {
+/// The inputs the nginx include hands `/decide`, gathered once.
+struct Subrequest {
     key: Option<Key>,
     slug: String,
     uri: String,
@@ -219,7 +293,7 @@ struct Request {
     request_id: Option<String>,
 }
 
-async fn load(ctx: &Ctx, request: &Request, identity: &Arc<Identity>) -> Result<Cached, Deny> {
+async fn load(ctx: &Ctx, request: &Subrequest, identity: &Arc<Identity>) -> Result<Cached, Deny> {
     let groups: Vec<String> = identity
         .groups
         .to_str()
@@ -268,7 +342,7 @@ async fn load(ctx: &Ctx, request: &Request, identity: &Arc<Identity>) -> Result<
 
 /// The decision itself: a pure function over data already in memory, run on
 /// every request — hit or miss — against the full rule list.
-fn answer(ctx: &Ctx, request: &Request, cached: &Cached) -> Response {
+fn answer(ctx: &Ctx, request: &Subrequest, cached: &Cached) -> Response {
     let decision = policy::decide(
         cached.enabled,
         &cached.rules,

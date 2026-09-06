@@ -521,10 +521,15 @@ has a first draft, and there is still not one line of code.
       connections only; active ones are outside the N-03 guarantee (ADR-0016)
       *Set in `protected.inc`, alongside the `Upgrade`/`Connection` pair a
       WebSocket needs. Verified: `101 Switching Protocols` through the PEP.*
-- [ ] `Origin` check on state-changing `/api/admin/*` endpoints
-      *Waits for Phase 4: there is no `/api/admin/*` handler to put it on, and
-      a check written against an endpoint that does not exist is a check nobody
-      ever ran. It belongs in the same commit as the first admin mutation.*
+- [x] `Origin` check on state-changing `/api/admin/*` endpoints
+      *Landed with the first admin mutation, as planned, and as **middleware**
+      rather than a line in each handler: a guard written per handler is a
+      guard somebody forgets on the handler added at 3 a.m., and the one it is
+      forgotten on is the one that grants entitlements. `GET`/`HEAD` are
+      exempt; everything else needs an `Origin` equal to `PORTAL_ORIGIN`, and a
+      **missing** `Origin` is a refusal rather than a pass. Tested with an
+      admin acting from `sample.apps.example.local` — same-site, which is
+      precisely why `SameSite` cannot do this job (ADR-0015).*
 - [x] Rate limiting (pulled forward from Phase 6 — audit and backend are a single
       point of failure)
       *Two zones, both per address: 50 r/s for decisions with a burst of 100 —
@@ -638,18 +643,52 @@ to here is a usable system — and the proof of usability is the break-glass.
 
 So the portal's data does not have to be filled in by hand with SQL.
 
-- [ ] Application CRUD + `upstream_url` validation (scheme/host/port; loopback,
+- [x] Application CRUD + `upstream_url` validation (scheme/host/port; loopback,
       link-local and infrastructure services rejected); `external_hostname`
       must not collide with the reserved `portal` / `auth` hosts (ADR-0011)
+      *`admin.rs`. The validation is a trust boundary, so it uses the `url`
+      crate rather than a hand-rolled parser, and it refuses on **three** axes
+      rather than the two the ADR lists: the service names, the reserved
+      addresses, and the **ports**. An admin typing `http://10.1.2.3:5432`
+      walks straight past a name check, and nothing legitimate behind this
+      proxy speaks Postgres, Redis or LDAP over HTTP — so 5432, 6379, 389, 636,
+      3268 and 3269 are refused whatever the host. Private ranges are
+      deliberately allowed: every real upstream is on one. Credentials, paths
+      and query strings in `upstream_url` are refused too — it becomes a
+      `proxy_pass`, and a path there silently rewrites every request. `slug`
+      and `external_hostname` are **not patchable**: both are written into
+      generated nginx blocks and into every audit row naming the application,
+      so renaming one silently reassigns history.*
 - [ ] AD group ↔ application mapping (allow/deny)
 - [ ] **nginx config generation** (ADR-0011): generate from the template →
       `nginx -t` → reload. If validation fails, the current config stays in effect
 - [ ] **Test:** every generated location contains the `X-Auth-*` stripping include
-- [ ] `nginx/conf.d/10-portal.conf`: the portal host — frontend static files,
+- [x] `nginx/conf.d/10-portal.conf`: the portal host — frontend static files,
       `/api/*` → backend
+      *Its own `location /api/`, with the identity written from the
+      `/oauth2/auth` subrequest and every client-supplied `X-Auth-*` cleared
+      first — a client posting `X-Auth-Groups: OpenBerat-Admins` straight at
+      `/api/admin/*` is the whole attack, and this is where it dies. One
+      correction to `docs/02` fell out of writing it: the backend reads
+      **`X-Auth-Groups`**, not `X-Auth-Request-Groups`. It is an upstream on
+      this path like any other, and the shared strip clears the
+      `X-Auth-Request-*` family everywhere — reading the cleared family here
+      would need one location that must *not* run the shared strip, which is
+      exactly the "forget it in one place" hazard the include exists to remove.*
 - [ ] `GET /api/me`, `GET /api/apps`
+      *`/api/me` is done — sub, username, email, groups and the `admin` flag,
+      which the frontend uses to hide things and which refuses nothing on its
+      own (ADR-0007). `/api/apps` waits for the entitlement mapping below,
+      since "the applications this user can reach" is that query read the other
+      way round.*
 - [ ] Admin mutations and kill switch invocations recorded to the structured
       log — actor, action, target, outcome (F-14, `docs/02` "Management plane")
+      *The mutation half is done and running:
+      `admin actor="labadmin" action="create_application" target=wiki
+      outcome="ok"`, with refusals logged the same way and naming which guard
+      turned them away. Not in `audit_event`: that table's rows are decision
+      summaries and its format is immutable (`docs/02`). The kill switch half
+      is Phase 5, where the kill switch is.*
 
 ## Phase 5 — Portal + audit + kill switch
 

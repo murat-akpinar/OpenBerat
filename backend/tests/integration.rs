@@ -623,6 +623,8 @@ async fn decide_section(pool: &PgPool) {
             cache: Arc::new(Cache::new(audit.clone())),
             audit,
             index: index.clone(),
+            admin_group: "OpenBerat-Admins".to_string(),
+            portal_origin: "https://portal.apps.example.local".to_string(),
         })
     };
     let ask = async |ctx: Arc<Ctx>, headers: Vec<(&str, String)>| {
@@ -800,6 +802,8 @@ async fn decide_section(pool: &PgPool) {
         cache: Arc::new(Cache::new(audit.clone())),
         audit,
         index: index.clone(),
+        admin_group: "OpenBerat-Admins".to_string(),
+        portal_origin: "https://portal.apps.example.local".to_string(),
     });
 
     // Fifty assets of one page arriving together on a cold key. Without
@@ -894,6 +898,264 @@ async fn decide_section(pool: &PgPool) {
     );
     index.forget("sub-labuser").await.unwrap();
     while queue.try_recv().is_ok() {}
+
+    // --- the management plane ---
+    let call = async |method: &str, path: &str, headers: Vec<(&str, String)>| {
+        let mut request = Request::builder().method(method).uri(path);
+        for (name, value) in headers {
+            request = request.header(name, value);
+        }
+        router(shared.clone())
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+    };
+    let identity = |groups: &str| {
+        vec![
+            ("x-auth-subject", "sub-labuser".to_string()),
+            ("x-auth-username", "labuser".to_string()),
+            ("x-auth-email", "labuser@example.local".to_string()),
+            ("x-auth-groups", groups.to_string()),
+        ]
+    };
+
+    // /api/me reads the identity nginx rewrote and answers whether it grants
+    // the management plane. The frontend hides things with this; it is not what
+    // refuses anything.
+    let response = call("GET", "/api/me", identity("OpenBerat-Finance")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
+    let me: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(me["username"], "labuser");
+    assert_eq!(me["admin"], false);
+    let response = call(
+        "GET",
+        "/api/me",
+        identity("OpenBerat-Admins,OpenBerat-Finance"),
+    )
+    .await;
+    let body = axum::body::to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["admin"],
+        true
+    );
+
+    // No identity at all means nginx did not put one there, which means the
+    // request did not come through nginx.
+    assert_eq!(
+        call("GET", "/api/me", vec![]).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    // A portal user is not an admin. This is the attack docs/05 names: the
+    // portal is open to every authenticated user, so if reaching it were
+    // enough, anyone could grant themselves entitlements.
+    assert_eq!(
+        call(
+            "GET",
+            "/api/admin/applications",
+            identity("OpenBerat-Finance")
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(
+            "GET",
+            "/api/admin/applications",
+            identity("OpenBerat-Admins")
+        )
+        .await
+        .status(),
+        StatusCode::OK
+    );
+    // Nor is a group that merely looks like the admin one.
+    for pretender in [
+        "openberat-admins",
+        "OpenBerat-Admins-Readonly",
+        "Domain Admins",
+    ] {
+        assert_eq!(
+            call("GET", "/api/admin/applications", identity(pretender))
+                .await
+                .status(),
+            StatusCode::FORBIDDEN,
+            "{pretender}"
+        );
+    }
+
+    // Origin on anything state-changing. SameSite cannot do this job: the
+    // portal and the applications are same-site by design (ADR-0015), so a
+    // compromised application's page is a same-site caller.
+    let mut admin = identity("OpenBerat-Admins");
+    admin.push(("origin", "https://sample.apps.example.local".to_string()));
+    assert_eq!(
+        call("DELETE", "/api/admin/applications", admin)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
+        "an admin acting from another host on the same domain"
+    );
+    let mut admin = identity("OpenBerat-Admins");
+    admin.push(("origin", "https://portal.apps.example.local".to_string()));
+    assert_ne!(
+        call("DELETE", "/api/admin/applications", admin)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
+        "the portal's own origin passes the guard"
+    );
+    // And a missing Origin is not a pass.
+    assert_eq!(
+        call(
+            "DELETE",
+            "/api/admin/applications",
+            identity("OpenBerat-Admins")
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN,
+        "no Origin at all"
+    );
+
+    // Application CRUD, through the guard.
+    let post = async |path: &str, body: serde_json::Value| {
+        let mut request = Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("content-type", "application/json")
+            .header("origin", "https://portal.apps.example.local");
+        for (name, value) in identity("OpenBerat-Admins") {
+            request = request.header(name, value);
+        }
+        router(shared.clone())
+            .oneshot(request.body(Body::from(body.to_string())).unwrap())
+            .await
+            .unwrap()
+    };
+    let response = post(
+        "/api/admin/applications",
+        serde_json::json!({
+            "slug": "wiki", "name": "Wiki",
+            "upstream_url": "http://wiki-app:8080",
+            "external_hostname": "wiki.apps.example.local"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body = axum::body::to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
+    let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(created["enabled"], true);
+    let wiki = created["id"].as_str().unwrap().to_string();
+
+    // A duplicate is a conflict, not a 500 — the admin gets told which field.
+    let response = post(
+        "/api/admin/applications",
+        serde_json::json!({
+            "slug": "wiki", "name": "Wiki again",
+            "upstream_url": "http://other:8080",
+            "external_hostname": "other.apps.example.local"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+
+    // The validation from admin.rs, reaching the caller as a 400 with a reason
+    // rather than a database error.
+    for (field, value) in [
+        ("upstream_url", "http://postgres:5432"),
+        ("upstream_url", "http://169.254.169.254/"),
+        ("external_hostname", "portal.apps.example.local"),
+    ] {
+        let mut body = serde_json::json!({
+            "slug": "probe", "name": "Probe",
+            "upstream_url": "http://probe-app:8080",
+            "external_hostname": "probe.apps.example.local"
+        });
+        body[field] = serde_json::Value::String(value.to_string());
+        let response = post("/api/admin/applications", body).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "{field} = {value}"
+        );
+        let body = axum::body::to_bytes(response.into_body(), 65536)
+            .await
+            .unwrap();
+        let refused: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(
+            refused["error"].is_string(),
+            "{field} = {value}: no reason given"
+        );
+    }
+
+    // A slug the schema would refuse is refused before it gets there, and the
+    // caller is told rather than seeing a 500.
+    let send = async |method: &str, path: String, body: serde_json::Value| {
+        let mut request = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("content-type", "application/json")
+            .header("origin", "https://portal.apps.example.local");
+        for (name, value) in identity("OpenBerat-Admins") {
+            request = request.header(name, value);
+        }
+        router(shared.clone())
+            .oneshot(request.body(Body::from(body.to_string())).unwrap())
+            .await
+            .unwrap()
+    };
+    let response = send(
+        "PATCH",
+        format!("/api/admin/applications/{wiki}"),
+        serde_json::json!({"enabled": false}),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
+    let patched: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(patched["enabled"], false);
+    assert_eq!(patched["name"], "Wiki", "an absent field is left alone");
+
+    let response = send(
+        "PATCH",
+        format!("/api/admin/applications/{wiki}"),
+        serde_json::json!({"upstream_url": "http://redis:6379"}),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "patching in an infrastructure host"
+    );
+
+    let response = send(
+        "DELETE",
+        format!("/api/admin/applications/{wiki}"),
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    let response = send(
+        "DELETE",
+        format!("/api/admin/applications/{wiki}"),
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        StatusCode::NOT_FOUND,
+        "deleting it twice"
+    );
 
     // --- how many AD groups the backend's own HTTP client survives ---
     // nginx's half of this is measured (docs/07): the group list travels

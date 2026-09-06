@@ -245,7 +245,13 @@ is open to every user, if the admin endpoints sat under the portal's path anyone
 who could reach the portal could grant themselves entitlements.
 
 - Source of authority: a single `ADMIN_GROUP` from the environment (e.g. `OpenBerat-Admins`).
-  If it is not in the user's `X-Auth-Request-Groups` list, 403.
+  If it is not in the user's group list, 403.
+- The list arrives as **`X-Auth-Groups`**, not `X-Auth-Request-Groups`: the
+  backend is an upstream on this path like any other, and the shared strip
+  clears the `X-Auth-Request-*` family before proxying anywhere. Reading the
+  cleared family here would need one location that must *not* run the shared
+  strip — precisely the "forget it in one place" hazard the include exists to
+  remove. One set of names arrives at every upstream, the backend included.
 - That header is trustworthy only because nginx strips client-supplied
   `X-Auth-*` on the portal host's `/api/*` location too, exactly as on the
   protected applications (`docs/05`, "Header spoof protection").

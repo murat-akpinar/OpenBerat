@@ -52,6 +52,11 @@ services:
       # name that may not resolve, and /decide would report an outage instead of
       # a misconfiguration.
       OAUTH2_PROXY_URL: http://oauth2-proxy:4180
+      # The management plane. ADMIN_GROUP has a default (ADR-0008);
+      # PORTAL_ORIGIN deliberately does not — a default would be an Origin
+      # check that passes for somebody else's portal.
+      ADMIN_GROUP: ${ADMIN_GROUP:-OpenBerat-Admins}
+      PORTAL_ORIGIN: https://portal.apps.example.local
     depends_on: [postgres, redis]
     networks: [core]
 
