@@ -58,6 +58,13 @@ happens:
 2. A requirement to match on group **SID** becomes firm ([ADR-0008](0008-group-identity-name.md) accepted name matching only because this ADR closed the LDAP path)
 3. Nested groups turn out not to resolve correctly through `memberOf`
 
+**Trigger 3 was measured and did not fire** (Phase 1, `docs/07`): nested groups
+really do not resolve through `memberOf` — the transitive member gets no claim
+at all — but `LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY` resolves them inside
+Keycloak, from the next login and with no restart. Path B reopens only if that
+strategy's cost is unacceptable in the target directory, which the lab is too
+small to say.
+
 ## Consequences
 
 - Deprovisioning delay = `cookie_refresh` + decision cache TTL. **Two numbers,

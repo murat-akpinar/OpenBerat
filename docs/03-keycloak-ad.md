@@ -66,14 +66,18 @@ Keycloak offers three strategies:
 
 Since we use AD, the default is `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE`.
 
-**Nested groups:** `memberOf` shows only **direct** membership. If the group
-`OpenBerat-Finance` is a member of `Finance-All`, members of `Finance-All` will not
-see `OpenBerat-Finance` in their `memberOf`. This is common in AD.
+**Nested groups:** `memberOf` shows only **direct** membership. If `Finance-All`
+is a member of `OpenBerat-Finance`, a user in `Finance-All` does not see
+`OpenBerat-Finance` in their `memberOf`. This is common in AD.
 
-If nested groups are in use, switch to
-`LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY` — there is a performance cost, but
-it beats computing entitlements incorrectly. **To be tested in Phase 1:** create
-a test user in a nested group and verify the parent group appears in the token.
+**Measured in Phase 1** (`docs/07`): that user gets **no `groups` claim at all**,
+so a nested-group directory left on this strategy denies everything rather than
+granting the wrong thing. `LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY` put the
+parent group in the very next token, with one field changed and no restart — and
+it resolved *across* `Finance-All`, which the `(cn=OpenBerat-*)` filter excludes.
+The filter bounds what the claim can name, not what the resolution may cross.
+The performance cost is real but was not measured; the lab fixture is too small
+to show it.
 
 ### Is group membership live, or from a cache?
 

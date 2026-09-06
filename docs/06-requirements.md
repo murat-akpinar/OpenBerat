@@ -89,9 +89,13 @@ answered and write the decision to `docs/adr/`.
 These cannot be decided from the design; they are facts about the customer's AD,
 network and policy. Phase 1 exists partly to establish them.
 
-- [ ] **Are nested groups used in AD?** `memberOf` gives only direct membership;
-      if they are, `LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY` is required.
-      Tested with a test user in Phase 1 ([ADR-0010](adr/0010-lab-ad-samba.md)).
+- [ ] **Are nested groups used in AD?** Still a question about the customer's
+      directory, but no longer about the consequence. Measured in Phase 1
+      (`docs/07`): a user who is only a transitive member gets **no `groups`
+      claim at all** on the default strategy — denied everything, not granted
+      the wrong thing — and `LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY` fixes
+      it from the next login, including across intermediate groups the
+      `(cn=OpenBerat-*)` filter excludes.
 - [ ] **Wildcard certificate: internal CA or Let's Encrypt?** ADR-0015 makes the
       certificate mandatory but not its source. If it is baked into the image,
       renewal means an image build, and expiry takes **every** application down

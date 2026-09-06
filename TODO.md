@@ -194,7 +194,23 @@ Verify the architecture actually works before writing code.
       `docs/02` and `docs/03` are corrected and the reconciliation question is
       new in `docs/06`. Harness `verify-groupclaim.sh` on the lab host; both
       sides restored*
-- [ ] **Nested group test:** does a user in a parent group see the child group?
+- [x] **Nested group test:** does a user who is only a *transitive* member of an
+      `OpenBerat-` group see it?
+      *No, and the way it fails is worth knowing: on
+      `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` the token carries **no `groups`
+      claim at all** — absent, not empty — so a nested-group directory denies
+      every such user rather than granting them the wrong thing.
+      `LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY` put `OpenBerat-Finance` in
+      the next token with one field changed and no restart. The finding that was
+      not predicted: it resolved **across `Finance-All`**, which the
+      `(cn=OpenBerat-*)` filter excludes from import — the filter bounds what the
+      claim can name, not what may be traversed to reach it, so under that
+      strategy anyone nested below `OpenBerat-Admins` through a group with any
+      name holds `ADMIN_GROUP`. The performance cost is not measured; four
+      groups cannot show it. `docs/03`'s example was stated in the wrong
+      direction and is corrected; ADR-0006's reversal trigger 3 has an answer
+      and does not fire. Harness `verify-nested.sh` on the lab host; the mapper
+      is restored*
 - [ ] **VERIFY:** does the LDAP group filter `(cn=OpenBerat-*)` exclude a group
       whose `cn` contains a comma? A group named `Payroll,OpenBerat-Admins`
       reaching the claim is a management-plane escalation, measured in Phase 2

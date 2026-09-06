@@ -94,7 +94,8 @@ What this teaches:
   list. AD is consulted live at login time. → Keycloak is not the source of
   staleness (ADR-0006).
 - `memberOf` gives only **direct** membership; with nested groups
-  `..._RECURSIVELY` is required. To be tested in Phase 1.
+  `..._RECURSIVELY` is required. Both halves measured in the lab below, plus one
+  the docs do not mention: the recursion is not bounded by the group filter.
 
 ## Measured in the Phase 1 lab
 
@@ -940,6 +941,48 @@ with the filter genuinely removed — has not been run, and the box stays open.
 Harness: `verify-groupclaim.sh` + `claims.py` on the lab host. It only reads;
 the AD and Keycloak mutations in the table were made by hand and reverted, and
 both sides are back on `samba-ad/fixture.sh` state.
+
+
+### Nested groups — `memberOf` misses them, and the recursive strategy crosses the filter
+
+Fixture (`samba-ad/fixture.sh`): `labnested` is a member of `Finance-All`, and
+`Finance-All` is a member of `OpenBerat-Finance`. AD's `memberOf` on `labnested`
+names `Finance-All` and nothing else, which is direct membership behaving as
+documented.
+
+| Group mapper strategy | `groups` for `labnested` (transitive) | `groups` for `labuser` (direct) |
+|---|---|---|
+| `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` | **absent** | `["OpenBerat-Finance"]` |
+| `LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY` | `["OpenBerat-Finance"]` | `["OpenBerat-Finance"]` |
+
+The first row is the expected half, with one detail worth having: the claim is
+**absent**, not an empty list. A nested-group deployment left on the default
+strategy therefore does not misgrant, it denies — every such user reaches the
+backend with no groups and default-deny gives them nothing, which is the failure
+mode to prefer but also the one nobody reports as a bug against AD.
+
+The second row was not predicted. `Finance-All` does not match the mapper's
+`groups.ldap.filter` `(cn=OpenBerat-*)`, so Keycloak does not import it — and
+the recursive strategy resolved straight through it anyway. The filter still
+bounds what the claim can **name**: `Finance-All` never appears in it. It does
+not bound what may be **traversed** to get there. A client-side walk over the
+filtered group set could not have reached `OpenBerat-Finance` from a user whose
+only `memberOf` is invisible to that set, so the chain is being resolved on the
+directory side of the query. Under this strategy the users who can hold
+`ADMIN_GROUP` include everyone nested below `OpenBerat-Admins` through groups
+with any name at all — [ADR-0008](adr/0008-group-identity-name.md)'s prefix is a
+naming rule for the claim, never a containment boundary.
+
+Switching is one field on the group mapper and needs no restart: the next login
+carried the new answer in both directions. The performance cost `docs/03` warns
+about was not measured — a four-group fixture cannot show it, and that number
+has to come from the target directory.
+
+Harness: `verify-nested.sh` on the lab host. It flips the strategy, runs
+`verify-groupclaim.sh` at each setting and restores the mapper; the realm is
+back on `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE`. Writing the mapper back needs
+the two `kcadm` habits the `userAccountControl` section describes — read the
+whole component, not `--fields config`, and read it back after every write.
 
 
 ## Measured in the browser
