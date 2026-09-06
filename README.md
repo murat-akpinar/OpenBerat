@@ -136,7 +136,7 @@ identity is Keycloak — all three are off the shelf and configured, not written
 | `backend/` | Rust: `/decide`, `/api`, the authorisation decision, audit |
 | `frontend/` | Portal (buttons driven by AD `memberOf` entitlements) + admin. No build step. |
 | `nginx/` | PEP configuration + static serving |
-| `keycloak/` | Realm export (LDAP federation, group mapper) |
+| `keycloak/` | Realm export (LDAP federation, group mapper) + our login theme |
 | `samba-ad/` | Lab directory fixture — no Dockerfile, a stock image |
 | `oauth2-proxy/` | Authentication configuration |
 

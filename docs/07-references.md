@@ -1173,6 +1173,59 @@ file under `vendor/` regains `eval(` or `new Function`, because swapping in the
 standard build looks like nothing but a larger file and would cost `unsafe-eval`
 on the one host every user opens.
 
+### The login theme — where PatternFly can and cannot be repainted from `:root`
+
+The theme is a child of `keycloak.v2` that overrides no template, only the
+palette (`keycloak/themes/openberat/login/`). Same method as above: the rendered
+login page and its four stylesheets were pulled off the lab, served locally and
+screenshotted in Firefox headless twice, once with `ui.systemUsesDarkTheme=0`
+and once with `1`.
+
+Three things the first screenshot corrected, none of them guessable from the
+CSS by reading:
+
+| Attempt | What happened |
+|---|---|
+| `:root { --pf-v5-global--primary-color--dark-100 }` | **Nothing.** PatternFly writes the `--100` names as literals in its own `:root` and only *some* of them alias the `--dark-100` pair, so the button stayed PatternFly blue |
+| `:root { --pf-v5-global--primary-color--100 }` | Repaints the button **in light mode only** |
+| `.pf-v5-c-button.pf-m-primary { --pf-v5-c-button--m-primary--* }` | Repaints it in both |
+
+The middle row is the interesting one. PatternFly's dark palette lives under
+`:where(.pf-v5-theme-dark)`, which has **zero specificity** — so a plain `:root`
+override wins over it every time, and every variable the theme sets does apply
+in dark mode. But `:where(.pf-v5-theme-dark) .pf-v5-c-button` sets the button's
+own `--pf-v5-c-button--m-primary--BackgroundColor` **on the button element**,
+and a custom property set on the element beats an inherited one no matter how
+specific the rule that inherits it. Specificity is not the mechanism here;
+*which element carries the declaration* is. Anything PatternFly assigns per
+component has to be answered per component.
+
+Painting the button through its own three variables also removes the light/dark
+branch: the text colour is `var(--card)`, the ground the button sits on, which
+is white on `--gold-ink` in light (5.31:1) and near-black on it in dark
+(8.62:1). Both clear WCAG AA, which `frontend/src/portal.css` treats as a rule.
+
+Two smaller findings from the same run. `${msg("loginTitleHtml")}` passes
+through `kcSanitize`, and a `<span class="…">` **survives** it — so the
+two-tone wordmark the portal header uses is reproducible on the login page from
+a theme message, without touching a template or putting presentation HTML in
+the realm export. And a child theme's `styles=` **replaces** the inherited list
+rather than extending it: the parent's `css/styles.css` has to be named again
+or the whole PatternFly layer disappears. Resource lookup still walks the theme
+chain, so naming it is enough — the file itself need not be copied.
+
+Deployment, on the lab: `keycloak/` needed the `Dockerfile` it never had, since
+a theme is read at runtime and mounting it would be the configuration drift the
+rules forbid. The mark is not duplicated — the build context is the repository
+root and `frontend/src/logo.svg` is copied into the theme, the same trick
+ADR-0020 uses for the frontend. Verified after `docker compose build keycloak`:
+the login page links `/resources/<v>/login/openberat/css/openberat.css` (200),
+the mark comes back `image/svg+xml`, and `ob-login.sh` still completes a real
+`labuser` login through the retheme — the check that matters, since the harness
+scrapes the form action out of the page and a broken template would fail there
+rather than merely look wrong.
+
+
 ## Unverified, to be tested
 
 These claims have not been confirmed against a source; they will be tried in the

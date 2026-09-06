@@ -1,0 +1,96 @@
+/* The login screen is the first page every user meets, and until now it was
+   stock Keycloak on a second hostname — a different product to anyone looking.
+   The tokens below are copied from `frontend/src/portal.css` on purpose: that
+   file is served by nginx and this one by Keycloak, so they cannot share a
+   stylesheet, and the palette is the only thing that makes the two hostnames
+   read as one product. If one moves, move the other. */
+
+:root {
+  --paper: #faf7f2;
+  --card: #ffffff;
+  --ink: #1a1d24;
+  --line: #e3ddd2;
+  --gold: #b8892b;
+  --gold-ink: #8a6516;
+  --seal: #7c4a1e;
+
+  /* The accent and the text colour, which PatternFly derives most things from.
+     It has to be the `--100` names: PatternFly writes those as literals in its
+     own `:root` and only *some* of them alias the `--dark-100` pair, so
+     overriding the pair repaints nothing. Measured, not assumed. */
+  --pf-v5-global--primary-color--100: var(--gold-ink);
+  --pf-v5-global--link--Color: var(--gold-ink);
+  --pf-v5-global--Color--100: var(--ink);
+
+  /* keycloak.v2's own two hooks: its background artwork off, its card rule gold. */
+  --keycloak-bg-logo-url: none;
+  --keycloak-card-top-color: var(--gold);
+}
+
+/* keycloak.v2 swaps its palette on a class it sets from prefers-color-scheme;
+   this file answers the media query directly instead, so the two sheets stay
+   diffable against each other. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #14161b;
+    --card: #1b1e25;
+    --ink: #ece8e0;
+    --line: #2b2f38;
+    --gold: #d9a842;
+    --gold-ink: #e0b45c;
+    --seal: #b8892b;
+  }
+}
+
+/* The parent sets `background:` in shorthand, which resets the colour; this
+   rule follows it and puts the paper back. */
+.login-pf body { background-color: var(--paper); }
+
+.pf-v5-c-login__main {
+  background-color: var(--card);
+  border: 1px solid var(--line);
+}
+
+/* --- Feature Start --- */
+/* The same three pixels as `.site-header::after` on the portal, the denied page
+   and the outage page. It is the only mark shared across all four screens, and
+   the login page needs it most: it is the one a user reaches before there is
+   anything else on screen to place the product by. Solid gold is the fallback
+   if border-image is refused. */
+.pf-v5-c-login__main-header {
+  border-top: 3px solid var(--gold);
+  border-image: linear-gradient(90deg, var(--gold), var(--seal) 45%, transparent) 1;
+}
+/* --- Feature End --- */
+
+/* The one component that cannot be reached from `:root`: in dark mode
+   PatternFly sets the primary button's colours *on the button element*, and a
+   value set on the element beats an inherited one however specific the
+   inherited rule is. So the button is painted through its own variables, which
+   is also what lets one rule serve both modes — `--card` is the ground the
+   button sits on, so it is always the readable text colour against the gold. */
+.pf-v5-c-button.pf-m-primary {
+  --pf-v5-c-button--m-primary--BackgroundColor: var(--gold-ink);
+  --pf-v5-c-button--m-primary--Color: var(--card);
+  --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--seal);
+}
+
+/* The mark is `frontend/src/logo.svg`, copied in by the Dockerfile rather than
+   kept here twice. */
+#kc-header-wrapper {
+  color: var(--ink) !important;
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+}
+
+#kc-header-wrapper::before {
+  content: "";
+  display: block;
+  width: 2.5rem;
+  height: 2.5rem;
+  margin: 0 auto 0.75rem;
+  background: url("../img/logo.svg") no-repeat center / contain;
+}
+
+.wordmark-accent { color: var(--gold-ink); }

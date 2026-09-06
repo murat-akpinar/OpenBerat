@@ -109,7 +109,12 @@ services:
 
   keycloak:
     restart: unless-stopped
-    image: quay.io/keycloak/keycloak:26.3
+    # Built, not stock, since the login theme arrived: a theme is read at
+    # runtime, so it is baked in rather than mounted (keycloak/Dockerfile).
+    # The context is the repository root because the mark comes from frontend/.
+    build:
+      context: .
+      dockerfile: keycloak/Dockerfile
     # ponytail: start-dev + embedded H2 is lab-only; the production database
     # and hostname settings are an INSTALL.md item (Phase 1). H2 deliberately
     # gets no volume — the realm is reproduced by re-importing the export

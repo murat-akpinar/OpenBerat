@@ -1,10 +1,30 @@
 # keycloak
 
-A stock image is used; there is no Dockerfile.
-
 | File | Contents |
 |---|---|
 | `realm/openberat-realm.json` | Realm export — LDAP federation, group mapper, clients. So the lab is reproducible. |
+| `themes/openberat/login/` | Our login theme. The one screen every user meets before anything else. |
+| `Dockerfile` | Bakes the theme into the image. The realm export stays a mount. |
+
+**The realm is mounted, the theme is baked.** They look alike and are not: the
+export is *import data*, read once at first boot into Keycloak's own database,
+while a theme is read at runtime on every login. Configuration a running system
+serves is baked into the image so it cannot drift, so the theme is copied in and
+`keycloak/` has a `Dockerfile` — the image is no longer stock.
+
+**The theme overrides no template.** It sets `parent=keycloak.v2` and ships a
+palette, a header message and nothing else. Copying the `.ftl` files in would
+mean owning FreeMarker that Keycloak rewrites between releases, and a template
+that stops matching its theme takes down the one page nobody can route around.
+Two traps, both measured (`docs/07`): a child theme's `styles=` **replaces** the
+inherited list, so the parent's `css/styles.css` has to be named again or the
+whole PatternFly layer vanishes; and PatternFly's per-component variables cannot
+be repainted from `:root`, because a custom property set on the element beats an
+inherited one whatever the specificity.
+
+**The mark is not kept here.** `frontend/src/logo.svg` is copied into the theme
+by the `Dockerfile`, which is why the build context is the repository root. One
+file, one product, one place to change it.
 
 **Not done by hand, written to the file.** If a setting is changed through the
 Keycloak UI, the realm is exported again and committed here; otherwise the lab

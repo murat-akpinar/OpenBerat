@@ -934,7 +934,7 @@ So the portal's data does not have to be filled in by hand with SQL.
       `new Function`, since the standard build looks like nothing but a larger
       file. The CSP header itself is still not set on any host (Phase 6
       security headers) — the frontend is merely proven to survive one.*
-- [ ] **The login page is ours, not Keycloak's** — a Keycloak login theme in
+- [x] **The login page is ours, not Keycloak's** — a Keycloak login theme in
       `keycloak/themes/`, `loginTheme` set in the realm export, and the IdP
       hostname named for what a user sees rather than for the software behind
       it. Today the realm ships `"loginTheme": "keycloak"`, so the one screen
@@ -950,6 +950,25 @@ So the portal's data does not have to be filled in by hand with SQL.
       the password through our backend, breaks the TOTP intent in `docs/06`,
       and throws away the one decision that keeps OIDC code out of this
       repository.
+      *A child of `keycloak.v2` that overrides **no template**: `theme.properties`,
+      one stylesheet, one message. Copying the `.ftl` files in would mean owning
+      FreeMarker across Keycloak upgrades, and a template that stops matching its
+      theme breaks the one page nobody can route around. The palette is copied
+      from `portal.css` — the two are served by different processes and cannot
+      share a sheet, so the tokens are the only thing making the two hostnames
+      one product; the portal's three-pixel gradient rule is now on the login
+      card too, and the mark is not duplicated (`keycloak/Dockerfile` copies
+      `frontend/src/logo.svg` in, the ADR-0020 trick). `keycloak/` got the
+      Dockerfile it lacked and compose swapped `image:` for `build:`. Screenshotted
+      in both colour schemes, which corrected the CSS twice: PatternFly's
+      `--dark-100` variables are aliases only *sometimes*, and its dark palette
+      assigns the button's colour **on the button element**, where no `:root`
+      override of any specificity can reach it (`docs/07`). Verified on the lab
+      with a real `ob-login.sh` login, not just a 200 on the stylesheet. The
+      hostname half needed nothing: it has been `auth.apps.<domain>` since the
+      vhost was written. ADR-0005's directory listing still says "stock image" —
+      left as the historical record it is, the way its stale `frontend/` line
+      already is*
 - [ ] Audit log viewing + filtering
 - [ ] `GET /api/admin/explain?user&host&path` — why the decision was made.
       `policy.rs` is already pure; the screen ops will use most

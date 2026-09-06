@@ -135,7 +135,7 @@ kimlik Keycloak'ta — üçü de hazır, yapılandırma işi.
 | `backend/` | Rust: `/decide`, `/api`, yetki kararı, audit |
 | `frontend/` | Portal (AD `memberOf` yetkilerine göre butonlar) + admin. Derleme adımı yok. |
 | `nginx/` | PEP yapılandırması + statik servis |
-| `keycloak/` | Realm dışa aktarımı (LDAP federation, grup mapper) |
+| `keycloak/` | Realm dışa aktarımı (LDAP federation, grup mapper) + kendi giriş temamız |
 | `samba-ad/` | Laboratuvar dizin fixture'ı — Dockerfile yok, hazır imaj |
 | `oauth2-proxy/` | Kimlik doğrulama yapılandırması |
 

@@ -527,7 +527,7 @@ backend/       Rust: /decide, /api, authorisation decision, audit  → Dockerfil
 frontend/      portal + admin UI — copied into the nginx image at
                build (ADR-0020), no container of its own
 nginx/         PEP configuration + static serving + frontend files → Dockerfile
-keycloak/      realm export (LDAP federation)                      stock image
+keycloak/      realm export (LDAP federation) + login theme        → Dockerfile
 oauth2-proxy/  authentication configuration                        stock image
 docker-compose.yml
 ```

@@ -24,10 +24,13 @@ only reason the palette holds WCAG AA, so it is a rule and not a preference.
 
 The mark is one file, `logo.svg`, used as the header image and as the favicon,
 in a single colour so it survives both grounds without a media query inside it.
-The wordmark is CSS — `letter-spacing`, not typed spaces, so a screen reader
-still says "OpenBerat". The gradient rule under the header is the signature: the
-same three pixels on all three pages, which is what makes them read as one
-product rather than three files.
+**Keycloak's login theme reads it from here too** — `keycloak/Dockerfile` copies
+this file into the theme rather than keeping a second one, so the login page and
+the portal cannot drift apart. Changing it changes both. The wordmark is CSS —
+`letter-spacing`, not typed spaces, so a screen reader still says "OpenBerat".
+The gradient rule under the header is the signature: the same three pixels on
+all three pages *and on the login card*, which is what makes them read as one
+product rather than four files.
 
 `portal.css` and `logo.svg` are served **without `auth_request`**
 (`10-portal.conf`, `docs/02` "Anonymous endpoints"). The outage page comes from
