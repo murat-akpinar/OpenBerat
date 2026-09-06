@@ -21,15 +21,18 @@ pub struct Rule {
     pub expires_at: Option<DateTime<Utc>>,
 }
 
-/// Why access was refused. Logged, never shown to the user (docs/02). The
-/// reasons this function cannot produce — `missing_context`,
-/// `store_unavailable` — belong to the caller and arrive with it.
+/// Why access was refused. Logged, never shown to the user (docs/02). One
+/// vocabulary for the audit column and the code; the last three are the
+/// caller's, not `decide`'s.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Deny {
     MalformedUri,
     ApplicationDisabled,
     ExplicitDeny,
     NoMatchingGrant,
+    MissingContext,
+    StoreUnavailable,
+    AuthUnavailable,
 }
 
 impl Deny {
@@ -39,6 +42,9 @@ impl Deny {
             Deny::ApplicationDisabled => "application_disabled",
             Deny::ExplicitDeny => "explicit_deny",
             Deny::NoMatchingGrant => "no_matching_grant",
+            Deny::MissingContext => "missing_context",
+            Deny::StoreUnavailable => "store_unavailable",
+            Deny::AuthUnavailable => "auth_unavailable",
         }
     }
 }

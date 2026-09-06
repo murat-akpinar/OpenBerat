@@ -201,7 +201,7 @@ If any of them is missing the decision cannot be made → **DENY**
 | What | Rule |
 |---|---|
 | 200 / 401 / 403 | The only valid codes. **`/decide` never returns 5xx** — if the DB is unreachable, 403 `store_unavailable` |
-| `Set-Cookie` | If it came from oauth2-proxy it is **relayed verbatim**; nginx passes it to the browser with `auth_request_set` + `add_header ... always`. Without this, `cookie_refresh` silently stops working (ADR-0006 collapses) |
+| `Set-Cookie` | If it came from oauth2-proxy it is **relayed verbatim, whatever the decision turns out to be**; nginx passes it to the browser with `auth_request_set` + `add_header ... always`. Without this, `cookie_refresh` silently stops working (ADR-0006 collapses). Relaying it only on 200 is the same bug wearing a smaller hat: oauth2-proxy refreshes the session on the subrequest before the decision exists, so a denied user whose refreshed cookie is swallowed never refreshes again and their groups freeze until the cookie expires |
 | `X-Auth-Subject` / `-Username` / `-Email` / `-Groups` | **On 200 only:** the verified identity. `auth_request` passes no response body, so these headers are the only channel nginx can lift the identity from (`auth_request_set`) to rewrite the upstream `X-Auth-*` headers (`docs/05`, "Header contract") — without them the strip-and-rewrite include would rewrite from nothing |
 | `X-Deny-Reason` | The reason on DENY; written to the nginx access log, never shown to the user |
 
@@ -354,11 +354,18 @@ buys nothing.
 ```
 0. Required header missing or URI unparseable → DENY  missing_context / malformed_uri
 1. Not authenticated                          → 401   (nginx redirects to login)
+1b. A dependency did not answer               → DENY  auth_unavailable / store_unavailable
 2. Application missing or enabled=false       → DENY  application_disabled
 3. A matching deny entitlement exists         → DENY  explicit_deny
 4. No matching (unexpired) allow              → DENY  no_matching_grant
 5. Otherwise                                  → ALLOW
 ```
+
+Step 1b is an outage wearing a decision's clothes, and it is two reasons rather
+than one on purpose: `auth_unavailable` is oauth2-proxy not answering,
+`store_unavailable` is Postgres. At three in the morning that is the difference
+between which service gets restarted, and `/decide` cannot say it any other way
+— it may not answer 5xx.
 
 Every DENY is logged with a `reason`. The message shown to the user is generic —
 which rule blocked them is never leaked. `audit_event.reason` is NOT NULL, so an

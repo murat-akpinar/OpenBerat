@@ -101,7 +101,7 @@ LAB_USER_PASSWORD=…
 
 ```sh
 docker compose build
-docker compose up -d nginx keycloak redis oauth2-proxy
+docker compose up -d nginx keycloak redis oauth2-proxy postgres backend
 ```
 
 The build compiles the backend in release mode and takes a few minutes the
@@ -128,9 +128,6 @@ no `psql`, and an upgrade needs no migration step — `docker compose up -d`
 is the whole of it. If the backend will not stay up,
 `docker compose logs backend` says which of the two happened on its last line:
 it could not reach Postgres, or a migration would not apply.
-
-`backend` and `postgres` join the start list in Phase 3, when the backend has
-something to listen on.
 
 Then browse to `https://portal.apps.example.local/`; you are redirected to
 Keycloak, and after logging in as `labuser` you land back on the portal.

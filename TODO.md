@@ -356,11 +356,32 @@ has a first draft, and there is still not one line of code.
 
 ## Phase 3 — `/decide` and closing the chain
 
-- [ ] `backend/src/api.rs`: `GET /decide` — forward the cookie to oauth2-proxy, take
+- [x] `backend/src/api.rs`: `GET /decide` — forward the cookie to oauth2-proxy, take
       the identity, decide
-- [ ] `/decide` **never returns 5xx**: on a DB error, 403 `store_unavailable`
-- [ ] The `Set-Cookie` from oauth2-proxy is relayed verbatim
+      *Identity is read from oauth2-proxy's **response** and from nowhere else,
+      so a forged `X-Auth-Request-Groups` on the way in cannot reach the
+      decision even with nginx out of the picture — there is a test for it
+      rather than a claim. The whole thing was then run as the real binary
+      against a real Postgres and a stand-in oauth2-proxy: anonymous → 401,
+      allow → 200 with the four identity headers, `/%61dmin/users` →
+      `explicit_deny`, unknown slug → `application_disabled`, nothing listening
+      → `auth_unavailable`. `main.rs` now serves, so the container no longer
+      exits at startup and `INSTALL.md` §4 starts it.*
+- [x] `/decide` **never returns 5xx**: on a DB error, 403 `store_unavailable`
+      *And 403 `auth_unavailable` when it is oauth2-proxy rather than Postgres —
+      a new reason, in `docs/02`. One reason for both would have been cheaper
+      and would leave the operator restarting the wrong service.*
+- [x] The `Set-Cookie` from oauth2-proxy is relayed verbatim
+      *On **every** outcome, not only on 200. oauth2-proxy refreshes the session
+      on the subrequest before the decision exists, so relaying it only on an
+      allow means a denied user never refreshes again and their groups freeze
+      until the cookie expires — ADR-0006 collapsing quietly, one denial at a
+      time. `docs/02` says so now.*
 - [ ] Timeout budget decreasing outward-in: `/decide` 2s → oauth2-proxy 1s → sqlx 500ms
+      *Two of the three are in: oauth2-proxy at 1 s per request, the entitlement
+      query at 500 ms, both denying rather than hanging. The outer 2 s is
+      nginx's `proxy_read_timeout` on the subrequest location and closes with
+      `00-auth.conf` below.*
 - [ ] Decision cache: key `(cookie_hash, app_slug)`, value **identity + the
       matching rule list + per-outcome counters**; `policy.rs` evaluates the
       cached rules against the normalised path on every hit. Single-flight

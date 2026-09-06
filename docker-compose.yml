@@ -45,6 +45,10 @@ services:
     environment:
       DATABASE_URL: postgres://openberat:${POSTGRES_PASSWORD}@postgres:5432/openberat
       REDIS_URL: redis://redis:6379
+      # No default in the code: a default here would be a silent fallback to a
+      # name that may not resolve, and /decide would report an outage instead of
+      # a misconfiguration.
+      OAUTH2_PROXY_URL: http://oauth2-proxy:4180
     depends_on: [postgres, redis]
     networks: [core]
 

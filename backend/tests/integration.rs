@@ -54,18 +54,27 @@ async fn insert_audit(pool: &PgPool, app: Uuid, ts: &str) -> Result<(), sqlx::Er
     .map(|_| ())
 }
 
-// ponytail: one test, not five — they all reset the same database and cargo
-// test runs tests in parallel. Split it when it stops being readable, giving
-// each its own Postgres schema and a search_path on the pool.
+// ponytail: one test, not one per section — they all reset the same database
+// and cargo test runs tests in parallel. Split it when it stops being readable,
+// giving each its own Postgres schema and a search_path on the pool.
 #[tokio::test]
-async fn migration_0001() {
+async fn backend_against_postgres() {
     let Some(pool) = fresh_db().await else {
-        eprintln!("SKIPPED migration_0001: DATABASE_URL is not set");
+        eprintln!("SKIPPED backend_against_postgres: DATABASE_URL is not set");
         return;
     };
+    schema_section(&pool).await;
+    store_section(&pool).await;
+    decide_section(&pool).await;
+    // Last: it leaves the migration table poisoned.
+    startup_section(&pool).await;
+}
 
+/// What `0001_init.sql` promises the rest of the code.
+async fn schema_section(pool: &PgPool) {
     // Re-running the migrator on an already-migrated database is what every
     // restart does.
+    let pool = pool.clone();
     sqlx::migrate!("./migrations")
         .run(&pool)
         .await
@@ -244,13 +253,13 @@ async fn migration_0001() {
     .await
     .unwrap();
     assert_eq!(pk, ["id", "ts"], "audit_event primary key");
+}
 
-    store_section(&pool).await;
-
-    // --- startup ---
-    // The operator never runs the migration by hand, so these three are the
-    // whole of what stands between an install and a process deciding /decide
-    // against a schema it has not seen.
+/// The operator never runs the migration by hand, so these three are the whole
+/// of what stands between an install and a process deciding `/decide` against a
+/// schema it has not seen.
+async fn startup_section(pool: &PgPool) {
+    let pool = pool.clone();
     for stmt in ["drop schema public cascade", "create schema public"] {
         sqlx::query(stmt)
             .execute(&pool)
@@ -475,4 +484,251 @@ async fn store_section(pool: &sqlx::PgPool) {
             ("allow".to_string(), "allowed".to_string(), 1),
         ]
     );
+}
+
+/// A stand-in for oauth2-proxy that answers `/oauth2/auth` from the cookie it is
+/// given, so one server covers every branch the backend has to survive.
+async fn fake_oauth2_proxy() -> String {
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::{IntoResponse, Response};
+
+    async fn auth(headers: HeaderMap) -> Response {
+        let cookie = headers
+            .get("cookie")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+            .to_string();
+        if cookie.contains("broken") {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        if cookie.contains("slow") {
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        }
+        if !cookie.contains("valid") {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+        let groups = if cookie.contains("admin") {
+            "OpenBerat-Admins,OpenBerat-Finance"
+        } else {
+            "OpenBerat-Finance"
+        };
+        let mut response = StatusCode::ACCEPTED.into_response();
+        let h = response.headers_mut();
+        h.insert("x-auth-request-user", "sub-labuser".parse().unwrap());
+        h.insert(
+            "x-auth-request-preferred-username",
+            "labuser".parse().unwrap(),
+        );
+        h.insert(
+            "x-auth-request-email",
+            "labuser@example.local".parse().unwrap(),
+        );
+        h.insert("x-auth-request-groups", groups.parse().unwrap());
+        // What cookie_refresh looks like on the wire: ADR-0006 collapses in
+        // silence if this does not come back out of /decide unchanged.
+        h.insert(
+            "set-cookie",
+            "_oauth2_proxy=refreshed|1|abc; Path=/; Domain=.apps.example.local; HttpOnly; Secure"
+                .parse()
+                .unwrap(),
+        );
+        response
+    }
+
+    let app = axum::Router::new().route("/oauth2/auth", axum::routing::get(auth));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    format!("http://{addr}")
+}
+
+/// `GET /decide` — the endpoint nginx asks on every single request.
+async fn decide_section(pool: &PgPool) {
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use openberat::api::{Ctx, router};
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    for stmt in ["drop schema public cascade", "create schema public"] {
+        sqlx::query(stmt).execute(pool).await.expect("reset schema");
+    }
+    sqlx::migrate!("./migrations")
+        .run(pool)
+        .await
+        .expect("migrate");
+    let finance = insert_app(pool, "finance").await;
+    sqlx::query(
+        "insert into entitlement (application_id, subject_type, subject_id, effect, path_pattern)
+         values ($1, 'ad_group', 'OpenBerat-Finance', 'allow', ''),
+                ($1, 'ad_group', 'OpenBerat-Finance', 'deny', '/admin/*')",
+    )
+    .bind(finance)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let upstream = fake_oauth2_proxy().await;
+    let ctx = |oauth2_proxy: &str, pool: PgPool| {
+        Arc::new(Ctx {
+            pool,
+            http: reqwest::Client::new(),
+            oauth2_proxy: oauth2_proxy.to_string(),
+        })
+    };
+    let ask = async |ctx: Arc<Ctx>, headers: Vec<(&str, &str)>| {
+        let mut request = Request::builder().uri("/decide");
+        for (name, value) in headers {
+            request = request.header(name, value);
+        }
+        router(ctx)
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+    };
+    // Everything nginx's include writes unconditionally, plus a live session.
+    let full = |uri: &'static str, cookie: &'static str| {
+        vec![
+            ("x-app-slug", "finance"),
+            ("x-original-uri", uri),
+            ("x-original-method", "GET"),
+            ("x-real-ip", "10.0.0.7"),
+            ("x-request-id", "req-1"),
+            ("cookie", cookie),
+        ]
+    };
+    let reason = |r: &axum::response::Response| {
+        r.headers()
+            .get("x-deny-reason")
+            .map(|v| v.to_str().unwrap().to_string())
+    };
+
+    // A header the include always writes is missing, so the include did not
+    // run. That is a misconfiguration, and it fails closed rather than
+    // deciding on half a request.
+    for missing in [
+        "x-app-slug",
+        "x-original-uri",
+        "x-original-method",
+        "x-real-ip",
+        "x-request-id",
+    ] {
+        let headers = full("/", "_oauth2_proxy=valid")
+            .into_iter()
+            .filter(|(name, _)| *name != missing)
+            .collect();
+        let response = ask(ctx(&upstream, pool.clone()), headers).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "without {missing}"
+        );
+        assert_eq!(reason(&response).as_deref(), Some("missing_context"));
+    }
+
+    // No session: 401 is nginx's cue to start the login flow. A 403 here would
+    // show the "no access" page to someone who has simply not logged in yet.
+    let response = ask(ctx(&upstream, pool.clone()), full("/", "other=1")).await;
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert!(response.headers().get("x-auth-subject").is_none());
+
+    // The happy path, and the two things nginx lifts off it.
+    let response = ask(
+        ctx(&upstream, pool.clone()),
+        full("/reports/q1", "_oauth2_proxy=valid"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let h = response.headers();
+    assert_eq!(h.get("x-auth-subject").unwrap(), "sub-labuser");
+    assert_eq!(h.get("x-auth-username").unwrap(), "labuser");
+    assert_eq!(h.get("x-auth-email").unwrap(), "labuser@example.local");
+    assert_eq!(h.get("x-auth-groups").unwrap(), "OpenBerat-Finance");
+    assert_eq!(
+        h.get("set-cookie").unwrap(),
+        "_oauth2_proxy=refreshed|1|abc; Path=/; Domain=.apps.example.local; HttpOnly; Secure",
+        "the refreshed cookie is relayed verbatim or ADR-0006 collapses in silence"
+    );
+
+    // The deny rule, reached through the normalisation policy.rs does.
+    for uri in ["/admin/users", "/%61dmin/", "/x/../admin/"] {
+        let response = ask(
+            ctx(&upstream, pool.clone()),
+            full(uri, "_oauth2_proxy=valid"),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{uri}");
+        assert_eq!(reason(&response).as_deref(), Some("explicit_deny"), "{uri}");
+        assert!(
+            response.headers().get("x-auth-subject").is_none(),
+            "no identity on a deny"
+        );
+        // The refresh happened at oauth2-proxy whatever the answer turned out
+        // to be. Swallow it here and a denied user's groups freeze until their
+        // cookie expires — which is the one thing ADR-0006 cannot survive.
+        assert!(
+            response.headers().get("set-cookie").is_some(),
+            "{uri} relays the refresh"
+        );
+    }
+
+    // An application nobody defined answers the same as a disabled one.
+    let mut headers = full("/", "_oauth2_proxy=valid");
+    headers[0] = ("x-app-slug", "no-such-app");
+    let response = ask(ctx(&upstream, pool.clone()), headers).await;
+    assert_eq!(reason(&response).as_deref(), Some("application_disabled"));
+
+    // Identity comes from oauth2-proxy's answer and from nowhere else. nginx
+    // clears these on the subrequest, but the backend must not be the only
+    // thing standing between a forged header and an admin group either.
+    let mut headers = full("/admin/", "_oauth2_proxy=valid");
+    headers.push(("x-auth-request-groups", "OpenBerat-Admins"));
+    headers.push(("x-auth-groups", "OpenBerat-Admins"));
+    headers.push(("x-auth-request-user", "sub-someone-else"));
+    let response = ask(ctx(&upstream, pool.clone()), headers).await;
+    assert_eq!(
+        reason(&response).as_deref(),
+        Some("explicit_deny"),
+        "forged identity headers"
+    );
+
+    // /decide never returns 5xx: nginx maps one to a 500 for the client, which
+    // is an outage rather than a decision. Each dependency failing is a 403
+    // naming which one, because at 3 a.m. that is the difference between
+    // restarting Postgres and restarting oauth2-proxy.
+    let response = ask(
+        ctx(&upstream, pool.clone()),
+        full("/", "_oauth2_proxy=broken"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(reason(&response).as_deref(), Some("auth_unavailable"));
+
+    let response = ask(
+        ctx("http://127.0.0.1:1", pool.clone()),
+        full("/", "_oauth2_proxy=valid"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(reason(&response).as_deref(), Some("auth_unavailable"));
+
+    let started = std::time::Instant::now();
+    let response = ask(
+        ctx(&upstream, pool.clone()),
+        full("/", "_oauth2_proxy=valid-slow"),
+    )
+    .await;
+    assert_eq!(reason(&response).as_deref(), Some("auth_unavailable"));
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(3),
+        "the 1 s budget held"
+    );
+
+    let dead = sqlx::postgres::PgPoolOptions::new()
+        .acquire_timeout(std::time::Duration::from_millis(100))
+        .connect_lazy("postgres://openberat:test@127.0.0.1:1/openberat")
+        .unwrap();
+    let response = ask(ctx(&upstream, dead), full("/", "_oauth2_proxy=valid")).await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(reason(&response).as_deref(), Some("store_unavailable"));
 }
