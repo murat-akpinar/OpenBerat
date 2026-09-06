@@ -53,6 +53,58 @@ jobs:
           sys.exit(1 if bad else 0)
           EOF
 
+  nginx:
+    name: nginx config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # `nginx -t` is happy with a location that is wide open, so this looks for
+      # the one mistake it cannot see (nginx/conf.d/README.md rules 12 and 14).
+      - run: |
+          python3 - <<'EOF'
+          # Every location that carries auth_request must be answered from the content
+          # phase. `return` runs in the rewrite phase, before the access phase where
+          # auth_request lives: the subrequest never fires, the location is wide open,
+          # and `nginx -t` says the configuration is fine (measured, docs/07 — rule 14).
+          # try_files without `=404` last internally redirects, which re-runs the access
+          # phase and loses the refreshed session cookie (rule 12).
+          import pathlib, re, sys
+
+          conf = pathlib.Path('nginx/conf.d')
+          inc = {p.name: p.read_text() for p in conf.glob('*.inc')}
+
+          def expand(text, seen=()):
+              def sub(m):
+                  name = m.group(1)
+                  if name in seen or name not in inc:
+                      return ''
+                  return expand(inc[name], seen + (name,))
+              return re.sub(r'include\s+/etc/nginx/conf\.d/([\w.-]+);', sub, text)
+
+          def blocks(text):
+              """Yield (header, body) for every location block, brace-aware."""
+              for m in re.finditer(r'^\s*(location\s[^{]*)\{', text, re.M):
+                  depth, i = 1, m.end()
+                  while depth and i < len(text):
+                      depth += (text[i] == '{') - (text[i] == '}')
+                      i += 1
+                  yield m.group(1).strip(), text[m.end():i - 1]
+
+          bad = []
+          for path in sorted(conf.glob('*.conf')):
+              for header, body in blocks(expand(path.read_text())):
+                  body = re.sub(r'#.*', '', body)
+                  if 'auth_request' not in body:
+                      continue
+                  if re.search(r'^\s*return\s', body, re.M):
+                      bad.append(f'{path.name}: `{header}` carries auth_request and answers with return')
+                  for tf in re.findall(r'^\s*try_files\s+([^;]+);', body, re.M):
+                      if not tf.split()[-1].startswith('='):
+                          bad.append(f'{path.name}: `{header}` try_files does not end in =CODE, so it redirects internally')
+          print('\n'.join(bad) if bad else 'every auth_request location answers from the content phase')
+          sys.exit(1 if bad else 0)
+          EOF
+
   backend:
     name: backend
     runs-on: ubuntu-latest

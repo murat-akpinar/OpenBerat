@@ -528,10 +528,17 @@ has a first draft, and there is still not one line of code.
       groups are denied still denies. Two independent things have to fail for
       this to pass: `decide.inc` clears the family on the subrequest, and the
       backend reads identity only from oauth2-proxy's response.*
-- [ ] **Test:** every location carrying `auth_request` answers from the content
+- [x] **Test:** every location carrying `auth_request` answers from the content
       phase — no `return` (VERIFY (3): `return` runs before `auth_request` and
       leaves the location open). Cheap form: grep the generated and
       hand-written blocks
+      *A CI job rather than a grep, because the thing being checked is
+      brace-scoped and follows `include`: it expands the `.inc` files, finds
+      every `location` block that ends up carrying `auth_request`, and fails on
+      a `return` or a `try_files` that does not end in `=CODE`. Both checks were
+      confirmed by breaking the config on purpose — `nginx -t` stays happy in
+      both cases, which is the entire reason this exists. It runs over the
+      generated blocks too, once Phase 4 writes them.*
 - [x] **Test:** a forged `X-Original-URI` / `Host` cannot borrow another
       application's entitlements
       *Three forgeries, all refused: `X-Original-URI: /` on a request for
@@ -546,7 +553,12 @@ has a first draft, and there is still not one line of code.
 - [ ] `GET /healthz` and `GET /readyz` (`docs/02`) — internal network only.
       Without them a fail-closed blackout and a working deny policy look identical
       from outside, and there is nothing for the Phase 6 health check to poll
-- [ ] `/decide` reachable only from the internal network (`internal;`)
+- [x] `/decide` reachable only from the internal network (`internal;`)
+      *`internal;` specifically, not an IP ACL: nginx skips the access phase for
+      a subrequest, so `deny all` in that position does nothing (VERIFY (3)).
+      A direct request answers 404 against the running stack. The other half is
+      the network split — the backend is on `core`, which no protected
+      application joins.*
 - [ ] Diagnostics: `X-Deny-Reason` into the access log; `request_id` correlating
       nginx with audit
 
