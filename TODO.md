@@ -259,9 +259,9 @@ has a first draft, and there is still not one line of code.
 
 ## Phase 2 — Schema + decision (backend)
 
-- [ ] `backend/migrations/0001_init.sql`: application, entitlement, audit_event
+- [x] `backend/migrations/0001_init.sql`: application, entitlement, audit_event
       (`known_user` and `entitlement.conditions` are not in v1 — `docs/02` "Data model")
-- [ ] The `audit_event` schema **starts** with its summary columns: `count`,
+- [x] The `audit_event` schema **starts** with its summary columns: `count`,
       `first_seen`, `last_seen`, `distinct_path`, plus `first_path` / `src_ip` /
       `request_id` taken from the first request folded into the row — and no
       `user_agent` (`docs/02`, "Data model"). The table is partitioned by month
@@ -270,6 +270,22 @@ has a first draft, and there is still not one line of code.
       for an uncovered month errors, and audit writes fail off the request
       path — silently. Adding any of this later is a breaking change — the audit
       record format is immutable (`docs/02`, CONTRIBUTING.md)
+      *Both landed in one file, checked by `backend/tests/schema.rs` against a
+      real Postgres 17. Three things the design documents did not say, decided
+      here and written back into `docs/02`: `audit_event` carries **no foreign
+      key** to `application` and denormalises `application_slug` beside the id —
+      with a key, deleting an application either destroys its audit trail or
+      cannot be done, and a decision made for an unknown `X-App-Slug` never had
+      a row to point at anyway; the `slug` and `external_hostname` CHECK
+      constraints are a security boundary rather than tidiness, because ADR-0011
+      interpolates both into generated nginx config straight from the table; and
+      the wildcard entitlement (`application_id IS NULL`, `docs/05` rule 4)
+      needs `UNIQUE NULLS NOT DISTINCT`, or the one dangerous rule is the only
+      one a double-clicked admin form can duplicate. The test skips itself
+      without `DATABASE_URL`, so CI grew a Postgres service in the same commit —
+      otherwise the migration would reach an operator having never been run.
+      Both new assertions were checked by mutation (drop the DEFAULT partition,
+      loosen the slug CHECK → both fail)*
 - [ ] The backend applies `migrations/` itself on startup (sqlx runtime migrator)
       and **exits if a migration fails** rather than serving on an unknown schema.
       An operator should never have to run a migration by hand on first install

@@ -316,7 +316,7 @@ entitlement                       -- "who reaches what"
 audit_event         -- append-only, partitioned by month on ts; one summary row
                     -- per (cache entry, outcome) — "Audit granularity" above
   id, ts, actor_sub, actor_name,
-  application_id, decision, reason,
+  application_id, application_slug, decision, reason,
   count, first_seen, last_seen, distinct_path,
   first_path, src_ip, request_id  -- of the FIRST request folded into the row;
                                   -- the per-request stream is stdout (F-23)
@@ -326,7 +326,14 @@ audit_event         -- append-only, partitioned by month on ts; one summary row
   -- partition is an error, and audit writes happen off the request path — they
   -- would fail silently. There is no user_agent column: a summary row has no
   -- single one; the stdout stream carries it per request.
+  -- application_id carries NO foreign key and application_slug is denormalised
+  -- beside it: deleting an application must not delete the record of who
+  -- reached it, and a decision made for an unknown X-App-Slug never had a row
+  -- to point at — that denial is exactly the one worth keeping.
 ```
+
+`application` and `entitlement` each carry a `created_at`; who changed them is
+the structured log's job (F-14), not a column.
 
 For AD groups, `entitlement.subject_id` currently holds a **name**. This has a
 structural weakness: a group that is deleted and recreated with the same name

@@ -59,6 +59,21 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    # The schema test skips itself without DATABASE_URL, so without this service
+    # the migration would reach an operator having never been executed.
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: openberat
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: openberat
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U openberat"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://openberat:test@localhost:5432/openberat
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install stable --profile minimal --component rustfmt,clippy
