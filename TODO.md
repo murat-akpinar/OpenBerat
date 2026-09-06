@@ -917,6 +917,17 @@ So the portal's data does not have to be filled in by hand with SQL.
       `new Function`, since the standard build looks like nothing but a larger
       file. The CSP header itself is still not set on any host (Phase 6
       security headers) — the frontend is merely proven to survive one.*
+- [ ] **The login page is ours, not Keycloak's** — a Keycloak login theme in
+      `keycloak/themes/`, `loginTheme` set in the realm export, and the IdP
+      hostname named for what a user sees rather than for the software behind
+      it. Today the realm ships `"loginTheme": "keycloak"`, so the one screen
+      every user meets first is stock Keycloak on a second hostname. This is
+      configuration, not code: it needs no phase of its own and it does not
+      touch ADR-0003.
+      **Not** an own login form posting to Keycloak's direct grant — that puts
+      the password through our backend, breaks the TOTP intent in `docs/06`,
+      and throws away the one decision that keeps OIDC code out of this
+      repository.
 - [ ] Audit log viewing + filtering
 - [ ] `GET /api/admin/explain?user&host&path` — why the decision was made.
       `policy.rs` is already pure; the screen ops will use most
@@ -940,6 +951,15 @@ So the portal's data does not have to be filled in by hand with SQL.
 
 - [ ] **Deprovisioning delay test** — does the N-03 target hold (repeat the Phase 1
       measurement)
+- [ ] **One real application, integrated end to end** — Jenkins or SonarQube
+      behind the proxy, reached from the portal, with no second password
+      prompt, and the recipe written into `INSTALL.md`. The lab's `sample-app`
+      is `traefik/whoami`: it proves the `X-Auth-*` headers arrive, not that
+      any application consumes them, and the product's whole promise is the
+      step after arrival. Blocked on the open question below it in `docs/06`
+      — how a protected application learns who the user is — because the two
+      mechanisms need different things written down. Measured, not asserted:
+      log in once, click the icon, land signed in.
 - [ ] Security headers, TLS settings, the certificate renewal path
 - [ ] Backup/restore procedure, migration rollback
 - [ ] Audit retention job (N-04) and partition maintenance
