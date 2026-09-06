@@ -69,6 +69,7 @@ pub fn router(ctx: Arc<Ctx>) -> Router {
     Router::new()
         .route("/decide", get(decide))
         .route("/api/me", get(me))
+        .route("/api/apps", get(apps))
         .route("/healthz", get(async || StatusCode::OK))
         .route("/readyz", get(readyz))
         .merge(crate::admin::routes(ctx.clone()))
@@ -111,6 +112,46 @@ impl Caller {
                 .collect(),
         })
     }
+}
+
+#[derive(Serialize)]
+struct PortalApp {
+    slug: String,
+    name: String,
+    icon: Option<String>,
+    url: String,
+}
+
+// --- Feature Start ---
+// The portal grants nothing: this list is `policy::decide` run over the same
+// rules the PEP would use, at the application's root. A second implementation
+// of "can this user reach it" would eventually disagree with the first, and the
+// disagreement shows up either as a button that 403s or — worse — as an
+// application the portal hides while the PEP allows it.
+// --- Feature End ---
+async fn apps(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Response {
+    let Some(caller) = Caller::from(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let found = match store::portal_apps(&ctx.pool, &caller.sub, &caller.groups).await {
+        Ok(found) => found,
+        Err(e) => {
+            tracing::error!(error = %e, "listing portal applications failed");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    };
+    let now = chrono::Utc::now();
+    let reachable: Vec<PortalApp> = found
+        .into_iter()
+        .filter(|app| policy::decide(true, &app.rules, "/", now) == Decision::Allow)
+        .map(|app| PortalApp {
+            slug: app.slug,
+            name: app.name,
+            icon: app.icon,
+            url: format!("https://{}/", app.external_hostname),
+        })
+        .collect();
+    Json(reachable).into_response()
 }
 
 #[derive(Serialize)]

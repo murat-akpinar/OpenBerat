@@ -1157,6 +1157,107 @@ async fn decide_section(pool: &PgPool) {
         "deleting it twice"
     );
 
+    // Entitlements, and the portal list they drive.
+    let response = post(
+        "/api/admin/applications",
+        serde_json::json!({
+            "slug": "reports", "name": "Reports",
+            "upstream_url": "http://reports-app:8080",
+            "external_hostname": "reports.apps.example.local"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body = axum::body::to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
+    let reports: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let reports_id = reports["id"].as_str().unwrap().to_string();
+
+    for bad in [
+        serde_json::json!({"application_id": reports_id, "subject_type": "group",
+                           "subject_id": "OpenBerat-Finance", "effect": "allow"}),
+        serde_json::json!({"application_id": reports_id, "subject_type": "ad_group",
+                           "subject_id": "OpenBerat-Finance", "effect": "maybe"}),
+        serde_json::json!({"application_id": reports_id, "subject_type": "ad_group",
+                           "subject_id": "", "effect": "allow"}),
+        serde_json::json!({"application_id": reports_id, "subject_type": "ad_group",
+                           "subject_id": "OpenBerat-Finance", "effect": "allow",
+                           "path_pattern": "admin/*"}),
+    ] {
+        let response = post("/api/admin/entitlements", bad.clone()).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{bad}");
+    }
+
+    // The portal shows nothing until a rule says so — default deny reaches all
+    // the way to the buttons.
+    // Only the application this section created — `finance` from the /decide
+    // section is legitimately in the list and is not what is being measured.
+    let listed = async |groups: &str| {
+        let response = call("GET", "/api/apps", identity(groups)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 65536)
+            .await
+            .unwrap();
+        serde_json::from_slice::<Vec<serde_json::Value>>(&body)
+            .unwrap()
+            .into_iter()
+            .filter(|app| app["slug"] == "reports")
+            .collect::<Vec<_>>()
+    };
+    assert!(
+        listed("OpenBerat-Finance").await.is_empty(),
+        "nothing granted yet"
+    );
+
+    let response = post(
+        "/api/admin/entitlements",
+        serde_json::json!({"application_id": reports_id, "subject_type": "ad_group",
+                           "subject_id": "OpenBerat-Finance", "effect": "allow"}),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let shown = listed("OpenBerat-Finance").await;
+    assert_eq!(shown.len(), 1);
+    assert_eq!(shown[0]["slug"], "reports");
+    assert_eq!(shown[0]["url"], "https://reports.apps.example.local/");
+    assert!(
+        listed("OpenBerat-Hr").await.is_empty(),
+        "another group sees nothing"
+    );
+
+    // A deny at the root takes the button away, because the portal asks
+    // policy.rs the same question the PEP asks and gets the same answer.
+    let response = post(
+        "/api/admin/entitlements",
+        serde_json::json!({"application_id": reports_id, "subject_type": "ad_group",
+                           "subject_id": "OpenBerat-Finance", "effect": "deny"}),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    assert!(
+        listed("OpenBerat-Finance").await.is_empty(),
+        "deny beats allow here too"
+    );
+
+    // A disabled application is not a button either.
+    sqlx::query("delete from entitlement where effect = 'deny'")
+        .execute(pool)
+        .await
+        .unwrap();
+    assert_eq!(listed("OpenBerat-Finance").await.len(), 1);
+    let response = send(
+        "PATCH",
+        format!("/api/admin/applications/{reports_id}"),
+        serde_json::json!({"enabled": false}),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(
+        listed("OpenBerat-Finance").await.is_empty(),
+        "a disabled application"
+    );
+
     // --- how many AD groups the backend's own HTTP client survives ---
     // nginx's half of this is measured (docs/07): the group list travels
     // comma-joined in one header, and a 4 KB buffer breaks between 100 and 200

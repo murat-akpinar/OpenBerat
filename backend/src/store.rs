@@ -92,6 +92,86 @@ pub async fn rules_for(
     Ok(Some(AppRules { id, enabled, rules }))
 }
 
+/// One application the portal might show, with the rules that apply to this
+/// user on it. The verdict is `policy::decide`'s to make — the portal must not
+/// contain a second, subtly different one (docs/02, "Flow: the portal").
+#[derive(Debug)]
+pub struct PortalApp {
+    pub slug: String,
+    pub name: String,
+    pub icon: Option<String>,
+    pub external_hostname: String,
+    pub rules: Vec<Rule>,
+}
+
+// --- Feature Start ---
+// One query for every application rather than one per application, and a LEFT
+// JOIN rather than an inner one: an application with no matching entitlement
+// still has to come back, because "no rule" is a decision (`no_matching_grant`)
+// and not an absence. An inner join would quietly hide exactly the applications
+// the portal is being asked about.
+// --- Feature End ---
+/// slug, name, icon, external_hostname, and the joined rule's effect, pattern
+/// and expiry — all three None for an application with no matching rule.
+type PortalRow = (
+    String,
+    String,
+    Option<String>,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<DateTime<Utc>>,
+);
+
+pub async fn portal_apps(
+    pool: &PgPool,
+    sub: &str,
+    groups: &[String],
+) -> Result<Vec<PortalApp>, sqlx::Error> {
+    let rows: Vec<PortalRow> = sqlx::query_as(
+        "select a.slug, a.name, a.icon, a.external_hostname,
+                    e.effect, e.path_pattern, e.expires_at
+               from application a
+               left join entitlement e
+                 on (e.application_id = a.id or e.application_id is null)
+                and ( (e.subject_type = 'ad_group' and e.subject_id = any($1))
+                   or (e.subject_type = 'user' and e.subject_id = $2) )
+              where a.enabled
+              -- name alone would not group the rows of one application
+              -- together if two applications shared a name; slug is unique.
+              order by a.name, a.slug",
+    )
+    .bind(groups)
+    .bind(sub)
+    .fetch_all(pool)
+    .await?;
+
+    let mut apps: Vec<PortalApp> = Vec::new();
+    for (slug, name, icon, external_hostname, effect, path_pattern, expires_at) in rows {
+        if apps.last().is_none_or(|a| a.slug != slug) {
+            apps.push(PortalApp {
+                slug,
+                name,
+                icon,
+                external_hostname,
+                rules: Vec::new(),
+            });
+        }
+        if let (Some(effect), Some(path_pattern)) = (effect, path_pattern) {
+            apps.last_mut().expect("just pushed").rules.push(Rule {
+                effect: if effect == "deny" {
+                    Effect::Deny
+                } else {
+                    Effect::Allow
+                },
+                path_pattern,
+                expires_at,
+            });
+        }
+    }
+    Ok(apps)
+}
+
 /// One summary row: a cache entry's requests for one outcome, folded together
 /// (docs/02, "Audit granularity").
 #[derive(Debug)]

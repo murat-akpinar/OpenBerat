@@ -29,6 +29,14 @@ pub fn routes(ctx: Arc<Ctx>) -> Router<Arc<Ctx>> {
             "/api/admin/applications/{id}",
             axum::routing::patch(update_application).delete(delete_application),
         )
+        .route(
+            "/api/admin/entitlements",
+            get(list_entitlements).post(create_entitlement),
+        )
+        .route(
+            "/api/admin/entitlements/{id}",
+            axum::routing::delete(delete_entitlement),
+        )
         .route_layer(middleware::from_fn_with_state(ctx, guard))
 }
 
@@ -247,6 +255,125 @@ async fn delete_application(
         }
         Ok(_) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => failed("delete_application", &actor, e),
+    }
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+pub struct Entitlement {
+    id: Uuid,
+    application_id: Option<Uuid>,
+    subject_type: String,
+    subject_id: String,
+    effect: String,
+    path_pattern: String,
+    expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+#[derive(Deserialize)]
+struct NewEntitlement {
+    /// Absent or null means every application — the wildcard of `docs/05`
+    /// rule 4, which is why creating one is logged differently below.
+    application_id: Option<Uuid>,
+    subject_type: String,
+    subject_id: String,
+    effect: String,
+    #[serde(default)]
+    path_pattern: String,
+    expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+async fn list_entitlements(State(ctx): State<Arc<Ctx>>) -> Response {
+    let found: Result<Vec<Entitlement>, _> = sqlx::query_as(
+        "select id, application_id, subject_type, subject_id, effect, path_pattern, expires_at
+           from entitlement order by subject_id, effect",
+    )
+    .fetch_all(&ctx.pool)
+    .await;
+    match found {
+        Ok(entitlements) => Json(entitlements).into_response(),
+        Err(e) => failed("list_entitlements", "-", e),
+    }
+}
+
+async fn create_entitlement(
+    State(ctx): State<Arc<Ctx>>,
+    headers: HeaderMap,
+    Json(new): Json<NewEntitlement>,
+) -> Response {
+    let actor = Caller::from(&headers)
+        .map(|c| c.username)
+        .unwrap_or_default();
+    // The schema enforces all four of these too. They are checked here so that
+    // a typo comes back as a sentence rather than as a 503 with a constraint
+    // name in the log.
+    if !["ad_group", "user"].contains(&new.subject_type.as_str()) {
+        return bad_request("subject_type must be ad_group or user");
+    }
+    if !["allow", "deny"].contains(&new.effect.as_str()) {
+        return bad_request("effect must be allow or deny");
+    }
+    if new.subject_id.trim().is_empty() {
+        return bad_request("subject_id is required");
+    }
+    if !new.path_pattern.is_empty() && !new.path_pattern.starts_with('/') {
+        return bad_request("path_pattern must be empty or start with /");
+    }
+
+    let created: Result<Entitlement, _> = sqlx::query_as(
+        "insert into entitlement
+           (application_id, subject_type, subject_id, effect, path_pattern, expires_at)
+         values ($1, $2, $3, $4, $5, $6)
+         returning id, application_id, subject_type, subject_id, effect, path_pattern, expires_at",
+    )
+    .bind(new.application_id)
+    .bind(&new.subject_type)
+    .bind(&new.subject_id)
+    .bind(&new.effect)
+    .bind(&new.path_pattern)
+    .bind(new.expires_at)
+    .fetch_one(&ctx.pool)
+    .await;
+    match created {
+        Ok(entitlement) => {
+            // --- Feature Start ---
+            // A rule with no application_id applies to every application, present
+            // and future (docs/05 rule 4). It is the one grant nobody should be
+            // able to make by accident, so it is logged as its own action and at
+            // its own level rather than disappearing into the ordinary stream.
+            // --- Feature End ---
+            if new.application_id.is_none() {
+                tracing::warn!(actor, action = "create_wildcard_entitlement",
+                    target = %new.subject_id, effect = %new.effect, outcome = "ok", "admin");
+            } else {
+                tracing::info!(actor, action = "create_entitlement",
+                    target = %new.subject_id, effect = %new.effect, outcome = "ok", "admin");
+            }
+            (StatusCode::CREATED, Json(entitlement)).into_response()
+        }
+        Err(e) => failed("create_entitlement", &actor, e),
+    }
+}
+
+async fn delete_entitlement(
+    State(ctx): State<Arc<Ctx>>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Response {
+    let actor = Caller::from(&headers)
+        .map(|c| c.username)
+        .unwrap_or_default();
+    let deleted = sqlx::query("delete from entitlement where id = $1")
+        .bind(id)
+        .execute(&ctx.pool)
+        .await;
+    match deleted {
+        Ok(result) if result.rows_affected() > 0 => {
+            tracing::info!(actor, action = "delete_entitlement", target = %id,
+                outcome = "ok", "admin");
+            StatusCode::NO_CONTENT.into_response()
+        }
+        Ok(_) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => failed("delete_entitlement", &actor, e),
     }
 }
 

@@ -659,7 +659,14 @@ So the portal's data does not have to be filled in by hand with SQL.
       and `external_hostname` are **not patchable**: both are written into
       generated nginx blocks and into every audit row naming the application,
       so renaming one silently reassigns history.*
-- [ ] AD group ↔ application mapping (allow/deny)
+- [x] AD group ↔ application mapping (allow/deny)
+      *`/api/admin/entitlements`, with the four field checks duplicated from the
+      schema so a typo comes back as a sentence rather than a 503 with a
+      constraint name in the log. Creating a **wildcard** entitlement — no
+      `application_id`, so it applies to every application present and future
+      (`docs/05` rule 4) — is logged as its own action at `warn`, not folded
+      into the ordinary stream: it is the one grant nobody should be able to
+      make by accident.*
 - [ ] **nginx config generation** (ADR-0011): generate from the template →
       `nginx -t` → reload. If validation fails, the current config stays in effect
 - [ ] **Test:** every generated location contains the `X-Auth-*` stripping include
@@ -675,12 +682,17 @@ So the portal's data does not have to be filled in by hand with SQL.
       `X-Auth-Request-*` family everywhere — reading the cleared family here
       would need one location that must *not* run the shared strip, which is
       exactly the "forget it in one place" hazard the include exists to remove.*
-- [ ] `GET /api/me`, `GET /api/apps`
-      *`/api/me` is done — sub, username, email, groups and the `admin` flag,
-      which the frontend uses to hide things and which refuses nothing on its
-      own (ADR-0007). `/api/apps` waits for the entitlement mapping below,
-      since "the applications this user can reach" is that query read the other
-      way round.*
+- [x] `GET /api/me`, `GET /api/apps`
+      *`/api/apps` runs **`policy::decide`** over the same rules the PEP would
+      use, at each application's root, rather than reimplementing "can reach"
+      in SQL. A second implementation would eventually disagree with the first,
+      and the disagreement shows up either as a button that 403s or — worse —
+      as an application the portal hides while the PEP allows it. One query for
+      all applications, and a LEFT JOIN rather than an inner one: an
+      application with no matching rule still has to come back, because "no
+      rule" is a decision (`no_matching_grant`) and not an absence. Tested that
+      a deny at the root takes the button away and a disabled application is
+      not a button.*
 - [ ] Admin mutations and kill switch invocations recorded to the structured
       log — actor, action, target, outcome (F-14, `docs/02` "Management plane")
       *The mutation half is done and running:
