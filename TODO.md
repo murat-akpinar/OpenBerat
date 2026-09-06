@@ -1144,7 +1144,29 @@ So the portal's data does not have to be filled in by hand with SQL.
       from an unrelated host is dropped, the same request from the PEP's address
       still answers 200, the proxy path is unchanged and the build agent — which
       reaches the controller over the Docker bridge — never noticed.*
-- [ ] Security headers, TLS settings, the certificate renewal path
+- [x] Security headers, TLS settings, the certificate renewal path
+      *Two new files, `nginx/conf.d/tls.inc` and `security.inc`, both at http
+      level and both shared with the break-glass configuration. The certificate
+      moves there too, so no `server` block carries a copy — including the
+      blocks ADR-0011 generates, which is four places that can no longer drift.
+      **The trap this box is really about is `add_header`:** nginx inherits it by
+      **replacement**, so one header set in a location drops every header above
+      it — and the three locations that relay the refreshed session cookie by
+      hand are exactly the portal, the admin API and `protected.inc`, which is
+      every application. CI fails the build if a location with an `add_header`
+      does not pull `security.inc` back in (README rules 19 and 20).
+      **One header had to come back out.** `Referrer-Policy` at http level
+      *relaxed* what upstreams had already chosen — measured, Keycloak sends
+      `no-referrer` and Jenkins `same-origin`, and a browser takes the last of
+      two — so it is on the portal's own HTML only, next to the CSP. Of the TLS
+      settings only `ssl_ciphers` changes anything: the stock image accepts
+      `AES128-SHA`, RSA key exchange with no forward secrecy, under the cookie
+      that is valid for every host on `.apps.<domain>`.
+      **Renewal is a file swap and a reload** — 400 requests spanning it, none
+      failed — plus one `docker compose restart oauth2-proxy` while the
+      certificate is self-signed, which is where the run that "passed" turned
+      out to have been a harness reporting success on a login that 500'd
+      (`docs/07`, `INSTALL.md` §1).*
 - [ ] Backup/restore procedure, migration rollback
 - [ ] Audit retention job (N-04) and partition maintenance
 - [ ] Monitoring: decision latency, error rate, cache hit rate, audit loss counter

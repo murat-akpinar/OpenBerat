@@ -1545,6 +1545,118 @@ Harness: `verify-appidentity.sh` on the lab host (the two-users test, including
 the grant and its cleanup). The application and entitlement rows are left in
 place — this one is meant to keep running.
 
+### Security headers and the TLS floor — what the stack served before, and after
+
+Two of the three parts of this box were already right and one was wrong in a way
+no configuration review would have caught.
+
+**The TLS floor.** Probed against a bare `nginx:1.29-alpine` with nothing but a
+certificate configured, because the question is about the base image and not
+about this product. A client forced down to an old version, and then one cipher
+at a time:
+
+| offered | stock image | with `tls.inc` |
+|---|---|---|
+| TLS 1.0, TLS 1.1 | refused (`alert protocol version`) | refused |
+| TLS 1.2, TLS 1.3 | negotiated | negotiated |
+| `AES128-SHA` — RSA key exchange, **no forward secrecy** | **accepted** | refused |
+| `ECDHE-RSA-AES128-SHA` — CBC/SHA1 | **accepted** | refused |
+| `ECDHE-RSA-AES256-GCM-SHA384` | accepted | accepted |
+
+So `ssl_protocols TLSv1.2 TLSv1.3` changes nothing today — the first probe of
+this pair was misread as "TLS 1.0 accepted" until the detector was corrected to
+look at the negotiated cipher rather than at the `Protocol:` line, which
+`s_client` prints for a handshake that failed too. It is written anyway, because
+the floor should belong to this configuration rather than to whatever the base
+image's OpenSSL defaults to next year. `ssl_ciphers EECDH+AESGCM:EECDH+CHACHA20`
+is the line that does something: without it a recorded session is decryptable by
+anyone who later obtains the private key, and what travels on it is a cookie
+valid for every host on `.apps.<domain>` (ADR-0015).
+
+**The headers, per kind of response.** Read off the running lab, one request per
+row, `nosniff` and `Strict-Transport-Security` omitted because every row has
+them:
+
+| response | CSP | `X-Frame-Options` | `Referrer-Policy` |
+|---|---|---|---|
+| portal `/`, authenticated 200 | ours | `DENY` | ours |
+| portal `/denied` | ours | `DENY` | ours |
+| portal `/api/me` | — | — | — |
+| portal `/`, no cookie → 302 to login | — | — | — |
+| Jenkins, authenticated 200 | **Jenkins's own**, report-only | `sameorigin` (its own) | `same-origin` (its own) |
+| Jenkins, no cookie → 302 | — | — | — |
+| Keycloak `/realms/…` | — | `SAMEORIGIN` (its own) | `no-referrer` (its own) |
+| unknown host → default server 404 | — | — | — |
+
+**The one that was wrong.** The first version of `security.inc` set
+`Referrer-Policy` at http level, and the lab immediately showed why that is a
+mistake: Keycloak sends `no-referrer`, Jenkins sends `same-origin`, and nginx
+*appends* rather than replaces. A duplicated `X-Content-Type-Options` is
+harmless — the browser splits the joined value and reads the first token, which
+is `nosniff` either way — but a duplicated `Referrer-Policy` is not: the last
+valid value wins, so the proxy's `strict-origin-when-cross-origin` would have
+**relaxed** the login host and every application that had already made a
+stricter choice. It is set on the portal's own HTML only, where nothing upstream
+has an opinion; everywhere else the browsers' own default is that same value
+already. `nginx/conf.d/README.md` rules 19 and 20 are this paragraph.
+
+The CSP measured earlier in this document was delivered as a `<meta>` tag, since
+the question then was whether Alpine survives one. It is a real header now, and
+it sits on `location /` rather than on the portal `server`: `/oauth2/` is
+oauth2-proxy's own pages and a protected application is somebody else's, and
+`default-src 'self'` would break both.
+
+The generated application block (ADR-0011) no longer carries a copy of the
+certificate — one wildcard serves every host, so it is set once at http level in
+`tls.inc`. Verified by deleting the two lines from the block installed on the
+lab, reloading, and fetching Jenkins over TLS: 200, 129838 bytes.
+
+### MEASURE — renewing the wildcard certificate under a running stack
+
+The certificate is mounted, never baked (`nginx/Dockerfile`), so the question is
+what an operator has to do beyond replacing two files. Measured by generating a
+second self-signed wildcard with the same subject and SAN and swapping it in.
+Every verdict below is `GET /api/me` with a freshly minted session, for a reason
+given at the end.
+
+| step | result |
+|---|---|
+| new files written, no reload | nginx still serves the **old** serial |
+| `nginx -s reload` | serves the new serial |
+| 400 requests spanning the reload | **400 × 200, no failure** |
+| login, oauth2-proxy untouched | **broken** — `/api/me` → 302 |
+| `docker compose restart oauth2-proxy` | `/api/me` → 200 |
+| an **existing** session across that restart | 200, on the portal and on Jenkins |
+
+The failure in the fourth row is the whole finding, and it is specific to a
+self-signed deployment: `docker-compose.yml` mounts `certs/wildcard.crt` into
+oauth2-proxy as `provider_ca_files`, because the issuer is reached over HTTPS
+and the lab's leaf is its own trust anchor. oauth2-proxy reads that file once, at
+startup, so after the swap it is validating a new leaf against the old one:
+
+```
+Error redeeming code during OAuth2 callback: token exchange failed:
+  Post "https://auth.apps.example.local/realms/openberat/protocol/openid-connect/token":
+  tls: failed to verify certificate: x509: certificate signed by unknown authority
+```
+
+Nothing else in the chain cares. Sessions are in Redis, so the restart costs
+under a second and no signed-in user notices; only a login in flight fails.
+
+One trap ruled out rather than inherited: it does not matter whether the new
+file is written **over** the old one or **replaces** it. `certs/` is a directory
+mount for nginx, and oauth2-proxy's single-file mount is re-resolved when the
+container starts — measured both ways, `cp` and `mv`, and a plain
+`docker compose restart` was enough for both. No `--force-recreate` is needed.
+
+**Why every verdict here is `/api/me` and not the harness's exit code.** The
+first run of this experiment reported that login still worked after the swap. It
+did not. `ob-login.sh` walks the browser flow with curl and exits 0 as long as
+each request answers, and the OAuth callback answered — with a 500. A harness
+that reports success on a failed login would have put the wrong procedure into
+`INSTALL.md`; the failure only surfaced when the session it produced was asked
+to do something.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is

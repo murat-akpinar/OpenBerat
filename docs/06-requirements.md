@@ -98,12 +98,15 @@ network and policy. Phase 1 exists partly to establish them.
       it from the next login, including across intermediate groups the
       `(cn=OpenBerat-*)` filter excludes.
 - [ ] **Wildcard certificate: internal CA or Let's Encrypt?** ADR-0015 makes the
-      certificate mandatory but not its source. If it is baked into the image,
-      renewal means an image build, and expiry takes **every** application down
-      at once. This is a **production** question; the Phase 1 lab does not wait
-      for it — a self-signed wildcard is enough there, and the lab needs one from
-      its first day because the OIDC redirect and the `Secure` cookie do not work
-      over plain HTTP.
+      certificate mandatory but not its source. Only the **source** is still
+      open: the certificate is never baked into an image, and the renewal path
+      is measured and CA-agnostic — replace two files, reload nginx, no dropped
+      request (`docs/07`, `INSTALL.md` §1). Expiry still takes **every**
+      application down at once, so whoever answers this owns the renewal
+      calendar too. This is a **production** question; the Phase 1 lab does not
+      wait for it — a self-signed wildcard is enough there, and the lab needs one
+      from its first day because the OIDC redirect and the `Secure` cookie do not
+      work over plain HTTP.
 - [ ] MFA: **wanted** (maintainer intent, 2026-09-05) as TOTP — the user scans a
       QR once and types the code from a phone app (Google Authenticator,
       FreeOTP…). The basic form is **Keycloak realm configuration only**, no

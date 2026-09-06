@@ -92,10 +92,24 @@ jobs:
                       i += 1
                   yield m.group(1).strip(), text[m.end():i - 1]
 
+          def bodies(path):
+              text = expand(path.read_text())
+              found = list(blocks(text))
+              # protected.inc is a location body without the `location` line, so
+              # nothing above would look inside it — and it is the one file whose
+              # add_header reaches every application.
+              return found or [(path.name, text)]
+
           bad = []
-          for path in sorted(conf.glob('*.conf')):
-              for header, body in blocks(expand(path.read_text())):
+          for path in sorted([*conf.glob('*.conf'), *conf.glob('*.inc')]):
+              for header, body in bodies(path):
                   body = re.sub(r'#.*', '', body)
+                  # nginx inherits add_header by *replacement*: one add_header in a
+                  # location drops every header set above it, silently. The security
+                  # headers live at http level, so any location writing a header of
+                  # its own has to pull security.inc back in (rule 19).
+                  if 'add_header' in body and 'Strict-Transport-Security' not in body:
+                      bad.append(f'{path.name}: `{header}` has its own add_header and does not include security.inc')
                   if 'auth_request' not in body:
                       continue
                   if re.search(r'^\s*return\s', body, re.M):

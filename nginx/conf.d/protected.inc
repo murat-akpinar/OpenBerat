@@ -28,6 +28,11 @@ auth_request_set $deny_reason   $upstream_http_x_deny_reason;
 # cookie_refresh the new cookie comes back on the *subrequest's* response, and
 # nothing relays it to the browser unless it is lifted out by hand.
 add_header Set-Cookie $auth_cookie always;
+# One add_header in a location drops every header set above it, so the shared
+# set is pulled back in here — this is the only place that covers a generated
+# application block (README rule 19). No CSP: that one belongs to whoever wrote
+# the application's pages, not to the proxy in front of them.
+include /etc/nginx/conf.d/security.inc;
 
 # --- Feature Start ---
 # Rewritten from the verified identity, unconditionally. A client can send its

@@ -79,6 +79,31 @@ Browsers warn on a self-signed certificate; either import `wildcard.crt` into
 the trust store of the machine you browse from, or click through per visit.
 `curl` tests take `-k`.
 
+### Renewing it
+
+Every host is served from this one certificate, so its expiry takes the whole
+system down at once. Renewal does not need an image build or a restart —
+`certs/` is mounted, and nginx is the only thing that has to be told:
+
+```sh
+# replace certs/wildcard.crt and certs/wildcard.key, then
+docker compose exec nginx nginx -s reload
+docker compose restart oauth2-proxy
+```
+
+Measured under load (`docs/07`): 400 requests spanning the reload, none of them
+failed, and nginx serves the new certificate from the first request after it.
+Whether the files are overwritten in place or replaced makes no difference.
+
+The second command is only needed while the certificate is **self-signed**:
+`docker-compose.yml` mounts `certs/wildcard.crt` into oauth2-proxy as the CA it
+validates the issuer with, and it reads that file once at startup. Skip it and
+the proxy keeps checking the new certificate against the old one — existing
+sessions carry on working, and every *new* login fails on the token exchange
+with `x509: certificate signed by unknown authority`, which is a confusing thing
+to be debugging at renewal time. Running it costs under a second and no
+signed-in user notices; sessions live in Redis, not in the process.
+
 ## 2. Name resolution (lab)
 
 On every machine that talks to the stack — the Docker host itself *and* the

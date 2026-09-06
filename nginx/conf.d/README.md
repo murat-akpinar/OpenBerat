@@ -13,8 +13,10 @@ authorisation decision. Reference pattern and verified details:
 | `errors.inc` | `@signin`, `@denied`, and the `/unavailable.html` location — included at **server** level | now |
 | `decide.inc` | `location = /decide` — included at **server** level | now |
 | `protected.inc` | `auth_request` and the whole header rewrite — included inside a **location** | now |
+| `tls.inc` | The certificate and the TLS floor, at **http** level — one wildcard serves every host, so no `server` block carries a copy | now |
+| `security.inc` | The response headers every host serves, at **http** level and re-included in each location that writes an `add_header` of its own | now |
 
-The three shared pieces are `.inc` and not `.conf` for a mechanical reason:
+The shared pieces are `.inc` and not `.conf` for a mechanical reason:
 `nginx.conf` includes `conf.d/*.conf` into the `http` block, and a bare
 `location` there is a syntax error. An earlier draft of this table had them all
 in `00-auth.conf`, which cannot work.
@@ -156,3 +158,17 @@ The rules below apply to all of them.
    connection is open. Two things follow: a policy change does not reach a
    connection that is already up (ADR-0016 states this; it is measured), and a
    busy admin session can grow the worker count without bound.
+19. **`add_header` is inherited by replacement, not by merge.** A location that
+   sets one header of its own loses **every** header defined above it, silently
+   and with `nginx -t` reporting success. The three places that relay the
+   refreshed session cookie by hand (item 10) are therefore the three places
+   that would be served with no security headers at all — the portal, the admin
+   API, and `protected.inc`, which is every application. Each pulls
+   `security.inc` back in, and CI fails the build if a location with an
+   `add_header` does not.
+20. **Do not set `Referrer-Policy` from the proxy.** Unlike `nosniff`, a second
+   copy does not agree with the first: the browser takes the **last** valid
+   value, so a header added here overrules the upstream's. Measured on the lab
+   (`docs/07`): Keycloak sends `no-referrer` and Jenkins sends `same-origin`,
+   both stricter than anything the proxy should impose. It is set on the
+   portal's own HTML only, where nothing upstream has an opinion.

@@ -843,6 +843,9 @@ pub fn validate_hostname(hostname: &str, portal_origin: &str) -> Result<(), Stri
 // one bad record must not take the whole file, and therefore every other
 // application, down with it.
 // --- Feature End ---
+/// The certificate is not written here: it is set once at http level in
+/// `nginx/conf.d/tls.inc`, so this template cannot drift from the hand-written
+/// blocks over where the operator's certificate lives.
 pub fn render_apps_conf(applications: &[Application], portal_origin: &str) -> String {
     let mut out = String::from(
         "# Generated from the `application` table by the backend (ADR-0011).\n         # Do not edit: the next admin change overwrites it. The hand-written\n         # half of the configuration is in the image; only this file is not.\n",
@@ -871,8 +874,6 @@ pub fn render_apps_conf(applications: &[Application], portal_origin: &str) -> St
              \x20   listen 443 ssl;\n\
              \x20   http2 on;\n\
              \x20   server_name {hostname};\n\n\
-             \x20   ssl_certificate     /etc/nginx/certs/wildcard.crt;\n\
-             \x20   ssl_certificate_key /etc/nginx/certs/wildcard.key;\n\n\
              \x20   # Fixed here, never taken from the request: the subrequest\n\
              \x20   # inherits the client's Host verbatim.\n\
              \x20   set $app_slug {slug};\n\n\
