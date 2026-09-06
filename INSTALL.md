@@ -297,7 +297,81 @@ stays in effect and the reason is in
 `/etc/nginx/conf.d/generated/apps.status` inside the nginx container. Nothing
 goes down while you read it.
 
-## 7. One limitation to know before you expose an application
+## 7. How the application learns who the user is
+
+The proxy decides *whether* a request may pass. These headers tell the
+application *who* is passing ([ADR-0021](docs/adr/0021-application-identity-trusted-headers.md)).
+Every protected location gets them, rewritten from the verified identity, with
+the request-side spellings cleared — a client cannot supply its own.
+
+| Header | Contents |
+|---|---|
+| `X-Auth-Subject` | Keycloak `sub`: stable and opaque, the one to key data on |
+| `X-Auth-Username` | the username the person types |
+| `X-Auth-Email` | the address from the directory |
+| `X-Auth-Groups` | the group list, comma-joined |
+| `X-Auth-Request-Id` | the id that correlates this request with the audit record and the nginx log |
+
+Point the application's own reverse-proxy authentication mode at them. Jenkins,
+as it was measured in the lab (`docs/07`) — the plugin is
+`reverse-proxy-auth-plugin`, and this runs once from `init.groovy.d`:
+
+```groovy
+def realm = new ReverseProxySecurityRealm(
+  "X-Auth-Username", "X-Auth-Email", "X-Auth-Username",
+  "X-Auth-Groups", ",",                 // the group header and its delimiter
+  null, null, null, null, false,
+  null, null, null, null, null, null,
+  null, (Secret) null, (Integer) 15, true, null, null)
+Jenkins.get().setSecurityRealm(realm)
+
+def authz = new FullControlOnceLoggedInAuthorizationStrategy()
+authz.setAllowAnonymousRead(false)      // in 2.555.1 this setter, not setDenyAnonymousReadAccess
+Jenkins.get().setAuthorizationStrategy(authz)
+Jenkins.get().save()
+```
+
+### The requirement that comes with it
+
+**The upstream must not be reachable from anywhere except the proxy.** With this
+mechanism a header *is* the authentication: measured in the lab, one forged
+`X-Auth-Username` sent to an application's own port, with no cookie and no
+contact with the proxy, was served as an administrator (`docs/07`). Denying
+anonymous access on the application side does not help — the forged request is
+not anonymous.
+
+- **Same machine:** do not publish the application's port at all. Put the
+  container on the network nginx is on and let nginx reach it by name. This is
+  what the compose file does for the sample application, and it is the reason
+  `docker compose ps` shows no port for it.
+- **Another machine:** allow the proxy's address and nothing else. For a
+  published Docker port a host firewall rule has to sit in `DOCKER-USER`, because
+  the `INPUT` chain never sees forwarded traffic:
+
+  ```
+  iptables -I DOCKER-USER 1 -i <lan-if> -p tcp --dport <port> ! -s <proxy-ip> -j DROP
+  ```
+
+Test it rather than assume it, from a third machine:
+
+```
+curl -H 'X-Auth-Username: someone' -H 'X-Auth-Groups: OpenBerat-Admins' \
+     http://<application-host>:<port>/
+```
+
+A refused connection is the answer you want. A page is a finding.
+
+### Two things to know before mapping roles from `X-Auth-Groups`
+
+- **It carries more than AD groups.** oauth2-proxy adds Keycloak's realm and
+  client roles with a `role:` prefix, so a user in one AD group arrives with
+  seven names (`docs/07`). Match the ones you granted; ignore the rest.
+- **It is one comma-joined string**, and the application splits it exactly as
+  this product does. A group *named* with a comma in it therefore arrives as two
+  groups — which is why the Keycloak group filter in §4 is not optional
+  ([ADR-0008](docs/adr/0008-group-identity-name.md)).
+
+## 8. One limitation to know before you expose an application
 
 Revocation is bounded for HTTP requests — an account disabled in AD or removed
 from a group loses access within six minutes, and the kill switch cuts it in
@@ -315,7 +389,8 @@ be published over a long-lived connection behind this proxy. Nothing in the
 configuration changes this — it is what "authorise the request" means when there
 is only ever one request.
 
-> Phase 1 is in progress. The certificate, the realm import, the oauth2-proxy
-> configuration and the first login are done, written above, and verified by
-> replaying them on a clean checkout. Still to come: the LDAP bind account and
-> everything downstream of it, which waits on the lab AD (TODO.md Phase 1).
+> Phase 1 and the phases after it are done and this file follows them: the
+> certificate, the realm import, the AD federation, the first login, adding an
+> application and integrating one are all written above and were replayed on a
+> clean checkout. What is still missing belongs to Phase 6 — TLS hardening,
+> backup and restore, and the release image (`TODO.md`).

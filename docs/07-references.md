@@ -1437,6 +1437,97 @@ gets a fresh id each time — look it up by `type` rather than by a recorded id.
 Its `cachePolicy` was still `NO_CACHE`, which is what keeps the directory's own
 contribution zero.
 
+### One real application — Jenkins behind the proxy, and the port that makes it optional
+
+The lab's `sample-app` is `traefik/whoami`: it proves the `X-Auth-*` headers
+arrive, not that anything consumes them, and the product's whole promise is the
+step after arrival. So a real one was put behind the proxy — **Jenkins
+2.555.1-lts, on its own host**, reached across the LAN rather than from the
+compose network, which is the awkward case and therefore the honest one.
+
+On the OpenBerat side the integration is **one `application` row** (slug
+`jenkins`, `upstream_url` `http://<host>:8080`, hostname
+`jenkins.apps.example.local` — `validate_upstream` accepts a plain private IP)
+and **one `entitlement`** (`OpenBerat-Finance`, allow). No code, no migration,
+no configuration file. On the Jenkins side, `reverse-proxy-auth-plugin`, a
+security realm that reads `X-Auth-Username` and `X-Auth-Groups` (delimiter `,`),
+and full-control-once-logged-in with anonymous read denied — the recipe is in
+`INSTALL.md` §8.
+
+| Request | Result |
+|---|---|
+| `labuser` logs in **once** at the portal, then `GET https://jenkins.apps.example.local/` with that session cookie and nothing else | **200**, and `j_username` appears **0** times in the body — no login form, no second password |
+| the same session against `/whoAmI/api/json` | `name: labuser`, `authenticated: true`, authorities include `OpenBerat-Finance` |
+| no cookie at all | **302** to `auth.apps.example.local/realms/openberat/protocol/openid-connect/auth` |
+| **`X-Auth-Username: labadmin` + `X-Auth-Groups: OpenBerat-Admins`, sent straight to the published port from an unrelated host on the LAN** | **200**, `name: labadmin`, `authorities: [… OpenBerat-Admins]` |
+
+**The last row is what the mechanism costs.** No cookie, no session, no contact
+with the proxy — a header and a reachable port are the whole authentication.
+`denyAnonymousReadAccess` does not close it, because the forged request is not
+anonymous: it authenticates. This is why
+[ADR-0021](adr/0021-application-identity-trusted-headers.md) makes isolating the
+upstream a requirement rather than a deployment default, and why `docs/06`'s
+"can upstreams be reached bypassing nginx?" no longer has three answers to pick
+from.
+
+#### Two users, one browser — the application's session does not win
+
+The open question this settles attributed shared-browser identity confusion to
+the *other* mechanism, the application running its own OIDC. The test asks
+whether trusted headers have it too: user A visits and the application mints its
+own cookie; user B then logs in on the same browser and the request carries B's
+OpenBerat session together with **A's** `JSESSIONID`.
+
+| Request | Served as |
+|---|---|
+| A's session, first visit | `labuser` |
+| B's session, own visit | `labadmin` |
+| **B's session + A's application cookie** | **`labadmin`** |
+| A's application cookie alone, no OpenBerat session | **302** to login |
+
+The header is read per request and wins over the application's own session, and
+the application's cookie is worth nothing without ours because every request
+passes the gate first. Both users were genuinely entitled for the duration —
+`labadmin` was given a second `entitlement` on the same application and it was
+deleted afterwards, which is also why the third row's authorities legitimately
+list both groups.
+
+#### What arrives is not the AD group list
+
+Measured on the way past: `labuser`'s token carries `groups:
+["OpenBerat-Finance"]`, and what leaves oauth2-proxy — into `/api/me`, into the
+backend's matching, and into the application — is seven names:
+
+```
+OpenBerat-Finance, role:default-roles-openberat, role:offline_access,
+role:uma_authorization, role:account:manage-account,
+role:account:manage-account-links, role:account:view-profile
+```
+
+The `keycloak-oidc` provider appends Keycloak realm and client roles with a
+`role:` prefix. It grants nothing here — `ADMIN_GROUP` is matched by exact name
+and no `role:…` string can equal it — but an application mapping
+`X-Auth-Groups` onto its own permissions is being handed six names its AD
+administrator never granted.
+
+#### Three traps worth writing down
+
+- In 2.555.1 the deny-anonymous setter is `setAllowAnonymousRead(false)`, **not**
+  `setDenyAnonymousReadAccess(true)`, and there is no matching getter. The wrong
+  name throws `MissingMethodException` mid-script — and because
+  `setSecurityRealm` saves on its own, the realm survives while the
+  authorization half silently does not.
+- `init.groovy.d` mounted at `/usr/share/jenkins/ref/` is **seed-once**: the copy
+  into `$JENKINS_HOME` is skipped when the target exists, so an edit to the
+  mounted file changes nothing. Edit the runtime copy.
+- The container's `docker logs` was frozen weeks in the past on a stale
+  json-file, so the script logs to a file under `$JENKINS_HOME` instead. A boot
+  script that reports nothing is indistinguishable from one that did not run.
+
+Harness: `verify-appidentity.sh` on the lab host (the two-users test, including
+the grant and its cleanup). The application and entitlement rows are left in
+place — this one is meant to keep running.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is

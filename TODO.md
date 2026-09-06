@@ -31,6 +31,10 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
 - [x] ADR-0020 Frontend packaging: the static files are copied into the nginx
       image at build; no frontend container — a named volume seeds only while
       empty and would serve stale files after the first deploy
+- [x] ADR-0021 A protected application learns who the user is from the trusted
+      `X-Auth-*` headers; isolating the upstream stops being a deployment
+      default and becomes a requirement, because with this mechanism a
+      reachable port is impersonation (measured, `docs/07`)
 
 **Phase 0 is closed.** Everything decidable from the design has been decided;
 what remains needs facts about the target environment and is tracked in
@@ -1119,15 +1123,25 @@ So the portal's data does not have to be filled in by hand with SQL.
       change fell after the session was minted. The same behaviour measured
       272.6 s, 283.2 s, 314.2 s and 316.7 s across four runs. Only the ceiling
       is a number about the product (`docs/07`).*
-- [ ] **One real application, integrated end to end** — Jenkins or SonarQube
-      behind the proxy, reached from the portal, with no second password
-      prompt, and the recipe written into `INSTALL.md`. The lab's `sample-app`
-      is `traefik/whoami`: it proves the `X-Auth-*` headers arrive, not that
-      any application consumes them, and the product's whole promise is the
-      step after arrival. Blocked on the open question below it in `docs/06`
-      — how a protected application learns who the user is — because the two
-      mechanisms need different things written down. Measured, not asserted:
-      log in once, click the icon, land signed in.
+- [x] **One real application, integrated end to end** — Jenkins behind the
+      proxy, reached from the portal, with no second password prompt, and the
+      recipe written into `INSTALL.md` (§7).
+      *Jenkins 2.555.1 on its own host, across the LAN rather than on the
+      compose network. On our side the whole integration is **one `application`
+      row and one `entitlement`** — no code, no migration, no configuration
+      file; on its side, a security realm that reads `X-Auth-Username` and
+      `X-Auth-Groups`. Measured: one login at the portal, then `GET /` returns
+      **200** with no login form in the body and `whoAmI` says `labuser`; with
+      no cookie, 302 to Keycloak. Two more measurements settled
+      [ADR-0021](docs/adr/0021-application-identity-trusted-headers.md) rather
+      than assuming it — **a forged `X-Auth-Username` sent straight to the
+      published port impersonates an admin from any host on the LAN**, and the
+      shared-browser identity confusion that mechanism belongs to the *other*
+      option: the header is read per request, so user B carrying user A's
+      application cookie is still served as B (`docs/07`).*
+      **Left open by it:** the lab's Jenkins port is still open to the LAN. The
+      `DOCKER-USER` rule that closes it is in `INSTALL.md` §7 and has not been
+      applied to the lab host, so the bypass above is live there until it is.
 - [ ] Security headers, TLS settings, the certificate renewal path
 - [ ] Backup/restore procedure, migration rollback
 - [ ] Audit retention job (N-04) and partition maintenance

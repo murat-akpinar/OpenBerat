@@ -82,3 +82,9 @@ carries no SID column. A nullable column that nothing ever writes is exactly the
   that a customer may already be using for something else.
 - Renaming a group in AD **does** break its entitlements — that is the cost of
   the same choice, and it is the safe direction to fail in.
+- **The comma now has a second consumer.**
+  [ADR-0021](0021-application-identity-trusted-headers.md) hands the same
+  comma-joined header to the protected application, which splits it exactly as
+  the backend does. Mitigation 1 is the control for both, and an installation
+  that widens the filter widens it inside every application behind the proxy,
+  not only inside `/api/admin/*`.

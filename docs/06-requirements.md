@@ -82,6 +82,7 @@ answered and write the decision to `docs/adr/`.
 | Outside contributions | DCO (`git commit -s`), no CLA | [0018](adr/0018-contributions-dco.md) |
 | Finding a user's oauth2-proxy session for the kill switch | The backend keeps a `sub → session` index in Redis | [0019](adr/0019-kill-switch-session-index.md) |
 | Frontend packaging | Static files copied into the nginx image at build; no frontend container | [0020](adr/0020-frontend-in-nginx-image.md) |
+| How a protected application learns who the user is | Trusted `X-Auth-*` headers; isolating the upstream becomes a requirement, not a deployment default | [0021](adr/0021-application-identity-trusted-headers.md) |
 | AD group strategy | `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` | `docs/03`, `docs/07` |
 
 ### 🔴 Needs an answer about the target environment
@@ -133,50 +134,20 @@ network and policy. Phase 1 exists partly to establish them.
 
 ### 🔴 Security, still open
 
-- [ ] **How does a protected application learn who the user is?** The portal
-      lists an application and the click reaches it without a second OpenBerat
-      login — that part is built. Whether the *application* then asks for a
-      password is undecided, and it is the difference between a product and a
-      link collection. Two mechanisms, and neither is free:
-      **(1) trusted headers.** The application is configured to believe
-      `X-Auth-Username` / `-Email` / `-Groups`, which `protected.inc` already
-      writes and already strips from the request side. No code, no per-application
-      registration. It does hand the comma problem to a second consumer: the
-      groups header is comma-joined, so an application deriving its own roles
-      from it inherits the `Payroll,OpenBerat-Admins` attack, and the
-      `(cn=OpenBerat-*)` filter measured in `docs/07` stops being a mitigation
-      for `ADMIN_GROUP` alone. Its entire security rests on "only nginx can reach that
-      port" — a network assumption, and one that a single wrong compose line
-      breaks in silence. It is the question below, with the stakes raised: under
-      (1) a bypass is not information disclosure, it is impersonation.
-      **(2) the application runs its own OIDC against Keycloak.** The click
-      redirects, Keycloak already holds the user's SSO session, the user types
-      nothing. No header to forge. But it mints a **second session, with its own
-      lifetime, that nothing of ours controls** — and on a shared browser that
-      is an identity confusion bug: user A logs out, user B logs in and is
-      authorised by us as B, while the application still holds A's cookie and
-      serves them as A. The audit record then names B for A's actions. The fix
-      is OIDC back-channel logout, which is a **third** thing the application
-      must support, on top of (2) itself.
-      (2) also adds a registration the design does not have: every such
-      application needs its own Keycloak client, so an application exists in two
-      places — the `application` table ([ADR-0011](adr/0011-nginx-config-generation.md))
-      and Keycloak — with nothing keeping them in step. Whichever is chosen, the
-      answer belongs in `INSTALL.md` and in the Phase 6 integration item, because
-      an operator cannot guess it.
-- [ ] **Can upstream applications be reached bypassing nginx?** Three answers:
-      (a) network isolation (the v1 default: upstreams on `edge` with nginx
-      alone, the decision chain on `core` — `docs/02`, "Deployment"), (b) mTLS,
-      (c) a **short-lived
-      signed identity JWT** to the upstream plus a JWKS endpoint. (c) is the one
-      that stands up to an audit, and it is a small piece of work.
-      [ADR-0015](adr/0015-single-parent-domain.md) raised its priority: with a
-      shared session cookie, a compromised protected application is a realistic
-      path to the rest of the system. **And the question above raises it
-      again:** if applications are integrated by trusting `X-Auth-*`, then (a)
-      is the only thing standing between a reachable upstream port and
-      impersonating any user, so (a) stops being a deployment default and
-      becomes a security control that has to be tested.
+- [ ] **Can upstream applications be reached bypassing nginx?** No longer three
+      answers to choose between. [ADR-0021](adr/0021-application-identity-trusted-headers.md)
+      makes (a) **network isolation** — upstreams reachable only from the PEP —
+      a requirement of the product, because an application that learns the user
+      from `X-Auth-*` is impersonable by anyone who can reach its port:
+      measured, a forged header with no cookie authenticated as an admin from an
+      unrelated host on the LAN (`docs/07`). What stays open is what to add on
+      top for the case isolation cannot cover, where the same ADR's reversal
+      trigger points: (b) mTLS, or (c) a **short-lived signed identity JWT** to
+      the upstream plus a JWKS endpoint. (c) is the one that stands up to an
+      audit, and it is a small piece of work.
+      [ADR-0015](adr/0015-single-parent-domain.md) is why it may not wait: with
+      a shared session cookie, a compromised protected application is a
+      realistic path to the rest of the system.
 - [ ] **Should `worker_shutdown_timeout` be set, and to what?** Measured
       (`docs/07`): it is the only lever short of restarting nginx that reaches a
       WebSocket already up, and without it ADR-0011's reload-per-application-change

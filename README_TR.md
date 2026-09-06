@@ -114,10 +114,13 @@ nginx dışındaki hiçbir konteyner port yayımlamaz; iç taraf da **iki ağa**
 bölünür: korunan uygulamalar yalnızca nginx'le birlikte `edge` ağında; backend,
 oauth2-proxy, Keycloak, Postgres ve Redis ise `core` ağında durur — ele geçirilen
 bir uygulama karar zincirine veya oturum deposuna doğrudan erişemez. Bu
-izolasyon, "upstream'e proxy'yi atlayarak erişilebilir mi?"
-sorusunun v1 cevabıdır — soru
-[docs/06-requirements.md](docs/06-requirements.md)'de hâlâ açık, orada imzalı
-kimlik JWT'si daha güçlü cevap olarak duruyor.
+izolasyon bir dağıtım tercihi değil: bu proxy'nin arkasındaki uygulama
+kullanıcının kim olduğunu `X-Auth-*` başlıklarından öğrenir
+([ADR-0021](docs/adr/0021-application-identity-trusted-headers.md)), dolayısıyla
+erişilebilir bir upstream portu bilgi sızması değil kimliğe bürünmedir —
+ölçüldü, `docs/07`. Böyle bir portu yayımlamak, ürünü tek başına geçersiz kılan
+yapılandırma hatasıdır. İmzalı kimlik JWT'si daha güçlü cevaptır ve
+[docs/06-requirements.md](docs/06-requirements.md)'de hâlâ açıktır.
 
 İki host bilerek **anonim**, ikisi de olmak zorunda: `/oauth2/*` ve Keycloak'ın
 login ekranı. Birini `auth_request` arkasına koyarsan, kimlik doğrulamak için
@@ -152,7 +155,7 @@ kimlik Keycloak'ta — üçü de hazır, yapılandırma işi.
 | [docs/05-authz-model.md](docs/05-authz-model.md) | Yetkilendirme modeli ve karar kuralları |
 | [docs/06-requirements.md](docs/06-requirements.md) | Gereksinimler ve **açık sorular** |
 | [docs/07-references.md](docs/07-references.md) | **Kaynaklar** — teknik iddiaların dayanağı, doğrulanmış varsayılanlar |
-| [docs/adr/](docs/adr/) | **Alınan kararlar** — 20 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri |
+| [docs/adr/](docs/adr/) | **Alınan kararlar** — 21 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği |
 | [SECURITY.md](SECURITY.md) | Güvenlik açığı bildirimi — kanallar, cevap süreleri, kapsam, kabul edilmiş sınırlar |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Nasıl katkı verilir — DCO imzası, konvansiyonlar, neler reddedilir |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |

@@ -115,10 +115,13 @@ Every container except nginx publishes nothing, and the internal side is split
 into **two networks**: protected applications sit on `edge` with nginx alone,
 while the backend, oauth2-proxy, Keycloak, Postgres and Redis sit on `core` — so
 a compromised application cannot reach the decision chain or the session store
-directly. That isolation is v1's answer to "can an upstream be reached bypassing
-the proxy?" — the question is still open in
-[docs/06-requirements.md](docs/06-requirements.md), where a signed identity JWT
-is the stronger answer.
+directly. That isolation is not a deployment preference: an application behind
+this proxy learns who the user is from the `X-Auth-*` headers
+([ADR-0021](docs/adr/0021-application-identity-trusted-headers.md)), so a
+reachable upstream port is not information disclosure but impersonation —
+measured, `docs/07`. Publishing one is the single configuration mistake that
+undoes the product. A signed identity JWT is the stronger answer and is still
+open in [docs/06-requirements.md](docs/06-requirements.md).
 
 Two hosts are deliberately **anonymous**, and both have to be: `/oauth2/*` and
 Keycloak's login UI. Put either behind `auth_request` and you would have to be
@@ -153,7 +156,7 @@ identity is Keycloak — all three are off the shelf and configured, not written
 | [docs/05-authz-model.md](docs/05-authz-model.md) | The authorisation model and decision rules |
 | [docs/06-requirements.md](docs/06-requirements.md) | Requirements and **open questions** |
 | [docs/07-references.md](docs/07-references.md) | **Sources** — the basis for the technical claims, verified defaults |
-| [docs/adr/](docs/adr/) | **Decisions taken** — 20 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets |
+| [docs/adr/](docs/adr/) | **Decisions taken** — 21 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability — channels, response times, scope, accepted limitations |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — DCO sign-off, conventions, what gets rejected |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |

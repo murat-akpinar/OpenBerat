@@ -58,3 +58,8 @@ a single bad record in the admin UI into an internal-network redirect hole.
 - Open connections survive a reload (nginx behaviour), but frequent reloads pile
   up workers; reloads are debounced.
 - This is Phase 4's subject. Until Phase 3, config is written by hand.
+- **An application stays one row.**
+  [ADR-0021](0021-application-identity-trusted-headers.md) chose the identity
+  mechanism that needs no second registration precisely to keep this true: the
+  alternative gives every application a Keycloak client as well, and two records
+  with nothing keeping them in step.

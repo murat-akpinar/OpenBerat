@@ -225,6 +225,13 @@ X-Auth-Groups      : comma-separated group list
 X-Auth-Request-Id  : for correlating with the audit log
 ```
 
+That upstream set is not decoration: it is how a protected application learns
+who the user is, and under [ADR-0021](adr/0021-application-identity-trusted-headers.md)
+it is the *only* way it does. Two properties of `X-Auth-Groups` follow the list
+downstream — it is comma-joined, so the application splits the same string the
+backend does (ADR-0008), and it carries Keycloak's realm and client roles as
+`role:` entries alongside the AD groups (measured, `docs/07`).
+
 The upstream set is rewritten by nginx from `/decide`'s **response headers** on
 a 200 (`auth_request_set` → `proxy_set_header`; the response contract in
 `docs/02` lists them) — `auth_request` passes no body, so headers are the only
