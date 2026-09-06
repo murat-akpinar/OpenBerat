@@ -869,6 +869,23 @@ So the portal's data does not have to be filled in by hand with SQL.
       Rendered in Firefox against a stubbed API in all three states — the
       injected name is drawn as text, and clipping the icon box was needed
       because nothing validates the `icon` column.*
+      *Given its visual language afterwards, before the login theme so that
+      theme has something to inherit: tokens at the top of `portal.css`, a
+      paper/ink/gold palette taken from what a **berat** is, one `logo.svg`
+      serving as both header mark and favicon, and a gradient rule repeated on
+      all three pages so they read as one product. `--gold` never carries text
+      — `--gold-ink` does, which is what holds the palette at AA. Red is the
+      denied page alone; the outage page's block is gold, because a user who
+      meets the same red rule on both cannot tell "policy said no" from "the
+      decision path is down". Each card gained the application's hostname,
+      derived in the browser, since two applications can share a name.
+      One nginx change came with it: `portal.css` and `logo.svg` are served
+      without `auth_request` (`docs/02`, fourth anonymous entry). The outage
+      page comes from `location /`'s `error_page`, so a stylesheet fetched
+      through that location hit the same failing subrequest the page reports
+      and came back as the outage page — bare, in exactly the outage it exists
+      to explain. Verified with the container running and no oauth2-proxy at
+      all: both files 200 while `/` and `/denied` 500 into the styled page.*
 - [x] The "no access" page — where `error_page 403` lands
       *The route was already wired and tested in Phase 3; what landed on it was
       a placeholder that said the real page "arrives in Phase 5". Now it names

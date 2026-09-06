@@ -3,15 +3,25 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OpenBerat</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/portal.css">
 <body>
-<header>
-  <h1>OpenBerat</h1>
-  <p id="whoami"></p>
+<header class="site-header">
+  <div class="bar">
+    <!-- No "Sign out" and no "Admin" beside the identity, though /api/me
+         already answers `admin`: the admin screens do not exist and
+         POST /api/logout is still open (TODO Phase 5). The space is reserved;
+         a link to neither is a dead link. -->
+    <a class="brand" href="/">
+      <img class="mark" src="/logo.svg" alt="" width="32" height="32">
+      <span class="wordmark">Open<span class="wordmark-accent">Berat</span></span>
+    </a>
+    <p class="identity" id="whoami"></p>
+  </div>
 </header>
 <main>
-  <h2>Your applications</h2>
-  <p id="notice" role="status" hidden></p>
+  <h1>Your applications</h1>
+  <p id="notice" class="prose notice" role="status" hidden></p>
   <div id="apps"></div>
 </main>
 <script src="/portal.js"></script>

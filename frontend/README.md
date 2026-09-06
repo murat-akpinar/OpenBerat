@@ -12,6 +12,28 @@ The portal and admin UI. Served statically by nginx, taking its data from the
 | Admin · Applications | Defining applications (name, icon, target address) |
 | Admin · Entitlements | AD group ↔ application mapping (allow / deny) |
 | Admin · Audit | Viewing and filtering the audit log |
+| Unavailable | Served from `error_page` when the decision path does not answer |
+
+**Design.** A *berat* is a sealed warrant granting a right, which is what this
+product issues on every request — so the ground is paper, the text is ink and
+the accent is gold leaf, rather than the cool grays every other identity
+product already wears. The tokens live at the top of `portal.css` and are the
+only place a colour is written. `--gold` is **decorative and never carries
+text**; where an accent has to be read, `--gold-ink` does it. That split is the
+only reason the palette holds WCAG AA, so it is a rule and not a preference.
+
+The mark is one file, `logo.svg`, used as the header image and as the favicon,
+in a single colour so it survives both grounds without a media query inside it.
+The wordmark is CSS — `letter-spacing`, not typed spaces, so a screen reader
+still says "OpenBerat". The gradient rule under the header is the signature: the
+same three pixels on all three pages, which is what makes them read as one
+product rather than three files.
+
+`portal.css` and `logo.svg` are served **without `auth_request`**
+(`10-portal.conf`, `docs/02` "Anonymous endpoints"). The outage page comes from
+`location /`'s `error_page`, so a stylesheet fetched through that location
+would hit the same failing subrequest the page is reporting and come back as
+the outage page itself — bare, in exactly the outage it exists to explain.
 
 **Technology (ADR-0007):** HTML + CSS + Alpine.js — one vendored file, no build
 step, no npm, no CDN. The portal (`index.html`, `portal.js`, `portal.css`) uses

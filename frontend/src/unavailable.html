@@ -3,9 +3,27 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OpenBerat — unavailable</title>
-<h1>This application is temporarily unavailable</h1>
-<p>The access control service did not answer, so the request was refused rather
-than let through. Nothing is wrong with the application itself.</p>
-<p>If this does not clear on its own, whoever runs OpenBerat should look at
-<code>/readyz</code> first.</p>
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<!-- This stylesheet and the mark are the reason 10-portal.conf serves them
+     without auth_request: fetched through `location /` they would hit the same
+     failing subrequest this page is reporting, and come back as this page. -->
+<link rel="stylesheet" href="/portal.css">
+<body>
+<header class="site-header">
+  <div class="bar">
+    <a class="brand" href="/">
+      <img class="mark" src="/logo.svg" alt="" width="32" height="32">
+      <span class="wordmark">Open<span class="wordmark-accent">Berat</span></span>
+    </a>
+  </div>
+</header>
+<main>
+  <h1>This application is temporarily unavailable</h1>
+  <p class="prose notice">The access control service did not answer, so the request
+  was refused rather than let through. Nothing is wrong with the application
+  itself.</p>
+  <p class="prose">If this does not clear on its own, whoever runs OpenBerat should
+  look at <code>/readyz</code> first.</p>
+</main>
+</body>
 </html>

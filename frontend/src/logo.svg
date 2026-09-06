@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32"
+     fill="none" stroke="#c8973a" stroke-width="2.4"
+     stroke-linecap="round" stroke-linejoin="round">
+  <!-- A berat is a sealed warrant granting a right: the frame is the seal, its
+       open edge is the gate, and the arrow is the grant leaving through it.
+       One colour rather than two — a gold frame with an ink arrow loses the
+       arrow on a dark ground, and fixing that needs a prefers-color-scheme
+       block inside this file. Add one if the mark ever reads weak. -->
+  <path d="M27 10A5 5 0 0 0 22 5H10A5 5 0 0 0 5 10v12a5 5 0 0 0 5 5h12a5 5 0 0 0 5-5"/>
+  <path d="M11 16h15"/>
+  <path d="M21.5 11.5 26 16l-4.5 4.5"/>
+</svg>

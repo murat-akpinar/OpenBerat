@@ -3,19 +3,25 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OpenBerat — no access</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/portal.css">
 <body>
-<header>
-  <h1>OpenBerat</h1>
+<header class="site-header">
+  <div class="bar">
+    <a class="brand" href="/">
+      <img class="mark" src="/logo.svg" alt="" width="32" height="32">
+      <span class="wordmark">Open<span class="wordmark-accent">Berat</span></span>
+    </a>
+  </div>
 </header>
 <main>
-  <h2>No access</h2>
+  <h1>No access</h1>
   <!-- Names the application once denied.js has read it out of the query; the
        sentence has to stand on its own until then, and if the query carries
        nothing usable it stays this way. -->
-  <p id="headline">You are signed in, but your groups do not grant access to this
-  application.</p>
-  <p id="status">Ask whoever administers access to add you to the right AD group.
+  <p id="headline" class="refusal">You are signed in, but your groups do not grant
+  access to this application.</p>
+  <p class="prose">Ask whoever administers access to add you to the right AD group.
   Which rule refused the request is not shown here — the administrator can look
   it up.</p>
   <p><a href="/">See the applications you can reach</a></p>

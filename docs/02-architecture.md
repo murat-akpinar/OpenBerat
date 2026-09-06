@@ -207,7 +207,7 @@ If any of them is missing the decision cannot be made → **DENY**
 
 ### Anonymous endpoints
 
-There are **no anonymously reachable endpoints** — with three mandatory
+There are **no anonymously reachable endpoints** — with four mandatory
 exceptions. The first two are the same trap in two places: a login flow cannot
 sit behind the login flow.
 
@@ -233,6 +233,16 @@ sit behind the login flow.
   portal never hits `/decide`, so they never enter the ADR-0019 kill-switch
   index — their revocation path is Keycloak `logout-all` plus `cookie_refresh`
   (TODO Phase 5 measures this).
+- **The portal's stylesheet and mark (`/portal.css`, `/logo.svg`) are
+  anonymous.** The outage page is served from `location /`'s `error_page`, so a
+  stylesheet fetched through that same location hits the failing subrequest the
+  page is reporting: the browser gets the outage page back where the CSS should
+  be, and the page renders bare in exactly the outage it exists to explain. An
+  inline `<style>` is not the alternative — the CSP refuses it for the reason it
+  refuses inline `<script>`. Neither file carries identity nor a secret, so the
+  session bought nothing. Two files by name, not a directory: the list is short
+  enough to read, and a prefix would quietly enrol whatever is dropped beside
+  them later.
 
 The portal being open does **not** open the admin endpoints: `/api/admin/*`
 separately requires `ADMIN_GROUP` membership and is not cached (see "Management

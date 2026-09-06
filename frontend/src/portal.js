@@ -29,9 +29,23 @@ function button(app) {
   const icon = document.createElement('span');
   icon.className = 'icon';
   icon.textContent = app.icon || app.name.slice(0, 1).toUpperCase();
+  const text = document.createElement('span');
+  text.className = 'app-text';
   const name = document.createElement('span');
+  name.className = 'app-name';
   name.textContent = app.name;
-  link.append(icon, name);
+  const host = document.createElement('span');
+  host.className = 'app-host';
+  // Two applications can carry the same name and only the hostname tells them
+  // apart. `url` is built from a validated `external_hostname`, but a throw
+  // here would take the whole list down and draw as an outage, which it is not.
+  try {
+    host.textContent = new URL(app.url).host;
+  } catch (e) {
+    host.hidden = true;
+  }
+  text.append(name, host);
+  link.append(icon, text);
   return link;
 }
 
