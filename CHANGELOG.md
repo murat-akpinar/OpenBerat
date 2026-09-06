@@ -74,6 +74,7 @@
 ### 🧪 Testing
 
 - *(api)* Measure the backend's own limit on the group header ([74618f5](https://github.com/murat-akpinar/OpenBerat/commit/74618f541a8c06584f04508f938e9cb86b897a6e)) — nginx's half of this is measured — the group list travels comma-joined in one header, and a 4 KB buffer breaks between 100 and 200 groups. The backend reads the same header off oauth2-proxy's response with a different HTTP client, so its number is different and nobody had asked for it.
+- *(nginx)* The idle websocket the timeout does cut, and what it does not buy ([9a88f11](https://github.com/murat-akpinar/OpenBerat/commit/9a88f115110d04763d266186df8b169586c6a9e4)) — ADR-0016 keeps `proxy_read_timeout 300s` because "it cuts idle connections, which is worth having"; only the half it does not cut had ever been run. Both halves now run at once, on one generated vhost with one timeout and one cookie, so the contrast is the result rather than two runs compared across two configurations: the silent connection died at t+300.002 s and the talking one was still trading frames at t+420 s. Through the committed configuration this time, since the vhost comes from the `application` table and its location includes `protected.inc`.
 
 ### ⚙️ Miscellaneous Tasks
 
