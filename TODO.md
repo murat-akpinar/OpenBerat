@@ -177,7 +177,23 @@ Verify the architecture actually works before writing code.
       traps cost a wrong first answer, both in `docs/07`: `kcadm --fields
       config` omits this filter, and `kcadm update -f` merges rather than
       replaces, so removing a key from the file removes nothing*
-- [ ] Group mapper `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` → `groups` claim in the token
+- [x] Group mapper `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` → `groups` claim in the token
+      *It does, read out of the token itself rather than out of
+      `X-Auth-Request-Groups` — every earlier group observation on this stack
+      was oauth2-proxy's rendering of the claim, not the claim. The harness
+      drives the authorization-code flow itself and stops at the callback so the
+      code is unspent, then exchanges it with its own PKCE verifier. Flat names
+      in both tokens, and live within one login: a group created in AD and a
+      membership added were in the next token with no sync and no restart,
+      removing the membership took it back out. **The claim is a union, not a
+      projection of `memberOf`** — the imported group survives its deletion in
+      AD, and re-assigning it inside Keycloak put the name back in the token
+      with nothing in AD behind it. Neither `READ_ONLY` nor the
+      `(cn=OpenBerat-*)` filter reaches that path, and `ADMIN_GROUP` is matched
+      on this claim, so reading AD does not tell you who holds admin.
+      `docs/02` and `docs/03` are corrected and the reconciliation question is
+      new in `docs/06`. Harness `verify-groupclaim.sh` on the lab host; both
+      sides restored*
 - [ ] **Nested group test:** does a user in a parent group see the child group?
 - [ ] **VERIFY:** does the LDAP group filter `(cn=OpenBerat-*)` exclude a group
       whose `cn` contains a comma? A group named `Payroll,OpenBerat-Admins`

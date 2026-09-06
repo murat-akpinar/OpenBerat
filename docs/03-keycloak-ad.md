@@ -18,7 +18,7 @@ Keycloak Admin → Realm → **User Federation → Add LDAP provider**
 | RDN LDAP attribute | `cn` |
 | UUID LDAP attribute | `objectGUID` — immutable in AD, so identity survives a username change |
 | User Object Classes | `person, organizationalPerson, user` |
-| **Edit Mode** | **READ_ONLY** — AD is the single source of truth; Keycloak does not write |
+| **Edit Mode** | **READ_ONLY** — Keycloak does not write *to AD*. It does not follow that AD is the only source of the group claim: measured (`docs/07`), a group assigned locally in Keycloak reaches the token with no `memberOf` behind it. |
 | Import Users | ON (local cache) |
 | Sync Registrations | OFF |
 | Trust Email | ON (mail coming from AD is treated as verified) |
@@ -111,6 +111,16 @@ Client → **Client scopes → dedicated scope → Add mapper → `Group Members
 | Token Claim Name | `groups` |
 | Full group path | **OFF** (`IT-Admin` rather than `/IT-Admin`) — fix this and do not change it |
 | Add to ID token / access token | ON |
+
+Measured in Phase 1 (`docs/07`): with `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE`
+the claim follows AD within a single login — a membership added in AD is in the
+next token, one removed is gone from it, with no sync and no restart.
+
+**But the claim is a union, not a projection of `memberOf`.** A group assigned
+to the user *inside* Keycloak lands in it too, with nothing in AD to support it,
+and neither `READ_ONLY` nor the `(cn=OpenBerat-*)` filter reaches that path.
+Since `ADMIN_GROUP` is matched on this claim by name, reading AD does not tell
+you who holds admin here — see the open question in `docs/06`.
 
 **Careful — token bloat is a real and documented problem.** The ID token of a
 user in many groups grows; if the oauth2-proxy session is kept in a cookie it

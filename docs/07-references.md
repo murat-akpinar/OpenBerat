@@ -890,6 +890,58 @@ back from the full `get components/<id>`, or from the LDAP configuration
 Keycloak prints itself when it rebuilds the store. Harness: `verify-uac.sh`
 and its log on the lab host.
 
+### The `groups` claim, and what else can put a name in it
+
+Every earlier group observation on this stack read `X-Auth-Request-Groups` —
+oauth2-proxy's rendering of the claim, not the claim. This one drives the
+authorization-code flow itself and stops at the callback, so the code is still
+unspent, then exchanges it at the token endpoint with its own PKCE verifier and
+decodes what Keycloak signed.
+
+**`GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` delivers, and it is live.** Both the
+ID token and the access token carry `groups`, as flat names (`full.path` off),
+which is what ADR-0008 matches on. A group created in AD and a membership added
+to it reached the **next login's token** with no sync run, no Keycloak restart
+and no cache to wait out — `fullSyncPeriod: -1`, so nothing had synced, and
+`cachePolicy: NO_CACHE`, without which the section above shows it would not have.
+Removing the membership in AD took the name back out of the next token.
+
+| AD state for `labuser` | `groups` in the token |
+|---|---|
+| baseline | `["OpenBerat-Finance"]` |
+| `OpenBerat-Claimtest` created, member added | `["OpenBerat-Claimtest","OpenBerat-Finance"]` |
+| member removed | `["OpenBerat-Finance"]` |
+| group deleted in AD | `["OpenBerat-Finance"]` |
+| **group re-assigned in Keycloak, absent from AD entirely** | `["OpenBerat-Finance","OpenBerat-Claimtest"]` |
+
+**The last row is the finding: the claim is a union, not a projection of
+`memberOf`.** The imported group object survives its deletion in AD — nothing
+syncs, and `drop.non.existing.groups.during.sync` is `false` — and assigning the
+user to that orphan *in Keycloak* put the name back in the token with no
+`memberOf` entry anywhere in AD to support it. `editMode: READ_ONLY` and the
+mapper's own `mode: READ_ONLY` govern writes **towards LDAP**; neither prevents a
+local group membership inside Keycloak. Nor does the LDAP filter
+`(cn=OpenBerat-*)`, which selects which AD groups are imported and constrains
+nothing on this path.
+
+It is not an escalation — whoever can assign a group in Keycloak can equally
+sign a token containing any group at all — but it bounds what "AD is the single
+source of truth" can be read to promise, and `docs/02` and `docs/03` are
+corrected. `ADMIN_GROUP` is matched on this claim by name, so **reading AD does
+not tell you who holds OpenBerat admin**; the reconciliation question that
+raises is in `docs/06`. It also explains why the comma escalation two sections
+up reproduced against a hand-made *Keycloak* group: that path never needed AD.
+
+Incidental, and not the answer to its own box: `labuser`'s `memberOf` carried
+`CN=Payroll\,OpenBerat-Admins` throughout and the claim never did. That agrees
+with what the filter is supposed to do, but the control case — the same login
+with the filter genuinely removed — has not been run, and the box stays open.
+
+Harness: `verify-groupclaim.sh` + `claims.py` on the lab host. It only reads;
+the AD and Keycloak mutations in the table were made by hand and reverted, and
+both sides are back on `samba-ad/fixture.sh` state.
+
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is

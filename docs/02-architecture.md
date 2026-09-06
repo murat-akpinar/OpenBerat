@@ -23,7 +23,7 @@ Sources for the technical claims: [`docs/07-references.md`](07-references.md).
 
 | Component | Role | Do we write it? |
 |---|---|---|
-| **Active Directory** | Single source of truth for identity and `memberOf` membership | Exists |
+| **Active Directory** | Source of truth for identity and `memberOf` membership — though not the only source of the group claim Keycloak issues (`docs/07`) | Exists |
 | **Keycloak** | IdP. LDAP federation to AD, OIDC, MFA | Configured |
 | **nginx** | PEP. TLS, carries traffic, `auth_request`, serves static files | Configured |
 | **oauth2-proxy** | Authentication: the OIDC dance, session (Redis) | Configured |

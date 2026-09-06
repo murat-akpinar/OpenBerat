@@ -147,6 +147,17 @@ network and policy. Phase 1 exists partly to establish them.
       survive and how abruptly a normal config change cuts requests in flight.
       An ADR, not a config tweak, because it changes what
       [ADR-0016](adr/0016-n03-revocation-targets.md) excludes.
+- [ ] **Nothing reconciles the group claim against AD.** F-03 and F-12 both
+      derive authorisation from AD group membership, but measured (`docs/07`)
+      the `groups` claim is AD's `memberOf` **union** whatever groups Keycloak
+      holds locally — including a group AD no longer has. So an operator
+      auditing "who holds `ADMIN_GROUP`" by reading AD gets an answer that can
+      be wrong, and F-14 does not cover it: the grant happens in Keycloak, not
+      through `/api/admin/*`. Either the product reconciles the two (a periodic
+      check, or refusing a claim entry with no AD group behind it) or it says
+      plainly that Keycloak's group tree is part of the trusted base. The
+      second is cheaper and probably right — but it has to be written down,
+      because `docs/02` and `docs/03` used to imply the first.
 - [ ] **How does an operator get into the machine when the identity chain is
       down?** [ADR-0017](adr/0017-fail-closed-availability.md) requires that host
       access does not depend on this product; the concrete mechanism (out-of-band
