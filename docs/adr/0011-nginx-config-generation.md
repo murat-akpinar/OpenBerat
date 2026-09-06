@@ -57,6 +57,12 @@ a single bad record in the admin UI into an internal-network redirect hole.
   the installation documentation.
 - Open connections survive a reload (nginx behaviour), but frequent reloads pile
   up workers; reloads are debounced.
+- **The file is rendered at every backend start, not only when a row changes.**
+  It is a pure function of the table, so nothing is lost by writing it again —
+  and it is what makes the shared volume derived state rather than state:
+  restoring the database restores the applications, and a backup never contains
+  a generated file that could be older than the rows it came from
+  (`INSTALL.md` §9).
 - This is Phase 4's subject. Until Phase 3, config is written by hand.
 - **An application stays one row.**
   [ADR-0021](0021-application-identity-trusted-headers.md) chose the identity

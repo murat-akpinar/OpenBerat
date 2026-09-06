@@ -419,8 +419,104 @@ be published over a long-lived connection behind this proxy. Nothing in the
 configuration changes this — it is what "authorise the request" means when there
 is only ever one request.
 
+## 9. Backup and restore
+
+Three things on this host cannot be re-derived, and only one of them is in a
+volume:
+
+| What | Where | Why it cannot be rebuilt |
+|---|---|---|
+| `application`, `entitlement`, `audit_event` | the `pg_data` volume | who may reach what, and the record of who did |
+| the wildcard certificate | `certs/` | §1 — and its expiry takes every application down at once |
+| the secrets | `.env` | §3 — the cookie secret, the two client secrets, the AD bind password |
+
+Everything else comes back by itself, and backing it up would only preserve
+drift. The generated nginx blocks are a pure function of the `application`
+table and are rendered again at **every backend start**, not only when an admin
+changes a row ([ADR-0011](docs/adr/0011-nginx-config-generation.md)), so the
+volume nginx shares is never in a backup. Redis holds sessions and the kill
+switch's index — losing it signs everyone in again and nothing else. Keycloak's
+realm is imported from `keycloak/realm/`, which is in the repository, and the
+users are in AD, not in Keycloak.
+
+So the backup is one command, plus the two files:
+
+```sh
+docker compose exec -T postgres pg_dump -U openberat openberat \
+  > openberat-$(date +%F).sql
+```
+
+`certs/` and `.env` are secrets and belong wherever this installation already
+keeps secrets — not beside the dump, which is configuration and audit only.
+
+### Restoring
+
+```sh
+docker compose stop backend
+docker compose exec -T postgres psql -U openberat -d openberat \
+  -c 'drop schema public cascade' -c 'create schema public'
+docker compose exec -T postgres psql -U openberat -d openberat -v ON_ERROR_STOP=1 \
+  < openberat-2026-09-07.sql
+docker compose start backend
+```
+
+The backend is stopped first because it writes audit rows and applies
+migrations: restoring underneath it means restoring into a schema in use.
+
+**The middle command is not optional, and `pg_dump --clean` will not replace
+it.** `audit_event` is partitioned, its default partition inherits the primary
+key, and a `--clean` dump tries to drop that constraint on its own — measured,
+over a database that already has the schema the restore stops at `cannot drop
+inherited constraint "audit_event_default_pkey"` before loading a row. Emptying the schema first is
+what makes one procedure work on a database in use and on an empty one alike.
+`ON_ERROR_STOP=1` is not decoration either: it is what turned that failure into
+a restore that stopped rather than a half-loaded one.
+
+On a host that has nothing left the same commands work, with
+`docker compose up -d postgres` in front of them and `docker compose up -d`
+after.
+Nothing else is done by hand — the migrations are in the dump
+(`_sqlx_migrations` is an ordinary table), and the backend republishes the
+nginx blocks as it starts, so the applications come back without an admin
+touching a row.
+
+Rehearsed on the lab, both ways (`docs/07`): the dump is 0.3 s and 32 KB, an
+in-place restore 1.0 s including stopping and starting the backend, and a
+restore onto deleted volumes had the application answering **200 again 59 s
+after it began** — of which the restore itself is 3 s and the rest is Keycloak
+importing its realm.
+
+### Rolling a version back
+
+There is no migration rollback. `backend/migrations/` is applied forward only;
+there are no down scripts, and the older binary will not run against the newer
+schema — measured, it stops with `migration 2 was previously applied but is
+missing in the resolved migrations` rather than serving decisions against a
+table it does not know. That refusal is fail-closed doing its job, and it
+means:
+
+> **Rolling back a version is restoring the dump taken before the upgrade and
+> running the previous image.** Which makes that dump the first step of every
+> upgrade, not the last.
+
+What it costs is everything written since: entitlement changes an admin can
+redo, and audit rows nobody can. Keep them before you overwrite them —
+
+```sh
+docker compose exec -T postgres pg_dump -U openberat -a -t 'audit_event*' \
+  openberat > audit-before-rollback.sql
+```
+
+The `*` is load-bearing: `audit_event` is partitioned, the rows are in
+`audit_event_default`, and `-t audit_event` dumps the parent — measured, a
+file with **none** of the rows in it and no warning that it was empty. Keep in
+mind, too, that they may not load into the older schema. The audit record is
+immutable by rule (`CONTRIBUTING.md`), so a column the newer version added is a
+column the older one cannot take. That file is evidence; it is not always a
+restore.
+
 > Phase 1 and the phases after it are done and this file follows them: the
 > certificate, the realm import, the AD federation, the first login, adding an
 > application and integrating one are all written above and were replayed on a
-> clean checkout. What is still missing belongs to Phase 6 — TLS hardening,
-> backup and restore, and the release image (`TODO.md`).
+> clean checkout. What is still missing belongs to Phase 6 — the audit
+> retention job, monitoring and the release image (`TODO.md`).

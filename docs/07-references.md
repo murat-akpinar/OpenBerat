@@ -1657,6 +1657,71 @@ that reports success on a failed login would have put the wrong procedure into
 `INSTALL.md`; the failure only surfaced when the session it produced was asked
 to do something.
 
+### MEASURE — backup and restore, and the `--clean` that cannot restore in place
+
+The state worth backing up is one Postgres database; everything else on the host
+is either derived or in the repository (`INSTALL.md` §9). So the procedure is a
+`pg_dump` and a `psql`, and the only question was whether it actually brings a
+system back. Rehearsed three ways on the lab, against Jenkins as the protected
+application.
+
+| run | what was destroyed | restore | application answering again |
+|---|---|---|---|
+| in place, first attempt | nothing; the stack kept running | **failed** | — |
+| in place | nothing; the stack kept running | **1.0 s** including `stop`/`start backend` | immediately, 200 |
+| bare host | both containers **and** both volumes | 3.4 s, postgres started from an empty volume | **59 s**, 200 |
+
+The dump is 0.3 s and 32 KB for one application, one entitlement and 86 audit
+rows.
+
+**The failed run is the finding, and it is the run against a database that
+already had the schema.** The first procedure written down took the dump with
+`pg_dump --clean --if-exists`, on the reasoning that one command would then
+restore onto an empty database *and* over a live one. It does the first and not
+the second:
+
+```
+ERROR:  cannot drop inherited constraint "audit_event_default_pkey"
+        of relation "audit_event_default"
+```
+
+`audit_event` is partitioned by month and `audit_event_default` inherits its
+primary key (`0001_init.sql`), so the `DROP CONSTRAINT` a `--clean` dump emits
+is one Postgres refuses on a partition. It stops before loading a row —
+`ON_ERROR_STOP=1` is what makes that a stopped restore instead of a half-loaded
+database, which is the failure that would have been discovered a year later
+with a wrong answer to "who could reach what". The procedure now empties the
+schema itself (`drop schema public cascade`) and dumps without `--clean`, which
+is one command more and works on both a running database and an empty one.
+
+**The 59 s is not the restore.** The restore is 3.4 s of it; the rest is
+Keycloak importing its realm and oauth2-proxy retrying discovery until it
+answers (`INSTALL.md` §5). Nothing in that path is ours, and it is the same 25-60 s
+any `docker compose up` on this stack costs.
+
+**What made the restore complete without an admin.** Before this box the
+generated nginx blocks were written only by a mutation handler, so a database
+restored into an empty `apps_conf` volume gave every application a hostname
+nginx had never heard of. The backend now renders the file at startup as well
+(ADR-0011) — measured separately by deleting `apps.conf`, restarting nginx and
+watching the request fail at the TLS handshake with no `server` block to match
+it (`curl` exit 35), then restarting the backend: the file was back and the
+application answered 200 **2.9 s later, restart included**. It is the same
+2 s poll the reloader already ran (`nginx/docker-entrypoint.d/40-generated-reload.sh`).
+
+**Keeping the audit rows aside needs a `*`.** The rollback procedure dumps
+`audit_event` before overwriting it, and `pg_dump -a -t audit_event` produces a
+file with **none** of the rows in it: the table is partitioned, every row is in
+`audit_event_default`, and `-t` on the parent does not follow partitions. It
+exits 0 and says nothing. `-t 'audit_event*'` gets them all.
+
+**Rolling back is restoring, because the old binary will not start.** Asserted
+in `backend/tests/integration.rs` rather than assumed: with a version in
+`_sqlx_migrations` that the running build does not carry, `store::connect`
+returns `migration 2 was previously applied but is missing in the resolved
+migrations` and the process exits. There is no down migration to reach for —
+the way back to the previous version is the dump taken before the upgrade.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is

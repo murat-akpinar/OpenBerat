@@ -191,15 +191,26 @@ async fn publish(ctx: &Ctx) -> Result<(), String> {
     let Some(dir) = &ctx.nginx_conf_dir else {
         return Ok(());
     };
+    publish_conf(&ctx.pool, dir, &ctx.portal_origin).await
+}
+
+/// The same work without a `Ctx`, because startup calls it too: the file is a
+/// pure function of the table, so a database restored into an empty volume
+/// brings every application back with nobody editing a row (INSTALL.md §9).
+pub async fn publish_conf(
+    pool: &sqlx::PgPool,
+    dir: &str,
+    portal_origin: &str,
+) -> Result<(), String> {
     let applications: Vec<Application> = sqlx::query_as(
         "select id, slug, name, icon, upstream_url, external_hostname, enabled
            from application order by slug",
     )
-    .fetch_all(&ctx.pool)
+    .fetch_all(pool)
     .await
     .map_err(|e| format!("reading applications: {e}"))?;
 
-    let rendered = render_apps_conf(&applications, &ctx.portal_origin);
+    let rendered = render_apps_conf(&applications, portal_origin);
     // Written under a different name and renamed, so the reloader can never see
     // half a file: rename within a filesystem is atomic, a write is not.
     let staging = FsPath::new(dir).join("apps.conf.writing");

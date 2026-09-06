@@ -1,6 +1,7 @@
 // Entry point. Reads configuration from the environment, applies the schema and
 // serves /decide on the core network — see TODO.md.
 
+use openberat::admin;
 use openberat::api::{self, Ctx};
 use openberat::cache::Cache;
 use openberat::keycloak::Keycloak;
@@ -106,6 +107,19 @@ async fn main() {
         portal_origin: required("PORTAL_ORIGIN").trim_end_matches('/').to_string(),
         nginx_conf_dir: std::env::var("NGINX_CONF_DIR").ok(),
     });
+
+    // --- Feature Start ---
+    // The generated application blocks are rendered at startup and not only
+    // when a row changes: they are a pure function of the table (ADR-0011), and
+    // a database restored into an empty volume would otherwise leave every
+    // application 404 until an admin edited one (INSTALL.md §9). Not fatal —
+    // this writes a file for nginx, it does not decide anything.
+    // --- Feature End ---
+    if let Some(dir) = &ctx.nginx_conf_dir
+        && let Err(e) = admin::publish_conf(&ctx.pool, dir, &ctx.portal_origin).await
+    {
+        tracing::error!("generating nginx configuration at startup failed: {e}");
+    }
 
     let listener = match tokio::net::TcpListener::bind(LISTEN).await {
         Ok(listener) => listener,

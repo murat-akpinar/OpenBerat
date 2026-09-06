@@ -1167,7 +1167,24 @@ So the portal's data does not have to be filled in by hand with SQL.
       certificate is self-signed, which is where the run that "passed" turned
       out to have been a harness reporting success on a login that 500'd
       (`docs/07`, `INSTALL.md` §1).*
-- [ ] Backup/restore procedure, migration rollback
+- [x] Backup/restore procedure, migration rollback
+      *One database, one `pg_dump`, and `INSTALL.md` §9. Everything else on the
+      host is derived or in the repository, so it is deliberately **not** backed
+      up — which only became true in this box: the generated nginx blocks were
+      written by mutation handlers alone, so a restored database gave every
+      application a hostname nginx had never heard of. The backend now renders
+      them at startup too (ADR-0011), and the restore completes with nobody
+      touching a row.
+      **The first procedure written down did not work.** `pg_dump --clean` was
+      supposed to make one command restore both onto an empty database and over
+      a live one; it stops at `cannot drop inherited constraint
+      "audit_event_default_pkey"` — `audit_event` is partitioned and the default
+      partition inherits the key. Emptying the schema first is what covers both.
+      Measured: dump 0.3 s, in-place restore 1.0 s, and after deleting both
+      volumes the application answered 200 again **59 s** later, of which 3.4 s
+      is the restore and the rest is Keycloak importing its realm. Rolling a
+      version back is restoring that dump — the older binary refuses to start
+      against a schema migrated past it (`docs/07`).*
 - [ ] Audit retention job (N-04) and partition maintenance
 - [ ] Monitoring: decision latency, error rate, cache hit rate, audit loss counter
 - [ ] Versioning, release image, offline bundle for air-gapped installation.

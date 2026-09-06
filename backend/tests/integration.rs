@@ -86,6 +86,7 @@ async fn backend_against_postgres() {
     schema_section(&pool).await;
     store_section(&pool).await;
     decide_section(&pool).await;
+    publish_section(&pool).await;
     // Last: it leaves the migration table poisoned.
     startup_section(&pool).await;
 }
@@ -297,6 +298,31 @@ async fn startup_section(pool: &PgPool) {
         .await
         .expect_err("an unreachable database is an error");
 
+    // Rolling a version back means running the previous image against a
+    // database the newer one has already migrated (INSTALL.md §9). What the old
+    // binary does then is the whole question, so it is asserted and not assumed:
+    // a migration in the table that this build does not carry stops the process.
+    sqlx::query(
+        "insert into _sqlx_migrations
+           (version, description, installed_on, success, checksum, execution_time)
+         values (2, 'a migration this build does not have', now(), true, '\\x00', 0)",
+    )
+    .execute(&pool)
+    .await
+    .expect("pretend a newer version has been here");
+    let e = openberat::store::connect(&url)
+        .await
+        .expect_err("a schema migrated past this build stops the process")
+        .to_string();
+    assert!(
+        e.contains('2'),
+        "and it names the version it does not have: {e}"
+    );
+    sqlx::query("delete from _sqlx_migrations where version = 2")
+        .execute(&pool)
+        .await
+        .expect("undo it");
+
     // What an edited migration looks like on the second install. Left last: it
     // leaves the migration table poisoned.
     sqlx::query("update _sqlx_migrations set checksum = '\\x00' where version = 1")
@@ -306,6 +332,48 @@ async fn startup_section(pool: &PgPool) {
     openberat::store::connect(&url)
         .await
         .expect_err("a checksum mismatch stops the process");
+}
+
+/// The generated application blocks are a pure function of the `application`
+/// table (ADR-0011), and a restore is the case that proves it: the volume nginx
+/// shares came back empty, no admin has touched a row, and every application
+/// still has to be reachable (INSTALL.md §9).
+async fn publish_section(pool: &PgPool) {
+    let dir = std::env::temp_dir().join(format!("openberat-publish-{}", Uuid::new_v4()));
+    std::fs::create_dir(&dir).expect("staging directory");
+    let staged = dir.join("apps.conf.staged");
+    let dir = dir.to_str().expect("utf-8 path").to_string();
+    const PORTAL: &str = "https://portal.apps.example.local";
+
+    sqlx::query("delete from application")
+        .execute(pool)
+        .await
+        .expect("clear the table the earlier sections filled");
+    insert_app(pool, "wiki").await;
+    let crm = insert_app(pool, "crm").await;
+
+    openberat::admin::publish_conf(pool, &dir, PORTAL)
+        .await
+        .expect("a restored database publishes without an admin editing a row");
+    let rendered = std::fs::read_to_string(&staged).expect("staged file");
+    assert!(rendered.contains("server_name wiki.apps.example.local;"));
+    assert!(rendered.contains("server_name crm.apps.example.local;"));
+
+    // A whole file every time, not an append: an application the dump does not
+    // have must not come back from what the volume happened to keep.
+    sqlx::query("delete from application where id = $1")
+        .bind(crm)
+        .execute(pool)
+        .await
+        .expect("delete an application behind the API's back");
+    openberat::admin::publish_conf(pool, &dir, PORTAL)
+        .await
+        .expect("republish");
+    let rendered = std::fs::read_to_string(&staged).expect("staged file");
+    assert!(rendered.contains("wiki.apps.example.local"));
+    assert!(!rendered.contains("crm.apps.example.local"));
+
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// The entitlement query and the audit writer. Its own section rather than its
