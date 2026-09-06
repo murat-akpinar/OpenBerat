@@ -123,7 +123,7 @@ services:
       # Read by the realm export at import (keycloak/README.md): the public
       # repository carries placeholders, the real values arrive here.
       OPENBERAT_CLIENT_SECRET: ${OPENBERAT_CLIENT_SECRET}
-      LAB_USER_PASSWORD: ${LAB_USER_PASSWORD}
+      AD_BIND_PASSWORD: ${AD_BIND_PASSWORD}
     volumes:
       # Realm export lands here in Phase 1 (keycloak/README.md); an empty dir
       # is skipped by --import-realm, so first boot works either way.

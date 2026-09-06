@@ -12,7 +12,7 @@ cannot be rebuilt.
 
 **No real secrets in the export.** The repository is public: a re-export is
 scrubbed before committing — the OIDC client secret is a `${OPENBERAT_CLIENT_SECRET}`
-placeholder and the LDAP bind password is not in the file. Real values arrive
+placeholder and the LDAP bind password an `${AD_BIND_PASSWORD}` one. Real values arrive
 through `.env` at deploy and the import resolves them from Keycloak's own
 environment; **the syntax is plain `${VAR}`** — `$(env:VAR)` and `${env.VAR}`
 are stored verbatim, which silently produces a client whose secret is the
@@ -28,5 +28,17 @@ built-in set. Supplying one leaves the realm with only the scopes it names, so
 `invalid_scope`. The `groups` claim therefore comes from a protocol mapper on
 the client itself, which also makes it unconditional instead of something the
 caller has to request (`docs/07`).
+
+**Declare every LDAP mapper, not just the interesting one.** Adding the LDAP
+provider through the admin console silently creates seven attribute mappers;
+declaring the provider here with a `subComponents` block creates *only* what
+that block names. Leave `username` out and every user arrives from LDAP with no
+username at all — the import fails with `User returned from LDAP has null
+username!` and the realm ends up with no federated users and no warning
+(`docs/07`).
+
+**`cachePolicy` is not a tuning knob.** It is `NO_CACHE` because ADR-0006 rests
+on it: measured, at `DEFAULT` a group removed in AD survives a brand-new login
+(`docs/07`).
 
 What the settings mean: `docs/03-keycloak-ad.md`

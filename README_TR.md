@@ -36,6 +36,7 @@ ibaret değil. Aşağıdakiler operatörün sorumluluğunda ve hiçbiri atlanama
 | Keycloak'ın LDAP bind'i için **salt okunur bir AD servis hesabı** | [docs/03-keycloak-ad.md](docs/03-keycloak-ad.md) |
 | `ADMIN_GROUP`'ta adı geçen **bir yönetici AD grubu** | Fail-closed bir sistemde ilk admin veritabanından gelemez |
 | Keycloak LDAP grup mapper'ında `OpenBerat-` önekini eşleyen **bir grup filtresi** | Düzen meselesi değil: adlar backend'e virgülle birleştirilmiş halde geliyor, dolayısıyla *adı* `Payroll,OpenBerat-Admins` olan tek bir grup iki ad olarak varıyor ve ikincisi `ADMIN_GROUP` oluyor. Böyle bir adı claim'e sokmayan şey bu filtre ([ADR-0008](docs/adr/0008-group-identity-name.md), [docs/07](docs/07-references.md)) |
+| Keycloak LDAP sağlayıcısında **`NO_CACHE`** | Ölçüldü: `DEFAULT`'ta AD'den çıkarılan bir grup yepyeni bir oturum açmadan sonra bile duruyor ve gecikmeyi sınırlayan hiçbir şey yok. Sistem çalışmaya devam ediyor, AD'yi izlemeyi bırakıyor ([ADR-0006](docs/adr/0006-group-membership-source.md), [docs/07](docs/07-references.md)) |
 
 Gerçekçi olmak gerekirse bu, AD'ye, Keycloak'a ve nginx'e hâkim bir operatör
 ister. VPN'in yerine geçiyor; kurulumu VPN'den hafif değil, yaşatması hafif.
@@ -135,6 +136,7 @@ kimlik Keycloak'ta — üçü de hazır, yapılandırma işi.
 | `frontend/` | Portal (AD `memberOf` yetkilerine göre butonlar) + admin. Derleme adımı yok. |
 | `nginx/` | PEP yapılandırması + statik servis |
 | `keycloak/` | Realm dışa aktarımı (LDAP federation, grup mapper) |
+| `samba-ad/` | Laboratuvar dizin fixture'ı — Dockerfile yok, hazır imaj |
 | `oauth2-proxy/` | Kimlik doğrulama yapılandırması |
 
 ## Dokümanlar

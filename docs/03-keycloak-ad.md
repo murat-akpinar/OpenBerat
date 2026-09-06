@@ -22,7 +22,7 @@ Keycloak Admin → Realm → **User Federation → Add LDAP provider**
 | Import Users | ON (local cache) |
 | Sync Registrations | OFF |
 | Trust Email | ON (mail coming from AD is treated as verified) |
-| **Cache Policy** | **NO_CACHE** — with the user cache enabled, group membership is no longer "live" and the basis for ADR-0006 collapses. To be verified in Phase 1. |
+| **Cache Policy** | **NO_CACHE** — mandatory. Measured (`docs/07`): at `DEFAULT` a group removed in AD survives a brand-new login, with nothing bounding the delay. |
 
 ### Filter out disabled accounts
 
@@ -76,11 +76,13 @@ Keycloak reads group membership **live from LDAP** — it queries AD on login an
 on token refresh rather than waiting for a periodic sync. The source of
 staleness is therefore not Keycloak but the oauth2-proxy session (ADR-0006).
 
-**Conditional:** this behaviour depends on the LDAP provider's **Cache Policy**.
-With the user cache enabled, Keycloak may return the user and their groups from
-cache, in which case the "single staleness layer" claim and ADR-0006 both
-collapse. We start with `NO_CACHE` and measure in Phase 1 (`docs/07`,
-"Unverified").
+**Conditional, and the condition is `NO_CACHE`.** Measured in Phase 1
+(`docs/07`): at `DEFAULT` the user and their groups come from the cache, and a
+**fresh login** still carries a group that AD no longer has — so the "reads
+live" behaviour above belongs to the setting, not to Keycloak. `MAX_LIFESPAN`
+bounds the staleness; `DEFAULT` does not bound it at all. Anything but
+`NO_CACHE` and ADR-0006's single staleness layer becomes two, the second one
+unbounded.
 
 ## Synchronisation timing
 

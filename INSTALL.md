@@ -24,6 +24,11 @@
   (`docs/03-keycloak-ad.md`).
 - **One AD group for administrators**, named in `ADMIN_GROUP`. In a fail-closed
   system the first admin cannot come from the database.
+- **`NO_CACHE` on Keycloak's LDAP provider.** Measured (`docs/07`): at
+  `DEFAULT` a group removed in AD is still in the claim after a brand-new
+  login, and nothing bounds the delay. Like the missing `cookie_refresh`, it
+  does not fail — it keeps working on entitlements that no longer track AD
+  (ADR-0006).
 - **A group filter on Keycloak'''s LDAP group mapper**, matching the
   `OpenBerat-` prefix — e.g. `(&(objectClass=group)(cn=OpenBerat-*))`. This is
   not tidiness. Group names reach the backend joined with commas, so a group
@@ -36,8 +41,15 @@
   writes `security.*` extended attributes. A user namespace refuses them
   whatever capabilities the container is given, so the lab does not come up
   inside an unprivileged LXC — it needs bare metal, a VM, or a privileged
-  container (`docs/07`). A production install never starts `samba-ad`, so this
-  does not apply there.
+  container (`docs/07`). Check the host before starting anything, as root:
+
+  ```sh
+  touch /tmp/x && python3 -c "import os; os.setxattr('/tmp/x','security.NTACL',b'\0')"
+  ```
+
+  If that raises, provisioning gets as far as a database with no machine
+  account and the container restarts forever. A production install never
+  starts `samba-ad`, so this does not apply there.
 
 The four Active Directory items are the operator's, not this repository's, and
 none can be skipped — the same table is in both READMEs.
@@ -100,7 +112,11 @@ OPENBERAT_CLIENT_SECRET=…
 # check strict at all, so this cannot be relaxed:
 #   openssl rand -base64 32 | tr -- '+/' '-_'
 OAUTH2_PROXY_COOKIE_SECRET=…
-# Lab users only (labuser, labadmin). Gone once AD federation lands.
+# The password Keycloak binds to AD with. The committed realm export carries a
+# placeholder; this is the real value, injected at import.
+AD_BIND_PASSWORD=…
+# Lab only: the password every user in samba-ad/fixture.sh gets. Keycloak holds
+# no local users — labuser and labadmin come from the directory.
 LAB_USER_PASSWORD=…
 ```
 
@@ -135,6 +151,37 @@ no `psql`, and an upgrade needs no migration step — `docker compose up -d`
 is the whole of it. If the backend will not stay up,
 `docker compose logs backend` says which of the two happened on its last line:
 it could not reach Postgres, or a migration would not apply.
+
+**Lab: the directory has to have something in it.** Keycloak holds no local
+users — `labuser` and everyone else come from AD through the LDAP provider, so
+a lab needs the fixture before anyone can log in:
+
+```sh
+docker compose up -d samba-ad
+docker compose exec -T -e AD_BIND_PASSWORD -e LAB_USER_PASSWORD \
+  samba-ad bash < samba-ad/fixture.sh
+```
+
+It creates the OUs, the `svc-keycloak` bind account, the `OpenBerat-` groups
+and the lab users, and is safe to re-run (`samba-ad/README.md`). If the DC runs
+somewhere other than the compose host — because this host is the unprivileged
+LXC the prerequisites warn about — then Keycloak needs to reach it by the name
+its LDAPS certificate carries, and to trust that certificate:
+
+```yaml
+# docker-compose.override.yml, lab only
+services:
+  samba-ad:
+    profiles: ["off-host"]        # not started here
+  keycloak:
+    extra_hosts: ["dc01.example.local:<the DC's address>"]
+    volumes:
+      - ./lab-ad/samba-ca.pem:/opt/keycloak/conf/truststores/samba-ca.pem:ro
+```
+
+The CA is the DC's own `/var/lib/samba/private/tls/ca.pem`; Keycloak loads
+every file under `conf/truststores` at startup and says so in its first
+log lines.
 
 Then browse to `https://portal.apps.example.local/`; you are redirected to
 Keycloak, and after logging in as `labuser` you land back on the portal.

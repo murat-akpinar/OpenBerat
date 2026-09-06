@@ -91,17 +91,24 @@ Verify the architecture actually works before writing code.
       costs two decisions instead of one. Fixed with `try_files … =404`, which
       serves files in place; measured 2 subrequests → 1. Rule added to
       `nginx/conf.d/README.md`, both halves in `docs/07`*
-- [ ] **VERIFY (2):** Keycloak LDAP provider `Cache Policy` — does group membership
+- [x] **VERIFY (2):** Keycloak LDAP provider `Cache Policy` — does group membership
       go stale at anything other than `NO_CACHE`? ADR-0006 rests on this claim
-      *Blocked with the five boxes below it: `samba-ad` cannot provision on the
-      current lab host. Two failures, both in `docs/07` — the DC's short name
-      collided with the domain's NetBIOS name (fixed: `dc01` in
-      `example.local`), and then provisioning panicked writing the sysvol ACLs
-      because the host is an unprivileged LXC and a user namespace refuses
-      `security.*` xattrs, as root, outside Docker. Not the image: the same
-      wall with Samba 4.15 and 4.22, privileged, unconfined, on a volume, with
-      `posix:eadb`. Needs bare metal, a VM or a privileged container
-      (ADR-0010, `INSTALL.md`)*
+      *Answer: it goes stale everywhere except `NO_CACHE`, and the worst of it
+      is not the delay. At `DEFAULT` a group removed in AD survived a
+      **brand-new login** — fresh session, fresh token — and was still there
+      180 s later; `MAX_LIFESPAN` bounds it to its own window. So "Keycloak
+      queries AD at login" is a property of the setting, not of Keycloak, and
+      at `DEFAULT` nothing bounds the deprovisioning delay: not
+      `cookie_refresh`, not the decision cache, not logging out. `NO_CACHE` is
+      now a second mandatory line in ADR-0006's consequences next to
+      `cookie_refresh`, failing the same silent way. Two more findings on the
+      way, both in `docs/07`: a realm export that declares a `subComponents`
+      block gets **only** the mappers it names — Keycloak's seven defaults are
+      suppressed, and without `username` every LDAP user arrives with a null
+      one and the import dies; and the `userAccountControl` filter does keep
+      `labdisabled` out of the directory answer. The DC itself provisions on a
+      KVM guest that is not a user namespace, at 262 MiB idle; the fixture is
+      `samba-ad/fixture.sh` and the split-host lab wiring is in `INSTALL.md`*
 - [x] **VERIFY (3):** does an nginx subrequest itself trigger `auth_request`? If it
       does, the internal HTTP call in the backend can go away. Also: does the
       subrequest inherit the main request's headers (`X-Original-URI` spoofing)?
@@ -238,7 +245,8 @@ Verify the architecture actually works before writing code.
       **replaces** the built-in scopes, which deletes `profile`/`email` and
       breaks every login with `invalid_scope`; and without an audience mapper
       the token carries no `aud` and oauth2-proxy rejects it. The LDAP
-      federation half of this realm waits for samba-ad*
+      federation half landed with VERIFY (2): the export now carries the
+      provider, its eight mappers and no local users at all*
 - [ ] Start `INSTALL.md` **while doing all of the above**, not in Phase 6. Phase 1
       is an installation: DNS, the wildcard certificate, the realm import, the
       LDAP bind account, `ADMIN_GROUP` and the first login all happen here.

@@ -7,16 +7,6 @@
   "accessTokenLifespan": 300,
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
-  "groups": [
-    {
-      "name": "OpenBerat-Admins",
-      "path": "/OpenBerat-Admins"
-    },
-    {
-      "name": "OpenBerat-Finance",
-      "path": "/OpenBerat-Finance"
-    }
-  ],
   "clients": [
     {
       "clientId": "openberat-proxy",
@@ -64,43 +54,282 @@
       ]
     }
   ],
-  "users": [
-    {
-      "username": "labuser",
-      "enabled": true,
-      "emailVerified": true,
-      "email": "labuser@example.local",
-      "firstName": "Lab",
-      "lastName": "User",
-      "groups": [
-        "/OpenBerat-Finance"
-      ],
-      "credentials": [
-        {
-          "type": "password",
-          "value": "${LAB_USER_PASSWORD}",
-          "temporary": false
+  "components": {
+    "org.keycloak.storage.UserStorageProvider": [
+      {
+        "name": "ad",
+        "providerId": "ldap",
+        "subComponents": {
+          "org.keycloak.storage.ldap.mappers.LDAPStorageMapper": [
+            {
+              "name": "username",
+              "providerId": "user-attribute-ldap-mapper",
+              "config": {
+                "user.model.attribute": [
+                  "username"
+                ],
+                "ldap.attribute": [
+                  "sAMAccountName"
+                ],
+                "read.only": [
+                  "true"
+                ],
+                "always.read.value.from.ldap": [
+                  "false"
+                ],
+                "is.mandatory.in.ldap": [
+                  "true"
+                ]
+              }
+            },
+            {
+              "name": "first name",
+              "providerId": "user-attribute-ldap-mapper",
+              "config": {
+                "user.model.attribute": [
+                  "firstName"
+                ],
+                "ldap.attribute": [
+                  "givenName"
+                ],
+                "read.only": [
+                  "true"
+                ],
+                "always.read.value.from.ldap": [
+                  "true"
+                ],
+                "is.mandatory.in.ldap": [
+                  "true"
+                ]
+              }
+            },
+            {
+              "name": "last name",
+              "providerId": "user-attribute-ldap-mapper",
+              "config": {
+                "user.model.attribute": [
+                  "lastName"
+                ],
+                "ldap.attribute": [
+                  "sn"
+                ],
+                "read.only": [
+                  "true"
+                ],
+                "always.read.value.from.ldap": [
+                  "true"
+                ],
+                "is.mandatory.in.ldap": [
+                  "true"
+                ]
+              }
+            },
+            {
+              "name": "email",
+              "providerId": "user-attribute-ldap-mapper",
+              "config": {
+                "user.model.attribute": [
+                  "email"
+                ],
+                "ldap.attribute": [
+                  "mail"
+                ],
+                "read.only": [
+                  "true"
+                ],
+                "always.read.value.from.ldap": [
+                  "true"
+                ],
+                "is.mandatory.in.ldap": [
+                  "false"
+                ]
+              }
+            },
+            {
+              "name": "creation date",
+              "providerId": "user-attribute-ldap-mapper",
+              "config": {
+                "user.model.attribute": [
+                  "createTimestamp"
+                ],
+                "ldap.attribute": [
+                  "whenCreated"
+                ],
+                "read.only": [
+                  "true"
+                ],
+                "always.read.value.from.ldap": [
+                  "true"
+                ],
+                "is.mandatory.in.ldap": [
+                  "false"
+                ]
+              }
+            },
+            {
+              "name": "modify date",
+              "providerId": "user-attribute-ldap-mapper",
+              "config": {
+                "user.model.attribute": [
+                  "modifyTimestamp"
+                ],
+                "ldap.attribute": [
+                  "whenChanged"
+                ],
+                "read.only": [
+                  "true"
+                ],
+                "always.read.value.from.ldap": [
+                  "true"
+                ],
+                "is.mandatory.in.ldap": [
+                  "false"
+                ]
+              }
+            },
+            {
+              "name": "full name",
+              "providerId": "full-name-ldap-mapper",
+              "config": {
+                "ldap.full.name.attribute": [
+                  "cn"
+                ],
+                "read.only": [
+                  "true"
+                ],
+                "write.only": [
+                  "false"
+                ]
+              }
+            },
+            {
+              "name": "openberat-groups",
+              "providerId": "group-ldap-mapper",
+              "config": {
+                "groups.dn": [
+                  "OU=Groups,DC=example,DC=local"
+                ],
+                "group.name.ldap.attribute": [
+                  "cn"
+                ],
+                "group.object.classes": [
+                  "group"
+                ],
+                "membership.ldap.attribute": [
+                  "member"
+                ],
+                "membership.attribute.type": [
+                  "DN"
+                ],
+                "membership.user.ldap.attribute": [
+                  "sAMAccountName"
+                ],
+                "groups.ldap.filter": [
+                  "(cn=OpenBerat-*)"
+                ],
+                "mode": [
+                  "READ_ONLY"
+                ],
+                "user.roles.retrieve.strategy": [
+                  "GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE"
+                ],
+                "memberof.ldap.attribute": [
+                  "memberOf"
+                ],
+                "preserve.group.inheritance": [
+                  "false"
+                ],
+                "ignore.missing.groups": [
+                  "true"
+                ],
+                "drop.non.existing.groups.during.sync": [
+                  "false"
+                ]
+              }
+            }
+          ]
+        },
+        "config": {
+          "enabled": [
+            "true"
+          ],
+          "priority": [
+            "0"
+          ],
+          "vendor": [
+            "ad"
+          ],
+          "connectionUrl": [
+            "ldaps://dc01.example.local:636"
+          ],
+          "authType": [
+            "simple"
+          ],
+          "bindDn": [
+            "CN=svc-keycloak,OU=Service Accounts,DC=example,DC=local"
+          ],
+          "bindCredential": [
+            "${AD_BIND_PASSWORD}"
+          ],
+          "usersDn": [
+            "OU=Users,DC=example,DC=local"
+          ],
+          "searchScope": [
+            "2"
+          ],
+          "usernameLDAPAttribute": [
+            "sAMAccountName"
+          ],
+          "rdnLDAPAttribute": [
+            "cn"
+          ],
+          "uuidLDAPAttribute": [
+            "objectGUID"
+          ],
+          "userObjectClasses": [
+            "person, organizationalPerson, user"
+          ],
+          "customUserSearchFilter": [
+            "(&(objectCategory=person)(objectClass=user)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))"
+          ],
+          "editMode": [
+            "READ_ONLY"
+          ],
+          "importEnabled": [
+            "true"
+          ],
+          "syncRegistrations": [
+            "false"
+          ],
+          "trustEmail": [
+            "true"
+          ],
+          "cachePolicy": [
+            "NO_CACHE"
+          ],
+          "useTruststoreSpi": [
+            "always"
+          ],
+          "startTls": [
+            "false"
+          ],
+          "connectionPooling": [
+            "true"
+          ],
+          "pagination": [
+            "true"
+          ],
+          "batchSizeForSync": [
+            "1000"
+          ],
+          "fullSyncPeriod": [
+            "-1"
+          ],
+          "changedSyncPeriod": [
+            "-1"
+          ]
         }
-      ]
-    },
-    {
-      "username": "labadmin",
-      "enabled": true,
-      "emailVerified": true,
-      "email": "labadmin@example.local",
-      "firstName": "Lab",
-      "lastName": "Admin",
-      "groups": [
-        "/OpenBerat-Admins",
-        "/OpenBerat-Finance"
-      ],
-      "credentials": [
-        {
-          "type": "password",
-          "value": "${LAB_USER_PASSWORD}",
-          "temporary": false
-        }
-      ]
-    }
-  ]
+      }
+    ]
+  }
 }

@@ -69,3 +69,11 @@ happens:
   accepted debt.
 - The backend has **no** direct connection to AD. The identity chain is
   one-directional: AD → Keycloak → oauth2-proxy → backend.
+- **A second mandatory line, found by measurement (Phase 1, `docs/07`):** the
+  LDAP provider's **Cache Policy must be `NO_CACHE`**. The table above says
+  Keycloak reads group membership live; that turned out to be a property of
+  this setting rather than of Keycloak. At `DEFAULT`, a group removed in AD
+  survived a brand-new login — a fresh session and a fresh token — and nothing
+  bounds the delay. `cookie_refresh` and `NO_CACHE` now fail the same way:
+  silently, with a working login and entitlements that no longer track AD.
+  Both belong in the same configuration test.

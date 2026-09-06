@@ -743,6 +743,66 @@ Two things the backend *can* do, and now does:
   The same seven answer 200/204 for `labadmin`, which is what stops the seven
   403s from being seven typos.
 
+### The lab AD, and the Cache Policy that decides whether Keycloak is live
+
+The DC provisions on a host that is not a user namespace — the wall the section
+above hit is the host, not Samba. On an Ubuntu 24.04 KVM guest, with no
+`ima,evm` in the LSM list, `security.NTACL` writes succeed and
+`nowsci/samba-domain` comes up as `dc01` in `example.local` at function level
+2008 R2, costing 262 MiB and 0.04 % of one core at idle. The fixture that every
+measurement below runs against is `samba-ad/fixture.sh`.
+
+**A declared `subComponents` block suppresses Keycloak's default mappers.**
+Adding the LDAP provider through the admin console creates seven mappers behind
+your back — `username`, `first name`, `last name`, `email`, `creation date`,
+`modify date`, `full name`. Declaring the provider in a realm export with a
+`subComponents` block creates *only* what the block names, and nothing warns.
+With just the group mapper declared, every user came back from LDAP carrying
+`memberOf` and `pwdLastSet` and nothing else, and the import died on
+`User returned from LDAP has null username! ... Mapped username LDAP attribute:
+sAMAccountName`. The committed export therefore spells all eight out.
+
+**The `userAccountControl` filter works, and it is the only thing that hides a
+leaver.** `(&(objectCategory=person)(objectClass=user)(!(userAccountControl:
+1.2.840.113556.1.4.803:=2)))` against the fixture returns `labuser`, `labadmin`
+and `labnested` but not the disabled `labdisabled`, who is a member of
+`OpenBerat-Finance` and would otherwise still be entitled.
+
+#### VERIFY (2) — Cache Policy
+
+**Answer: `NO_CACHE` is load-bearing, and the failure is silent.** The claim
+under test is [ADR-0006](adr/0006-group-membership-source.md)'s — that Keycloak
+reads group membership live and is therefore not a staleness layer. It is true
+at exactly one setting.
+
+Method: read `labuser`'s groups through Keycloak's own admin API (so the
+oauth2-proxy session is not in the way), move the user in and out of
+`OpenBerat-Finance` in AD, and compare against the directory.
+
+| Cache Policy | Membership change in AD | Keycloak's answer |
+|---|---|---|
+| `NO_CACHE` | removed | gone on the next read |
+| `DEFAULT` | removed | **still there** at t+0 and at t+180 s |
+| `MAX_LIFESPAN` (60 s) | re-added | absent at t+0, present at t+70 s |
+
+`DEFAULT` is the interesting one, and not because of the 180 seconds: a
+**brand-new login** — a fresh browser flow, a new session, a new token — still
+carried `OpenBerat-Finance` in `X-Auth-Request-Groups` after the group was
+gone. So "Keycloak queries AD at login" is not a property of Keycloak; it is a
+property of `NO_CACHE`. At `DEFAULT` nothing bounds the delay: not
+`cookie_refresh`, not the decision cache TTL, not logging out and back in. Only
+a component update, a realm cache clear or a restart flushes it, and the
+deprovisioning target N-03 is unreachable by any amount of configuration
+elsewhere.
+
+`MAX_LIFESPAN` at least bounds it, and would be defensible if the number were
+small. It is not what the design assumes, and the setting that matches the
+design is `NO_CACHE`.
+
+The failure mode is the same shape as the missing `cookie_refresh`: no error,
+no warning, a working login, and entitlements that stopped tracking AD. It is
+now a second mandatory line in ADR-0006's consequences.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is
@@ -829,10 +889,12 @@ Phase 1 lab:
       and why the same include now clears `X-Auth-*`). Measured above.
 - [ ] Does nginx OSS have active upstream health checks, or only passive ones
       (`max_fails`/`fail_timeout`)? The HA item in Phase 6 depends on this.
-- [ ] The effect of the LDAP provider's **Cache Policy** on group freshness. Does
-      the "Keycloak reads live" claim still hold at any value other than
-      `NO_CACHE`? **ADR-0006 rests on this claim**, and the only source for it is
-      the general Keycloak documentation.
+- [x] **Answered: no, only at `NO_CACHE`.** The effect of the LDAP provider's
+      **Cache Policy** on group freshness. Measured above: at `DEFAULT` a group
+      removed in AD survives a brand-new login, so the "Keycloak reads live"
+      claim is a property of the setting, not of Keycloak.
+      **[ADR-0006](adr/0006-group-membership-source.md) holds only with `NO_CACHE`**,
+      which is now mandatory alongside `cookie_refresh`.
 - [x] **Answered: yes, and deleting it stops access.** Can the oauth2-proxy
       Redis session key be derived from the session cookie the backend already
       holds? Measured above: strip the signature, base64-decode, base64url-decode
