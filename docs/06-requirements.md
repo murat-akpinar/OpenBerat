@@ -106,6 +106,14 @@ network and policy. Phase 1 exists partly to establish them.
       environment-dependent: for everyone at login, or per application — the
       per-application form reads `acr` and is F-21, v2. When it is switched on
       is free: config can land in any phase without touching the roadmap.
+- [ ] **Do the protected applications strip path parameters?** Tomcat and Jetty
+      drop `;jsessionid=…` from a segment, so `/admin;x/` reaches the
+      application as `/admin/` while `policy.rs` sees a segment that matches no
+      deny rule. Folding `;` the way `\` is folded (`docs/05`) would close it
+      and would change what a legitimate path containing `;` means, so the
+      answer depends on what runs behind the proxy. Until it is answered, an
+      application on a Java stack should carry its deny rules one segment
+      higher.
 - [ ] Is Kerberos/SPNEGO (passwordless domain SSO) wanted?
 - [ ] Is there more than one AD domain / forest?
 - [ ] Audit log retention period (N-04) — KVKK and internal policy.

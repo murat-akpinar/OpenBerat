@@ -74,7 +74,10 @@ A single normalisation function runs before the decision:
    encoding), or the decoded bytes are not valid UTF-8, or they contain a
    control character (`%00` — NUL truncates the path inside some upstream
    frameworks) → **DENY** `malformed_uri`
-3. Resolve `.` and `..` segments, collapse consecutive `/`
+3. Replace `\` with `/`, resolve `.` and `..` segments, collapse consecutive
+   `/`. The backslash is there because a Windows upstream reads it as a
+   separator: a resolver that only knows `/` leaves `/x\..\admin/` unresolved
+   and the deny rule unmatched, while IIS serves `/admin/`
 4. Lowercase
 5. Match **at a segment boundary**: `/admin/*` → the prefix `/admin/`; `/adminx`
    does not match, `/admin` does
@@ -272,6 +275,9 @@ without a test is visible as a gap rather than an omission.
 | `/%2561dmin/` — double-encoded | A `%` surviving one decode round → DENY `malformed_uri` | Phase 2 test |
 | `/admin%00.png` — the upstream truncates at NUL and serves `/admin` | Control characters or invalid UTF-8 after the decode round → DENY `malformed_uri` | Phase 2 test |
 | `//admin/`, `/x/../admin/` | Consecutive slashes collapsed, `.`/`..` resolved | Phase 2 test |
+| `/x\..\admin/` — a Windows upstream reads `\` as a separator | `\` is folded to `/` before the `.`/`..` resolver runs | Phase 2 test |
+| `/admin%2fusers` — an encoded separator the upstream decodes | Decoding happens before resolution, so the segment splits here too | Phase 2 test |
+| `/admin;x/` — Tomcat and Jetty strip path parameters | **Not closed.** Whether `;` needs stripping depends on the upstream framework; open question in `docs/06` | — |
 | `/adminx` slipping into a `/admin/*` rule | Matching at a **segment boundary**, not a raw prefix | Phase 2 test |
 | An entitlement whose `expires_at` has passed still granting | `expires_at` is part of the decision, and the cached rule list carries it | Phase 2 test |
 | A portal user calling `/api/admin/*` | `ADMIN_GROUP` check on the handler's first line, **never cached** | Phase 2 test |
@@ -284,5 +290,5 @@ without a test is visible as a gap rather than an omission.
 | A deleted AD group recreated with the same name inheriting its entitlements | **Not closed.** Accepted debt, mitigated by the `OpenBerat-` prefix and change control (ADR-0008) | — |
 | Revoking access on an **active** WebSocket/SSE connection | **Not closed.** Explicitly outside the N-03 guarantee (ADR-0016) | Phase 1 measures the gap |
 
-The last three rows are the honest ones: they are open, and a security review
+The last four rows are the honest ones: they are open, and a security review
 should find them here rather than in the code.

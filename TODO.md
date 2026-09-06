@@ -299,19 +299,40 @@ has a first draft, and there is still not one line of code.
       arrives with this box so integration tests can reach the modules at all.
       Documented in `INSTALL.md` §4: no `psql` on a first install, no migration
       step on an upgrade*
-- [ ] `backend/src/policy.rs`: the decision function — pure, no DB, no HTTP
-- [ ] `policy.rs`: URI normalisation (drop the query, one decode round, resolve
+- [x] `backend/src/policy.rs`: the decision function — pure, no DB, no HTTP
+- [x] `policy.rs`: URI normalisation (drop the query, one decode round, resolve
       `..`/`//`, lowercase) + matching **at a segment boundary**
-- [ ] **Test:** `/%61dmin/`, `//admin/`, `/x/../admin/`, `/admin` (no slash),
+      *`decide` takes the **raw** `X-Original-URI` and normalises inside itself
+      rather than trusting a caller to have done it — the one hole in this
+      design is somebody matching the raw string, and a signature that cannot
+      express that closes it. Two attacks the design documents did not list
+      were found writing the tests and are now rows in `docs/05`: a Windows
+      upstream reads `\` as a separator, so `/x\..\admin/` reaches IIS as
+      `/admin/` while a resolver that only knows `/` leaves the deny rule
+      unmatched; and `%2f` decodes to a separator, so decoding has to happen
+      before resolution rather than after. A third, `;` path parameters that
+      Tomcat and Jetty strip, is left open in `docs/06` — folding it changes
+      what a legitimate path means, and the answer depends on what runs behind
+      the proxy. `char::is_control` is Cc only, so U+2028 is not a control
+      character and the test was corrected to claim only what the check does.*
+- [x] **Test:** `/%61dmin/`, `//admin/`, `/x/../admin/`, `/admin` (no slash),
       `/adminx` → does the `/admin/*` deny rule hold in all of them
-- [ ] **Test:** double encoding (`%2561`) → DENY `malformed_uri`
-- [ ] **Test:** `%00`, control bytes, invalid UTF-8 after decoding → DENY
+- [x] **Test:** double encoding (`%2561`) → DENY `malformed_uri`
+- [x] **Test:** `%00`, control bytes, invalid UTF-8 after decoding → DENY
       `malformed_uri` (NUL truncation — `docs/05`)
-- [ ] **Test:** default deny (no match means deny)
-- [ ] **Test:** deny overrides allow
-- [ ] **Test:** an expired entitlement is ignored
-- [ ] The `ADMIN_GROUP` check — a separate pure function, never cached
+- [x] **Test:** default deny (no match means deny)
+- [x] **Test:** deny overrides allow
+- [x] **Test:** an expired entitlement is ignored
+      *Both directions: an expired **deny** stops denying too, which is what
+      `docs/05` rule 5 says and is worth seeing in a test rather than assuming*
+- [x] The `ADMIN_GROUP` check — a separate pure function, never cached
+      *`is_admin` — exact, case-sensitive match. ADR-0008 already chose the
+      direction to fail in: a group renamed in AD loses its entitlements.*
 - [ ] **Test:** an ordinary user with portal access cannot reach `/api/admin/*`
+      *Half done and deliberately left open: the pure half is tested with
+      `is_admin` (a portal user, a look-alike group name and a differently
+      cased one are all refused), but there is no `/api/admin/*` handler to
+      reach until Phase 4. The box closes there, against the endpoint.*
 - [ ] `backend/src/store.rs`: the entitlement query + audit writing (off the
       decision path, bounded channel; a full channel does not block the request)
 - [ ] Shutdown flushes the cache's audit counters to the channel before exiting —
