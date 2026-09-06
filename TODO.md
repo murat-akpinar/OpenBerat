@@ -405,14 +405,34 @@ has a first draft, and there is still not one line of code.
       nobody had asked for yet; `docs/05` says so now. Single-flight is 16 fill
       locks rather than one per key: nothing to clean up, and two keys sharing a
       shard only serialise their misses.*
-- [ ] On a cache miss the backend already holds the raw cookie: it records
+- [x] On a cache miss the backend already holds the raw cookie: it records
       `sub → oauth2-proxy session key` in Redis for the kill switch (ADR-0019).
       This is the backend's only Redis use; it stores keys, not tokens. The
       write lands **before** the ALLOW is returned; a failed write is a DENY
       `store_unavailable` — a session the kill switch cannot find must not gain
       access
-- [ ] **Test:** index write failure → DENY (Redis accepting reads but refusing
+      *`session.rs`. The derivation was not trusted to a round-trip test —
+      `session_key` was run over a cookie from a live `ob-login.sh` login on
+      `vaultscan`, and the key it produced was present in that Redis at that
+      moment. Two things only the real cookie showed: the outer layer is
+      **padded standard** base64 while the handle inside is URL-safe and
+      unpadded, so a decoder that assumes one alphabet silently fails on the
+      other; and the decoded handle **is** the key as ASCII, not bytes needing
+      hex encoding. Both in `docs/07`. The write is ordered before the cache
+      insert as well as before the ALLOW — cache first would let the next hit
+      allow with no index behind it. An authenticated cookie that yields no
+      derivable key is also a DENY: it is a session the kill switch could never
+      find, which is the same hole by a different road. The index entry expires
+      after 8 days, longer than `cookie_expire` on purpose — too long only means
+      deleting a key that has already gone.*
+- [x] **Test:** index write failure → DENY (Redis accepting reads but refusing
       writes)
+      *Not simulated: a real Redis with `CONFIG SET maxmemory 1`, which is the
+      state ADR-0019 names — reads keep working, writes get OOM. The request
+      denies with `store_unavailable`. CI grew a Redis service alongside the
+      Postgres one so this runs there too. Then confirmed against the running
+      binary: an allowed request wrote
+      `openberat:sessions:sub-labuser → _oauth2_proxy-…` with an 8-day TTL.*
 - [x] **Test:** cache TTL, key isolation, single-flight (50 concurrent requests → 1 refresh)
       *All three, and the single-flight one counts calls at the stand-in
       oauth2-proxy: fifty concurrent requests on a cold key → **one**. A hit

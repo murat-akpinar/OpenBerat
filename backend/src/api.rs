@@ -31,8 +31,9 @@
 //                     request in the gap refill what was just cleared.
 // Contract: docs/02-architecture.md
 
-use crate::cache::{Cache, Cached, Identity, Key};
+use crate::cache::{self, Cache, Cached, Identity, Key};
 use crate::policy::{self, Decision, Deny};
+use crate::session::{self, Index};
 use crate::store::{self, AuditEvent};
 use axum::Router;
 use axum::extract::State;
@@ -54,6 +55,7 @@ pub struct Ctx {
     pub oauth2_proxy: String,
     pub cache: Arc<Cache>,
     pub audit: store::Audit,
+    pub index: Index,
 }
 
 pub fn router(ctx: Arc<Ctx>) -> Router {
@@ -135,6 +137,25 @@ async fn decide(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Response {
         Authentication::Unavailable => return refuse(Deny::AuthUnavailable),
     };
 
+    // --- Feature Start ---
+    // ADR-0019, and the order is the point: the session is indexed before the
+    // decision that depends on it, and before it is cached. A session the kill
+    // switch cannot find must not gain access — the narrow case being a Redis
+    // that still serves reads but refuses writes, where sessions would
+    // otherwise keep working while silently becoming unkillable.
+    // --- Feature End ---
+    let sub = identity.sub.to_str().unwrap_or_default().to_string();
+    let Some(session) = cache::session_cookie(cookie.and_then(|v| v.to_str().ok()))
+        .and_then(|value| session::session_key(value, cache::COOKIE_NAME))
+    else {
+        tracing::error!("no session key could be derived from an authenticated cookie");
+        return refuse(Deny::StoreUnavailable);
+    };
+    if let Err(e) = ctx.index.record(&sub, &session).await {
+        tracing::error!(error = %e, "session index write failed");
+        return refuse(Deny::StoreUnavailable);
+    }
+
     let cached = match load(&ctx, &request, &identity).await {
         Ok(cached) => cached,
         // Auditing a Postgres outage would mean writing a row to the Postgres
@@ -142,7 +163,6 @@ async fn decide(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Response {
         Err(reason) => return refuse(reason),
     };
     if let Some(key) = &request.key {
-        let sub = identity.sub.to_str().unwrap_or_default().to_string();
         ctx.cache.insert(key.clone(), sub, cached.clone());
     }
 
@@ -235,8 +255,9 @@ fn answer(ctx: &Ctx, request: &Request, cached: &Cached) -> Response {
         ),
         None => false,
     };
-    // Nothing is holding counters for this request, so it writes its own row
-    // rather than going unrecorded.
+    // The entry that was just filled can be gone again — evicted by the
+    // capacity bound between the insert and here — and a decision with nowhere
+    // to be counted writes its own row rather than going unrecorded.
     if !counted {
         let now = chrono::Utc::now();
         ctx.audit.record(AuditEvent {

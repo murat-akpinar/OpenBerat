@@ -3,6 +3,7 @@
 
 use openberat::api::{self, Ctx};
 use openberat::cache::Cache;
+use openberat::session::Index;
 use openberat::store;
 use std::sync::Arc;
 use std::time::Duration;
@@ -51,6 +52,11 @@ async fn main() {
         )),
     };
 
+    let index = match Index::connect(&required("REDIS_URL")).await {
+        Ok(index) => index,
+        Err(e) => fatal(&format!("cannot reach Redis, refusing to start: {e}")),
+    };
+
     let (audit, queue) = store::audit_channel(AUDIT_QUEUE);
     let writer = tokio::spawn(store::write_audit(pool.clone(), queue));
     let cache = Arc::new(Cache::new(audit.clone()));
@@ -73,6 +79,7 @@ async fn main() {
             .to_string(),
         cache: cache.clone(),
         audit: audit.clone(),
+        index,
     });
 
     let listener = match tokio::net::TcpListener::bind(LISTEN).await {

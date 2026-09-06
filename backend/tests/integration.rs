@@ -549,12 +549,30 @@ async fn fake_oauth2_proxy() -> (String, Arc<AtomicUsize>) {
     (format!("http://{addr}"), calls)
 }
 
+/// A cookie header carrying a real oauth2-proxy ticket for `id`, plus a marker
+/// the stand-in reads to decide how to answer. The ticket format is the
+/// measured one (docs/07, VERIFY (4)).
+fn session(id: &str, mode: &str) -> String {
+    use base64::Engine;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
+    let ticket = format!(
+        "v2.{}.{}",
+        B64.encode(format!("_oauth2_proxy-{id}")),
+        B64.encode("secret")
+    );
+    format!(
+        "_oauth2_proxy={}|1788662043|sig; mode={mode}",
+        B64.encode(ticket)
+    )
+}
+
 /// `GET /decide` — the endpoint nginx asks on every single request.
 async fn decide_section(pool: &PgPool) {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use openberat::api::{Ctx, router};
     use openberat::cache::Cache;
+    use openberat::session::Index;
     use openberat::store::audit_channel;
     use tower::ServiceExt;
 
@@ -576,6 +594,13 @@ async fn decide_section(pool: &PgPool) {
     .await
     .unwrap();
 
+    let Ok(redis_url) = std::env::var("REDIS_URL") else {
+        eprintln!("SKIPPED decide_section: REDIS_URL is not set");
+        return;
+    };
+    let index = Index::connect(&redis_url)
+        .await
+        .expect("connect to REDIS_URL");
     let (upstream, calls) = fake_oauth2_proxy().await;
     let ctx = |oauth2_proxy: &str, pool: PgPool| {
         let (audit, _queue) = audit_channel(1024);
@@ -585,9 +610,10 @@ async fn decide_section(pool: &PgPool) {
             oauth2_proxy: oauth2_proxy.to_string(),
             cache: Arc::new(Cache::new(audit.clone())),
             audit,
+            index: index.clone(),
         })
     };
-    let ask = async |ctx: Arc<Ctx>, headers: Vec<(&str, &str)>| {
+    let ask = async |ctx: Arc<Ctx>, headers: Vec<(&str, String)>| {
         let mut request = Request::builder().uri("/decide");
         for (name, value) in headers {
             request = request.header(name, value);
@@ -598,14 +624,16 @@ async fn decide_section(pool: &PgPool) {
             .unwrap()
     };
     // Everything nginx's include writes unconditionally, plus a live session.
-    let full = |uri: &'static str, cookie: &'static str| {
+    // The session cookie has to be a real oauth2-proxy ticket: the ADR-0019
+    // index is derived from it before any ALLOW is returned.
+    let full = |uri: &str, cookie: &str| {
         vec![
-            ("x-app-slug", "finance"),
-            ("x-original-uri", uri),
-            ("x-original-method", "GET"),
-            ("x-real-ip", "10.0.0.7"),
-            ("x-request-id", "req-1"),
-            ("cookie", cookie),
+            ("x-app-slug", "finance".to_string()),
+            ("x-original-uri", uri.to_string()),
+            ("x-original-method", "GET".to_string()),
+            ("x-real-ip", "10.0.0.7".to_string()),
+            ("x-request-id", "req-1".to_string()),
+            ("cookie", cookie.to_string()),
         ]
     };
     let reason = |r: &axum::response::Response| {
@@ -624,7 +652,7 @@ async fn decide_section(pool: &PgPool) {
         "x-real-ip",
         "x-request-id",
     ] {
-        let headers = full("/", "_oauth2_proxy=valid")
+        let headers = full("/", &session("one", "valid"))
             .into_iter()
             .filter(|(name, _)| *name != missing)
             .collect();
@@ -639,14 +667,18 @@ async fn decide_section(pool: &PgPool) {
 
     // No session: 401 is nginx's cue to start the login flow. A 403 here would
     // show the "no access" page to someone who has simply not logged in yet.
-    let response = ask(ctx(&upstream, pool.clone()), full("/", "other=1")).await;
+    let response = ask(
+        ctx(&upstream, pool.clone()),
+        full("/", &session("one", "anonymous")),
+    )
+    .await;
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     assert!(response.headers().get("x-auth-subject").is_none());
 
     // The happy path, and the two things nginx lifts off it.
     let response = ask(
         ctx(&upstream, pool.clone()),
-        full("/reports/q1", "_oauth2_proxy=valid"),
+        full("/reports/q1", &session("one", "valid")),
     )
     .await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -665,7 +697,7 @@ async fn decide_section(pool: &PgPool) {
     for uri in ["/admin/users", "/%61dmin/", "/x/../admin/"] {
         let response = ask(
             ctx(&upstream, pool.clone()),
-            full(uri, "_oauth2_proxy=valid"),
+            full(uri, &session("one", "valid")),
         )
         .await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN, "{uri}");
@@ -684,18 +716,18 @@ async fn decide_section(pool: &PgPool) {
     }
 
     // An application nobody defined answers the same as a disabled one.
-    let mut headers = full("/", "_oauth2_proxy=valid");
-    headers[0] = ("x-app-slug", "no-such-app");
+    let mut headers = full("/", &session("two", "valid"));
+    headers[0] = ("x-app-slug", "no-such-app".to_string());
     let response = ask(ctx(&upstream, pool.clone()), headers).await;
     assert_eq!(reason(&response).as_deref(), Some("application_disabled"));
 
     // Identity comes from oauth2-proxy's answer and from nowhere else. nginx
     // clears these on the subrequest, but the backend must not be the only
     // thing standing between a forged header and an admin group either.
-    let mut headers = full("/admin/", "_oauth2_proxy=valid");
-    headers.push(("x-auth-request-groups", "OpenBerat-Admins"));
-    headers.push(("x-auth-groups", "OpenBerat-Admins"));
-    headers.push(("x-auth-request-user", "sub-someone-else"));
+    let mut headers = full("/admin/", &session("three", "valid"));
+    headers.push(("x-auth-request-groups", "OpenBerat-Admins".to_string()));
+    headers.push(("x-auth-groups", "OpenBerat-Admins".to_string()));
+    headers.push(("x-auth-request-user", "sub-someone-else".to_string()));
     let response = ask(ctx(&upstream, pool.clone()), headers).await;
     assert_eq!(
         reason(&response).as_deref(),
@@ -709,7 +741,7 @@ async fn decide_section(pool: &PgPool) {
     // restarting Postgres and restarting oauth2-proxy.
     let response = ask(
         ctx(&upstream, pool.clone()),
-        full("/", "_oauth2_proxy=broken"),
+        full("/", &session("four", "broken")),
     )
     .await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
@@ -717,7 +749,7 @@ async fn decide_section(pool: &PgPool) {
 
     let response = ask(
         ctx("http://127.0.0.1:1", pool.clone()),
-        full("/", "_oauth2_proxy=valid"),
+        full("/", &session("five", "valid")),
     )
     .await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
@@ -726,7 +758,7 @@ async fn decide_section(pool: &PgPool) {
     let started = std::time::Instant::now();
     let response = ask(
         ctx(&upstream, pool.clone()),
-        full("/", "_oauth2_proxy=valid-slow"),
+        full("/", &session("six", "valid-slow")),
     )
     .await;
     assert_eq!(reason(&response).as_deref(), Some("auth_unavailable"));
@@ -739,7 +771,7 @@ async fn decide_section(pool: &PgPool) {
         .acquire_timeout(std::time::Duration::from_millis(100))
         .connect_lazy("postgres://openberat:test@127.0.0.1:1/openberat")
         .unwrap();
-    let response = ask(ctx(&upstream, dead), full("/", "_oauth2_proxy=valid")).await;
+    let response = ask(ctx(&upstream, dead), full("/", &session("seven", "valid"))).await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     assert_eq!(reason(&response).as_deref(), Some("store_unavailable"));
 
@@ -752,6 +784,7 @@ async fn decide_section(pool: &PgPool) {
         oauth2_proxy: upstream.clone(),
         cache: Arc::new(Cache::new(audit.clone())),
         audit,
+        index: index.clone(),
     });
 
     // Fifty assets of one page arriving together on a cold key. Without
@@ -762,7 +795,7 @@ async fn decide_section(pool: &PgPool) {
         .map(|_| {
             let ctx = shared.clone();
             tokio::spawn(
-                async move { ask(ctx, full("/reports/q1", "_oauth2_proxy=valid-burst")).await },
+                async move { ask(ctx, full("/reports/q1", &session("burst", "valid"))).await },
             )
         })
         .collect();
@@ -778,7 +811,7 @@ async fn decide_section(pool: &PgPool) {
     // And the hit costs nothing at all upstream.
     let response = ask(
         shared.clone(),
-        full("/reports/q2", "_oauth2_proxy=valid-burst"),
+        full("/reports/q2", &session("burst", "valid")),
     )
     .await;
     assert_eq!(response.status(), StatusCode::OK);
@@ -797,46 +830,55 @@ async fn decide_section(pool: &PgPool) {
     // is the whole reason the matched pattern is not in the key (docs/05).
     let response = ask(
         shared.clone(),
-        full("/admin/users", "_oauth2_proxy=valid-burst"),
+        full("/admin/users", &session("burst", "valid")),
     )
     .await;
     assert_eq!(reason(&response).as_deref(), Some("explicit_deny"));
     assert_eq!(calls.load(Ordering::SeqCst), 1, "still a hit");
 
     // A different session is a different key.
-    let response = ask(shared.clone(), full("/", "_oauth2_proxy=valid-other")).await;
+    let response = ask(shared.clone(), full("/", &session("other", "valid"))).await;
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 
-    // No session cookie under the name the cache knows: every request is a
-    // miss, and none of them share an entry (cache.rs covers why).
-    calls.store(0, Ordering::SeqCst);
-    for _ in 0..3 {
-        let headers = vec![
-            ("x-app-slug", "finance"),
-            ("x-original-uri", "/"),
-            ("x-original-method", "GET"),
-            ("x-real-ip", "10.0.0.7"),
-            ("x-request-id", "req-1"),
-            ("cookie", "session=valid"),
-        ];
-        // The stand-in reads "valid" out of any cookie, so this still
-        // authenticates — the point is that nothing about it is cached.
-        assert_eq!(ask(shared.clone(), headers).await.status(), StatusCode::OK);
-    }
-    assert_eq!(
-        calls.load(Ordering::SeqCst),
-        3,
-        "an unkeyable request is never cached"
-    );
+    // An authenticated session whose oauth2-proxy key cannot be derived is one
+    // the kill switch could never find. It is refused rather than allowed with
+    // a hole in the revocation path (ADR-0019).
+    let response = ask(shared.clone(), full("/", "some_other_cookie=valid")).await;
+    assert_eq!(reason(&response).as_deref(), Some("store_unavailable"));
 
-    // Nothing holds counters for those three, so each writes its own row rather
-    // than going unrecorded.
-    let mut rows = 0;
-    while queue.try_recv().is_ok() {
-        rows += 1;
-    }
-    assert_eq!(rows, 3, "an uncached decision audits itself");
+    // And so is a session Redis will not record. This is the narrow case
+    // ADR-0019 names: reads still work, writes do not, and without this the
+    // session keeps working while silently becoming unkillable.
+    let redis = redis::Client::open(redis_url.as_str())
+        .unwrap()
+        .get_multiplexed_async_connection()
+        .await
+        .unwrap();
+    let maxmemory = async |bytes: &str| {
+        let mut redis = redis.clone();
+        redis::cmd("CONFIG")
+            .arg("SET")
+            .arg("maxmemory")
+            .arg(bytes)
+            .exec_async(&mut redis)
+            .await
+            .unwrap();
+    };
+    maxmemory("1").await;
+    let response = ask(shared.clone(), full("/", &session("unwritable", "valid"))).await;
+    maxmemory("0").await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(reason(&response).as_deref(), Some("store_unavailable"));
+
+    // What the kill switch will read in Phase 5.
+    let sessions = index.sessions("sub-labuser").await.unwrap();
+    assert!(
+        sessions.contains(&"_oauth2_proxy-burst".to_string()),
+        "the derived session key reached the index: {sessions:?}"
+    );
+    index.forget("sub-labuser").await.unwrap();
+    while queue.try_recv().is_ok() {}
 
     // And the counters the cache is holding reach the channel on shutdown.
     shared.cache.flush_all();

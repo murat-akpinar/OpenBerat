@@ -4,4 +4,5 @@
 pub mod api;
 pub mod cache;
 pub mod policy;
+pub mod session;
 pub mod store;

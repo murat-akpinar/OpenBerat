@@ -34,7 +34,19 @@ const CAPACITY: usize = 10_000;
 
 /// Must match `cookie_name` in `oauth2-proxy/oauth2-proxy.cfg`. A mismatch is
 /// survivable rather than fatal — see `Key::new`.
-const COOKIE_NAME: &str = "_oauth2_proxy";
+pub const COOKIE_NAME: &str = "_oauth2_proxy";
+
+/// The session cookie's value, for deriving the oauth2-proxy session key
+/// (ADR-0019). A **chunked** session returns None: the measured cookie is a
+/// fixed 192 bytes and never chunks (docs/07), so a chunked one means something
+/// changed underneath us, and guessing how to reassemble a ticket would produce
+/// a key the kill switch cannot use.
+pub fn session_cookie(cookie_header: Option<&str>) -> Option<&str> {
+    cookie_header?.split(';').find_map(|cookie| {
+        let (name, value) = cookie.split_once('=')?;
+        (name.trim() == COOKIE_NAME).then_some(value)
+    })
+}
 
 const FILL_SHARDS: usize = 16;
 

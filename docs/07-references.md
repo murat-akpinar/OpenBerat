@@ -269,6 +269,18 @@ Consequence: the kill switch deletes the session directly instead of degrading t
 `cookie_refresh` latency (5 min). Option C is not needed and ADR-0016's 5 s
 target stands. The one-shot test is `verify4.sh` on the lab host.
 
+**The implementation was checked against the same lab, not only against itself.**
+`session::session_key` was run over a cookie taken from a live `ob-login.sh`
+session, and the key it produced —
+`_oauth2_proxy-62a0f822376522d6626af2c9d8f9fe73` — was present in that Redis at
+that moment. Worth doing because a round-trip test only proves the decoder
+matches the encoder in the same file. Two details the recipe above does not
+spell out and the real cookie does: oauth2-proxy writes the outer layer as
+**padded standard** base64 (`…Mw==`) while the handle inside is URL-safe and
+unpadded, so a decoder that assumes one alphabet fails on the other; and the
+decoded handle *is* the Redis key as ASCII rather than bytes that need hex
+encoding.
+
 ### A user in many groups — the cookie stays small, the header does not
 
 **The cookie size problem is gone.** With `session_store_type = redis` the
