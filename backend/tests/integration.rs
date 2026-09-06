@@ -1,9 +1,13 @@
-// The migration runs unattended on an operator's first install, so this is the
-// only place its SQL is executed before it reaches one. Needs a live Postgres:
+// Everything that needs a real Postgres and a real Redis: the migration an
+// operator's first install runs unattended, the entitlement query, the audit
+// writer, /decide, the cache and the management plane. CI provides both
+// services; locally:
 //   docker run --rm -d -p 55432:5432 -e POSTGRES_PASSWORD=test \
 //     -e POSTGRES_USER=openberat -e POSTGRES_DB=openberat postgres:17-alpine
-//   DATABASE_URL=postgres://openberat:test@localhost:55432/openberat cargo test
-// Without DATABASE_URL the test skips loudly rather than failing.
+//   docker run --rm -d -p 56379:6379 redis:7-alpine
+//   DATABASE_URL=postgres://openberat:test@localhost:55432/openberat \
+//     REDIS_URL=redis://127.0.0.1:56379 cargo test
+// Without them the test skips loudly rather than failing.
 
 use sqlx::PgPool;
 use std::sync::Arc;
