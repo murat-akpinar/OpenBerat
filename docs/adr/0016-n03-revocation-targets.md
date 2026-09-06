@@ -62,12 +62,18 @@ t+300.002 s and the talking one was still trading frames at t+420 s.
 - Phase 1 measures both paths against these targets, and Phase 6 repeats the
   measurement as an exit criterion. If the measured value exceeds the target,
   the lever is `cookie_refresh` — at the cost of more token refresh traffic to
-  Keycloak.
+  Keycloak. **The Phase 6 repeat is done and the target holds** (`docs/07`):
+  the ceiling is still 330 s, and the cut still lands at the same session age
+  it did in Phase 1, to within 0.6 s, through a chain that gained the
+  kill switch's index write on exactly the request that performs the refresh.
 - **The six-minute row is measured** (`docs/07`): a group removed in AD cut a
-  polling client **283 s** later, and the `cookie_refresh` + cache TTL ceiling
-  of **330 s** was reached deliberately, by minting a cache entry four seconds
-  before the refresh boundary — sixteen requests answered 200 past a boundary
-  the session had already crossed. Inside the target, with 30 s of margin and
+  polling client **283 s** later — an experiment-dependent figure, as the Phase 6
+  repeat showed, because the cut lands at a fixed session age and the delay from
+  the change moves with how late the change fell after the session was minted —
+  and the `cookie_refresh` + cache TTL ceiling of **330 s**, which does not
+  move, was reached deliberately, by minting a cache entry four seconds before
+  the refresh boundary — sixteen requests answered 200 past a boundary the
+  session had already crossed. Inside the target, with 30 s of margin and
   no term left to absorb anything slower. It also corrects the lever named
   above: the two terms are not sequential delays, because a cache hit never
   reaches oauth2-proxy at all, and shaving the **cache TTL** buys the same

@@ -300,7 +300,10 @@ Verify the architecture actually works before writing code.
       not a sum of two delays, though: 150 polls produced 10 consultations of
       `/oauth2/auth`, exactly one TTL apart, because a cache hit never reaches
       oauth2-proxy at all — the cache decides **when the refresh is attempted**.
-      Harness: `verify-n03.sh` on the lab host, driven from the workstation*
+      Harness: `verify-n03.sh` on the lab host, driven from the workstation.
+      The Phase 6 repeat of this box qualified the 283: it is the delay of this
+      run, not of the product — the cut lands at a fixed session age, so only
+      the 330 s ceiling is a number about the system.*
 - [x] **MEASURE:** an **active** WebSocket connection (steady traffic, not idle) —
       how long does access survive after the user is removed from the group?
       `proxy_read_timeout` is an idle timeout and will not cut it; this measurement
@@ -1101,8 +1104,21 @@ So the portal's data does not have to be filled in by hand with SQL.
 
 ## Phase 6 — Hardening and packaging
 
-- [ ] **Deprovisioning delay test** — does the N-03 target hold (repeat the Phase 1
+- [x] **Deprovisioning delay test** — does the N-03 target hold (repeat the Phase 1
       measurement)
+      *Both runs repeated against the current chain. **It holds, and nothing
+      Phases 2-5 added put a term in the path:** the cut lands at session age
+      `5m2.6s` ordinarily and `5m27.7s` at the ceiling, where Phase 1 read
+      `5m2.1s` and `5m27.2s`, and the consultation grid is still exactly 30 s.
+      The ceiling is unchanged at `cookie_refresh` + cache TTL = **330 s**
+      against N-03's 360 s. The kill switch's index write sits on the cache-miss
+      path — the same request that does the refresh — and cost nothing.
+      **The repeat also corrected what to publish.** 283 s was a property of the
+      experiment, not of the system: the cut happens at a fixed session age, so
+      the delay measured from the AD change is that age minus how late the
+      change fell after the session was minted. The same behaviour measured
+      272.6 s, 283.2 s, 314.2 s and 316.7 s across four runs. Only the ceiling
+      is a number about the product (`docs/07`).*
 - [ ] **One real application, integrated end to end** — Jenkins or SonarQube
       behind the proxy, reached from the portal, with no second password
       prompt, and the recipe written into `INSTALL.md`. The lab's `sample-app`

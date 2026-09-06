@@ -1372,6 +1372,71 @@ entitlement through `/api/admin/*` and deletes them afterwards, and signs
 `labuser` in three times over: one session to lose, one to prove the other
 browser survives, and one for the no-JavaScript fallback.
 
+### MEASURE — deprovisioning re-measured, and the number that was the experiment's
+
+[ADR-0016](adr/0016-n03-revocation-targets.md) makes Phase 6 repeat the Phase 1
+measurement as an exit criterion, and the question it asks is narrow: did
+anything Phases 2-5 added put a term into the revocation path? The candidate is
+real. The kill switch ([ADR-0019](adr/0019-kill-switch-session-index.md)) writes
+a `sub → session` index on every cache miss, and a miss is exactly the request
+that reaches oauth2-proxy and triggers the refresh. Both runs of the Phase 1
+harness were repeated against the current chain, on the same lab, with the same
+`labuser` and the same generated `wiki` vhost.
+
+**Ordinary case.** Session minted 19:03:12.40, the group out of AD at
+19:03:42.86 — 30.4 s later, against Phase 1's 19.5 s.
+
+| t (from the session) | event | answer |
+|---|---|---|
+| +0 s | session minted, `expires` 19:08:12.40 | 200 |
+| +30.4 s | `samba-tool group removemembers` | — |
+| +53 s | Keycloak asked for the user's groups | **empty** |
+| +301.0 s | last request on the old membership | 200 |
+| +303.0 s | `Refreshing session … SessionAge: 5m2.595s` | **302**, `deny="no_matching_grant"` |
+
+150 answers of 200 then 120 of 302, and **10 consultations of `/oauth2/auth`
+after the login flow's three, still exactly 30 s apart** — the cache TTL still
+decides when the refresh is attempted, and the index write added nothing to the
+grid.
+
+**Ceiling.** Session minted 19:18:01.35, the group out of AD 11.3 s later; one
+request at t+296 and silence before it.
+
+| t | request | answer |
+|---|---|---|
+| +296 s | cache miss at session age 4 m 56 s, no refresh | 200 |
+| +298 … +326 s | **16 hits, every one past the 19:23:01 boundary** | 200 |
+| +328 s | cache miss, `Refreshing session … SessionAge: 5m27.653s` | **302** |
+
+Phase 1 read `5m2.057s` and `5m27.187s` at the same two points, and cut at
+t+302.7 and t+328.0. The repeat reads `5m2.595s` and `5m27.653s`, and cuts at
+t+303.0 and t+328.0. **N-03 holds and nothing was added:** the ceiling is still
+`cookie_refresh` + cache TTL = **330 s** against the target's 360 s, and it is
+still reached rather than approached.
+
+The repeat did settle one thing a single measurement could not. **283 s was
+never a property of the system.** The cut lands at a fixed *session age*; how
+long that takes to arrive after the AD change is that age minus however long the
+change happened to fall after the session was minted. Phase 1 removed the group
+at t+19.5 and measured 283.2 s; this run removed it at t+30.4 and measured
+**272.6 s**, and the ceiling run removed it at t+11.3 and measured **316.7 s**
+where Phase 1 measured 314.2 s. Four numbers spanning 44 s, describing identical
+behaviour. The quantity to publish is the ceiling, which does not move: a change
+landing in the same second as the mint waits the whole `cookie_refresh` + TTL,
+and nothing waits longer.
+
+Harness: `verify-n03.sh` on the lab host, unchanged, driven from the workstation
+in both directions — the DC is on the other host. `labuser` was put back into
+`OpenBerat-Finance` and the application and entitlement deleted afterwards; the
+generated `apps.conf` is back to its header.
+
+One thing the repeat needed that Phase 1 did not: **the Keycloak component ids
+written down anywhere are stale by construction.** The realm is re-imported on
+every `docker compose build keycloak` and H2 has no volume, so the LDAP provider
+gets a fresh id each time — look it up by `type` rather than by a recorded id.
+Its `cachePolicy` was still `NO_CACHE`, which is what keeps the directory's own
+contribution zero.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is
@@ -1499,9 +1564,13 @@ Phase 1 lab:
       internal HTTP call does not disappear.
 - [ ] Can Keycloak carry an AD group's `objectSid` into a token claim? If it can,
       ADR-0008 (name vs SID) becomes easy to resolve.
-- [x] **Answered: 283 s ordinarily, 330 s at the ceiling.** The real
-      deprovisioning delay as measured with `cookie_refresh`. Measured above,
-      through the committed chain and with the directory contributing nothing.
+- [x] **Answered: 330 s, and that is the only figure worth publishing.** The
+      real deprovisioning delay as measured with `cookie_refresh`. Measured
+      above, through the committed chain and with the directory contributing
+      nothing, then re-measured in Phase 6 and unchanged. The delay counted from
+      the AD change ranged over 272.6-316.7 s across four runs of identical
+      behaviour, because the cut lands at a fixed session age; the ceiling is
+      what does not move.
 - [x] Does oauth2-proxy return `Set-Cookie` when performing `cookie_refresh` on
       `/oauth2/auth`? **Yes** — measured above. In the official pattern the subrequest's upstream is
       oauth2-proxy; in ours it is the backend. **If it is not relayed the cookie
