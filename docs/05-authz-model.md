@@ -98,7 +98,7 @@ deprovisioning.
 force this:
 
 - Learning `sub` requires a call to oauth2-proxy. If that internal HTTP call
-  stays on every request, N-01 (< 5 ms) will not hold — so the identity has to
+  stays on every request, N-01 (< 2 ms) will not hold — so the identity has to
   live in the entry.
 - A verdict **cannot be keyed by the rule it matched.** Finding the matching
   `path_pattern` *is* the DB query we are trying to avoid, so the matched

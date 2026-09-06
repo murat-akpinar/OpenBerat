@@ -177,9 +177,20 @@ Verify the architecture actually works before writing code.
       what the fix made it. Both halves in `docs/07`, rule 1 in
       `nginx/conf.d/README.md` rewritten, one row added to `docs/05`'s attack
       table; the one-shot test is `verify-signin.sh` on the lab host*
-- [ ] **MEASURE:** double-hop latency with a three-line fake `/decide` (draft N-01/N-02).
+- [x] **MEASURE:** double-hop latency with a three-line fake `/decide` (draft N-01/N-02).
       Wait for the real backend and you only see the number that justifies the
-      architecture in Phase 3
+      architecture in Phase 3.
+      *Measured (`docs/07`). Five paths, identical content phase, one variable
+      changed. **A cache hit costs +74 µs, a cache miss +571 µs, and the whole
+      architecture costs +126 µs over the stock oauth2-proxy pattern** — that
+      last figure is what ADR-0002 is spending to run the chain inside the
+      backend. The `auth_request` machinery itself is free (+6 µs); the hop is
+      what costs. N-01 drafted at **< 2 ms** and N-02 at **< 10 ms** in
+      `docs/06` — both still loose, because the fake `/decide` does no work and
+      the real miss adds the entitlement query and the index write. Method note
+      for Phase 6: two rounds in nine had all five paths displaced ~3 ms at once
+      by in-guest CPU contention, so the headline is the median of per-round
+      p50s, and under contention the double hop degraded first and furthest.*
 - [ ] **MEASURE:** remove a user from a group in AD → how many seconds until access
       is cut? Verify the `cookie_refresh` + cache TTL sum, compare with N-03
 - [ ] **MEASURE:** an **active** WebSocket connection (steady traffic, not idle) —

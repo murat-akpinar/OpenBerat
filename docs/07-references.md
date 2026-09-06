@@ -429,6 +429,63 @@ The old configuration was correct by accident; the new one would have been a
 401 with a `Location` nobody follows — the exact failure the rule describes,
 reachable only now that the handler is a proxy.
 
+### MEASURE — what the double hop costs
+
+Five paths on one throwaway vhost, identical content phase (whoami over the
+`edge` network), one variable changed: what the access phase has to do first.
+A three-line fake `/decide` stood in for the backend — `return 200` for a cache
+hit, `proxy_pass` to oauth2-proxy for a miss — in its own container on `core`,
+so the hop crosses the same bridge the real backend will. Every subrequest leg
+pooled (`keepalive`), HTTP/1.1, concurrency 1, 400 requests a round, 9 rounds,
+first request of each round dropped because it paid for the TLS handshake.
+
+| Path | What the access phase does | p50 |
+|---|---|---|
+| `direct` | nothing — no `auth_request` | **552 µs** |
+| `local` | `auth_request` answered inside the same nginx | **558 µs** |
+| `hit` | `auth_request` → fake `/decide`, answers alone | **626 µs** |
+| `official` | `auth_request` → oauth2-proxy, the stock pattern | **997 µs** |
+| `miss` | `auth_request` → fake `/decide` → oauth2-proxy | **1123 µs** |
+
+Read as deltas:
+
+- **The subrequest machinery is free**: +6 µs, inside the noise. What costs
+  money is the hop, not `auth_request` itself.
+- **N-01 draft — a cache hit costs +74 µs.** The decision adds well under a
+  tenth of a millisecond to a request when the entry is warm.
+- **N-02 draft — a cache miss costs +571 µs**, of which +497 µs is the
+  oauth2-proxy call (cookie decrypt + Redis session load). The real miss adds
+  the entitlement query and the `sub → session` index write on top; neither
+  exists yet.
+- **Our architecture costs +126 µs over the stock oauth2-proxy pattern.** That
+  is the number ADR-0002 is spending: a second `auth_request` is impossible, so
+  the chain runs inside the backend, and this is the bill for the extra hop.
+
+Two things the harness does not measure. The fake `/decide` does no work —
+no cache lookup, no path normalisation, no rule evaluation, no database — so
+these are the topology's price, not the product's. And the bare-hop figure
+(`hit` − `local`, +68 µs) understates a real hop: it answers with `return 200`
+and never builds an upstream request, which is why the proxying hop on the miss
+path costs nearly twice that.
+
+**The environment moves more than the architecture does.** Two rounds out of
+nine had every one of the five paths displaced by about +3 ms at once — a
+2-core guest with background load, hypervisor steal at zero, so the contention
+is inside the guest. The headline above is therefore the **median of the
+per-round p50s**, not a pooled percentile: pooling lets one bad round move the
+answer. Worth carrying into Phase 6, because under contention the deltas grew
+rather than held — `miss` has the longest process chain (curl → nginx →
+fake `/decide` → oauth2-proxy) and degraded first and furthest.
+
+The measured user was in **one** AD group, so oauth2-proxy's identity header
+block was ~186 bytes. A user in hundreds of groups returns a far larger block
+on the same path — see the 4 KB buffer measurement above, which is the same
+response travelling the same way.
+
+Harness: `bench3.sh`, `99-bench.conf` and `bench-decide.conf` on the lab host;
+the vhost and the container were removed afterwards and the stack is back on
+the committed configuration.
+
 ## Unverified, to be tested
 
 These claims have not been confirmed against a source; they will be tried in the
