@@ -511,10 +511,22 @@ async fn fake_oauth2_proxy() -> (String, Arc<AtomicUsize>) {
         if !cookie.contains("valid") {
             return StatusCode::UNAUTHORIZED.into_response();
         }
-        let groups = if cookie.contains("admin") {
-            "OpenBerat-Admins,OpenBerat-Finance"
-        } else {
-            "OpenBerat-Finance"
+        // The group list is the one header in this chain that grows without
+        // bound: every group a user is in arrives comma-joined in this one
+        // value. nginx needed a 32k buffer for it (docs/07); this is the same
+        // question asked of the backend's own HTTP client.
+        let many = cookie
+            .split("groups=")
+            .nth(1)
+            .and_then(|n| n.split(';').next())
+            .and_then(|n| n.trim().parse::<usize>().ok());
+        let groups = match many {
+            Some(n) => std::iter::once("OpenBerat-Finance".to_string())
+                .chain((0..n).map(|i| format!("OpenBerat-Generated-{i:04}")))
+                .collect::<Vec<_>>()
+                .join(","),
+            None if cookie.contains("admin") => "OpenBerat-Admins,OpenBerat-Finance".to_string(),
+            None => "OpenBerat-Finance".to_string(),
         };
         let mut response = StatusCode::ACCEPTED.into_response();
         let h = response.headers_mut();
@@ -882,6 +894,38 @@ async fn decide_section(pool: &PgPool) {
     );
     index.forget("sub-labuser").await.unwrap();
     while queue.try_recv().is_ok() {}
+
+    // --- how many AD groups the backend's own HTTP client survives ---
+    // nginx's half of this is measured (docs/07): the group list travels
+    // comma-joined in one header, and a 4 KB buffer breaks between 100 and 200
+    // groups, which auth_request turns into a 500 for the client — a lockout of
+    // exactly the users with the most groups. The backend reads that same
+    // header off oauth2-proxy's response with a different HTTP client, so the
+    // limit is a different number and had never been asked for.
+    //
+    // Measured here: it holds to 15,000 groups (380 KB) and fails at 20,000
+    // (510 KB), which is hyper's header buffer — 8 KB + 4 KB per allowed
+    // header, about 408 KB — and not the 1 s budget: raising that to 20 s
+    // changed nothing. That is an order of magnitude above the 32 KB nginx
+    // buffer in front of it, so nginx is still what binds. The numbers below
+    // stay well inside both.
+    for count in [200usize, 800, 2000] {
+        let cookie = format!(
+            "{}; groups={count}",
+            session(&format!("many{count}"), "valid")
+        );
+        let response = ask(shared.clone(), full("/reports/q1", &cookie)).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "a user in {count} groups still gets a decision"
+        );
+        let echoed = response.headers().get("x-auth-groups").unwrap().len();
+        assert!(
+            echoed > count * 15,
+            "{count} groups came back whole: {echoed} bytes"
+        );
+    }
 
     // --- the two endpoints that can tell an outage from a policy ---
     let probe = async |ctx: Arc<Ctx>, path: &str| {

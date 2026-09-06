@@ -281,6 +281,33 @@ unpadded, so a decoder that assumes one alphabet fails on the other; and the
 decoded handle *is* the Redis key as ASCII rather than bytes that need hex
 encoding.
 
+### The backend's own limit on that same group list
+
+**~408 KB of response headers, about 16,000 group names — and it fails as an
+outage, not as a size problem.** nginx's half of this is measured below; the
+backend reads the same `X-Auth-Request-Groups` off oauth2-proxy's response with
+a different HTTP client, so the number is different and had never been asked
+for. Measured through `/decide` against a stand-in that generates the list:
+
+| groups | header | result |
+|---|---|---|
+| 800 | 20 KB | 200 |
+| 2 000 | 50 KB | 200 |
+| 10 000 | 250 KB | 200 |
+| 15 000 | 380 KB | 200 |
+| 20 000 | 510 KB | **403 `auth_unavailable`** |
+
+The ceiling is hyper's header buffer — 8 KB plus 4 KB per allowed header, about
+408 KB — and **not** the 1 s oauth2-proxy budget: raising that to 20 s changed
+nothing, which is the experiment that separates the two.
+
+Two consequences. It is an order of magnitude above the 32 KB `proxy_buffer_size`
+nginx needs for the same list (~1,300 groups), so **nginx is still the binding
+constraint** and the one to raise first. And when it does bite, the request
+denies with `auth_unavailable` — which reads as "oauth2-proxy is down" and sends
+an operator to restart the wrong service. Anyone raising nginx's buffer past
+~400 KB has to raise this at the same time.
+
 ### A user in many groups — the cookie stays small, the header does not
 
 **The cookie size problem is gone.** With `session_store_type = redis` the

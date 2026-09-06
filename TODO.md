@@ -491,9 +491,17 @@ has a first draft, and there is still not one line of code.
       shared; the value is still nginx's, never the request's. A server that
       forgets to set it sends empty and the backend denies `missing_context`,
       which is the right direction to fail in.*
-- [ ] **Check the backend's own HTTP client header limit** the same way — it
+- [x] **Check the backend's own HTTP client header limit** the same way — it
       reads oauth2-proxy's response, which carries that same group list. The
       nginx half is measured; this half is not
+      *Measured (`docs/07`): **~408 KB, about 16,000 group names.** 15,000
+      groups (380 KB) pass, 20,000 (510 KB) fail. It is hyper's header buffer
+      and not the 1 s budget — raising that to 20 s changed nothing, which is
+      the experiment that separates the two. An order of magnitude above the
+      32 KB nginx needs for the same list, so nginx stays the binding
+      constraint. The unpleasant part is the failure mode: it denies with
+      `auth_unavailable`, which reads as "oauth2-proxy is down" and sends an
+      operator to restart the wrong service.*
 - [x] `nginx/conf.d/20-apps.conf`: protected applications, **strip** incoming
       `X-Auth-*` headers
       *Hand-written for the two lab samples, and deliberately shaped as the
