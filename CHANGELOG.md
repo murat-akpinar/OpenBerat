@@ -16,6 +16,7 @@
 - *(cache)* The decision cache, and the audit summaries that leave it ([1e2a866](https://github.com/murat-akpinar/OpenBerat/commit/1e2a8661f98ff40126825737682dbc545077ed7b)) — Keyed on `(cookie_hash, app_slug)`, holding the identity and the rule list rather than a verdict — the matched pattern cannot be part of a key, because finding it is the query the cache exists to avoid. Every request, hit or miss, is evaluated against the full rule list, so a deny can never be skipped by two paths colliding on one key.
 - *(session)* The sub -> session key index the kill switch needs ([be3996c](https://github.com/murat-akpinar/OpenBerat/commit/be3996c5c7ae944f33ecd96bfa18feb612fb9361))
 - *(nginx)* The PEP wiring — decide subrequest, header rewrite, error pages ([631f799](https://github.com/murat-akpinar/OpenBerat/commit/631f7991a279b2382b43b81b4c00dea0540efe42)) — Everything between the browser and an application: `auth_request /decide`, the identity lifted off its response and written upstream, the login and "no access" redirects, and the local page an outage answers with.
+- *(api)* /healthz and /readyz, the only visible difference in an outage ([ed3bf6f](https://github.com/murat-akpinar/OpenBerat/commit/ed3bf6f7c596a572ea23808dab72569c8a3f4d1a)) — The fail-closed rule hides its own failures. With Postgres unreachable `/decide` answers 403 for every request, and from outside that is indistinguishable from a policy that denies everyone — same status, same page, same silence. These two endpoints are where the difference lives.
 
 ### 🐛 Bug Fixes
 
