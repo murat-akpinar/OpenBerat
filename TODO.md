@@ -1205,7 +1205,30 @@ So the portal's data does not have to be filled in by hand with SQL.
       expired data forever. It is logged and the expiry continues; the month
       after heals itself. Both halves are tested, and both assertions were seen
       to fail against a deliberately broken implementation.*
-- [ ] Monitoring: decision latency, error rate, cache hit rate, audit loss counter
+- [x] Monitoring: decision latency, error rate, cache hit rate, audit loss counter
+      *`GET /metrics`, Prometheus text format, hand-written — the exposition is
+      four line shapes and the counters were already named in the code
+      (`Deny::as_str`, `store::audit_dropped`), so a client library would have
+      been a second vocabulary for the same words. It sits with `/healthz` and
+      `/readyz` on the internal network, which is the reason **nothing in it
+      carries a user, a `sub` or an application**: nginx proxies none of the
+      three, so anything that can open port 8081 can read it, and a per-user
+      label would make a scrape a way to enumerate who is signed in.
+      **The two series that matter are the ones the fail-closed rule hides.**
+      `store_unavailable` and `auth_unavailable` answer 403 exactly like a
+      policy denial does, so from outside an outage looks like a strict policy;
+      per-reason counters are the only place the difference shows (INSTALL.md
+      §10). N-01 and N-02 are histogram bucket **edges** rather than something
+      to interpolate, so the fraction meeting each target is read off the
+      exposition.
+      Measured on the live chain: every cache hit **under 0.25 ms** against
+      N-01's 2 ms, a warm miss 2 ms or under in four of five samples, and the
+      only request that came near N-02 was the first one after a restart —
+      a cold connection pool, not the decision. Not a load result; that is the
+      box below. The counters were checked by making them move by exactly what
+      the traffic did, and all three false alarms the run produced were the
+      harness reading a status code where the answer was in the `Location`, the
+      body, or a `# HELP` line (`docs/07`).*
 - [ ] Versioning, release image, offline bundle for air-gapped installation.
       Rewrite the `SECURITY.md` scope section — it says there is no released
       version yet, which stops being true here

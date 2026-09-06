@@ -154,6 +154,7 @@ updated together.
 | `GET /api/admin/audit` | admin | Audit record, filtered by `actor` / `app` / `decision` / `reason` / `since` / `until`, paged with a `(before_ts, before_id)` keyset cursor. A filter it cannot honour is a 400, never ignored |
 | `GET /api/admin/explain` | admin | Why a request would be decided as it is: `user` (the Keycloak `sub`), `groups` (comma-separated, **required** — the backend holds no directory and guessing drops every group rule), `host`, `path`. Read-only: no cache entry, no audit row. Answers from the entitlement table, so for up to one cache TTL after a rule change it is ahead of the PEP |
 | `POST /api/admin/kill/{sub}` | admin | Kill switch: Keycloak `logout-all` → the session keys from the index → that user's cache entries → the index entry (ADR-0019). `sub` is the Keycloak user id and is parsed as a UUID — it is interpolated into an Admin API path. A failed step stops the ones after it and answers 503 naming which, rather than reporting a kill that did not happen; a `sub` no user has is a 404, not an outage |
+| `GET /metrics` | operator, Prometheus | Decision latency, decisions by outcome and reason, cache hit rate, audit rows lost. Prometheus text format. Counters only: no user, no `sub`, no application in a label |
 | `GET /healthz` | operator, compose | The process is alive. No dependencies checked, no body |
 | `GET /readyz` | operator, nginx | Postgres and Redis are reachable. 200 or 503 |
 
@@ -165,6 +166,13 @@ tell whether the policy is working or the system is down — which is exactly wh
 the break-glass decision has to be made ([ADR-0017](adr/0017-fail-closed-availability.md)).
 They are reachable on the internal network only, like `/decide`, and they are
 the health check the second instance in Phase 6 needs.
+
+`/metrics` is on the same network for the same reason, and it is why nothing in
+it is labelled with a user or an application: nginx proxies none of these three,
+so anything that can open port 8081 can read them, and a per-user counter would
+turn a scrape into a way to enumerate who is signed in and what they reach.
+Prometheus reaches it from a container on `core`; an operator with a shell
+reaches it the way the break-glass runbook reaches `/readyz`.
 
 ### The `/decide` request contract
 
@@ -502,7 +510,7 @@ is the rehearsed break-glass below, not a promise of uptime.
 | **Break-glass:** a second nginx config in the same image, via `docker compose --profile breakglass` — written down and **rehearsed** | **Yes**, Phase 3 exit criterion |
 | Timeout budget decreasing outward-in (`/decide` 2s → oauth2-proxy 1s → sqlx 500ms) | **Yes**, a design constraint |
 | `error_page 500 502 503 504` → local static maintenance page (no bare nginx 500) | **Yes** |
-| Monitoring: decision latency, error rate, cache hit rate | Phase 6 |
+| Monitoring: decision latency, error rate, cache hit rate, audit loss | **Yes**, `GET /metrics` — the four counters the fail-closed rule otherwise hides |
 
 ## Deployment (v1: single machine, docker compose)
 

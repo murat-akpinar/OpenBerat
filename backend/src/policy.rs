@@ -36,6 +36,21 @@ pub enum Deny {
 }
 
 impl Deny {
+    /// Every reason, for the /metrics counter that needs one series each. The
+    /// exhaustive match below is what stops a new variant being added without
+    /// this list being seen; the counter indexes by discriminant and falls back
+    /// to no series rather than out of bounds, so forgetting it loses a number
+    /// and never a request (`metrics.rs`).
+    pub const ALL: [Deny; 7] = [
+        Deny::MalformedUri,
+        Deny::ApplicationDisabled,
+        Deny::ExplicitDeny,
+        Deny::NoMatchingGrant,
+        Deny::MissingContext,
+        Deny::StoreUnavailable,
+        Deny::AuthUnavailable,
+    ];
+
     pub fn as_str(self) -> &'static str {
         match self {
             Deny::MalformedUri => "malformed_uri",
@@ -235,6 +250,16 @@ pub fn is_admin(groups: &[String], admin_group: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `metrics.rs` indexes its per-reason counters by discriminant and reads
+    /// the names back out of `ALL`. Out of order, and every denial is filed
+    /// under somebody else's name.
+    #[test]
+    fn every_deny_reason_sits_at_its_own_discriminant() {
+        for (index, reason) in Deny::ALL.iter().enumerate() {
+            assert_eq!(*reason as usize, index, "{}", reason.as_str());
+        }
+    }
 
     fn rule(effect: Effect, path_pattern: &str) -> Rule {
         Rule {

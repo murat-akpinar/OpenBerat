@@ -1805,6 +1805,68 @@ and Keycloak's login page have no icon link. Serving `/favicon.ico` anonymously
 would remove that one instance; it does not remove the class, which is why the
 fix is the cookie name and not the favicon.
 
+### MEASURE — `/metrics`, and what a decision actually costs on the finished chain
+
+The Phase 6 monitoring box, run against the lab stack with `verify-metrics.sh`
+(on the lab host). Five requests through the whole chain — nginx `auth_request`
+-> `/decide` -> oauth2-proxy -> Postgres — then four more spaced 31 s apart, one
+second past the 30 s decision cache TTL, so each of those is a miss. The
+exposition is scraped from inside the `core` network before and after, and every
+number below is a delta.
+
+**The counters move by exactly what the traffic did**, which is the assertion —
+a counter that is merely present tells you nothing:
+
+| Series | Traffic | Delta |
+|---|---|---|
+| `decision_total{decision="allow"}` | three requests to an entitled application | 3 |
+| `decision_total{decision="deny",reason="malformed_uri"}` | one `/%2561dmin/` | 1 |
+| `decision_total{decision="unauthenticated"}` | one request with no cookie | 1 |
+| `decision_cache_total{result="hit"}` | the second and third, plus the refusal | 3 |
+| `decision_cache_total{result="miss"}` | the first | 1 |
+| `decision_duration_seconds_count` | all five | 5 |
+| `audit_dropped_total` | — | 0 |
+
+The latency, read off the histogram buckets rather than averaged, against
+N-01 (2 ms on a cache hit) and N-02 (10 ms on a miss):
+
+| What the request was | n | Where it landed |
+|---|---|---|
+| Cache hit | 3 | **≤ 0.25 ms**, all three |
+| Cache miss, warm | 5 | 4 at **≤ 2 ms**, one at ≤ 5 ms |
+| No session at all — 401, then the login redirect | 1 | ≤ 1 ms |
+| Cache miss, **first request after a restart** | 1 | ≤ 10 ms |
+
+That last row is the one worth keeping. It is the same code as the row above it;
+what it pays for is the first Postgres connection and the first HTTP connection
+to oauth2-proxy, and it is the only measurement in this set that comes near
+N-02. A load test that opens with a cold pool will read the whole product as
+slower than it is — and one that discards its first sample will miss the only
+moment a real deployment is slow. Neither figure is a load result: this is one
+user, one application, no concurrency. N-01 and N-02 are fixed under load in the
+box after this one.
+
+Three things the run got wrong before it got them right, all three in the
+harness rather than in the product, and all three the same mistake — reading a
+status code where the answer is somewhere else:
+
+- **A denial is a 302, not a 403.** `error_page 403` sends the browser to the
+  portal's `/denied` page, which lives on another host, so nginx cannot serve it
+  internally (`errors.inc`, README rule 7). The counter had already recorded
+  `malformed_uri` while the harness was calling it a failure. What distinguishes
+  a denial from a login redirect at the client is the `Location`, not the status.
+- **`/metrics` on the portal answers 200.** The portal's `location /` falls back
+  to `index.html` for anything it has no file for, so the interesting question is
+  not the status but the body — and the body is the portal page. Nothing proxies
+  `/metrics` to the backend: the only path to it is the `core` network.
+- **The first read of `audit_dropped_total` returned `Postgres.`** — the word at
+  the end of its own `# HELP` line. Grepping an exposition for a series name
+  matches the comments too.
+
+The exposition names nobody. Checked for the username, the application slug, the
+hostname and both address ranges the lab uses: none appear, because the only
+labels in it are `decision`, `reason`, `result` and `le`.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is

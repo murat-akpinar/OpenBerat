@@ -18,6 +18,10 @@
 //                     leaves the index; the same user's other browser must stay
 //                     killable. The frontend then sends the browser through
 //                     /signout -> /oauth2/sign_out -> Keycloak end_session.
+//   GET /metrics      decision latency, error rate, cache hit rate and the audit
+//                     loss counter, in Prometheus text format. Unauthenticated
+//                     and internal-network only, like the two below, so it
+//                     carries counters and no identities (`metrics.rs`).
 //   GET /healthz      the process is alive; no dependencies checked
 //   GET /readyz       Postgres and Redis reachable — 200 or 503. /decide cannot
 //                     report an outage (a dead DB looks like a denied user), so
@@ -59,6 +63,7 @@
 
 use crate::cache::{self, Cache, Cached, Identity, Key};
 use crate::keycloak::Keycloak;
+use crate::metrics;
 use crate::policy::{self, Decision, Deny};
 use crate::session::{self, Index};
 use crate::store::{self, AuditEvent};
@@ -110,6 +115,7 @@ pub fn router(ctx: Arc<Ctx>) -> Router {
         .route_layer(middleware::from_fn_with_state(ctx.clone(), indexed));
     Router::new()
         .route("/decide", get(decide))
+        .route("/metrics", get(exposition))
         .route("/healthz", get(async || StatusCode::OK))
         .route("/readyz", get(readyz))
         .merge(api)
@@ -374,6 +380,16 @@ async fn readyz(State(ctx): State<Arc<Ctx>>) -> Response {
         .into_response()
 }
 
+/// Prometheus reads this; nothing else does. The version parameter is the
+/// exposition format's own and is what a scraper content-negotiates on.
+async fn exposition() -> Response {
+    (
+        [("content-type", "text/plain; version=0.0.4; charset=utf-8")],
+        metrics::render(),
+    )
+        .into_response()
+}
+
 enum Authentication {
     Verified(Arc<Identity>, Vec<HeaderValue>),
     Anonymous,
@@ -385,7 +401,20 @@ enum Authentication {
 /// when somebody puts one in a URL.
 const AUDIT_PATH_LIMIT: usize = 512;
 
+// --- Feature Start ---
+// The N-01/N-02 stopwatch, around the handler rather than inside it: /decide
+// has seven refusal paths, and a timer written at each of them is one somebody
+// forgets at the eighth — which is how the slowest branch becomes the one that
+// is never measured.
+// --- Feature End ---
 async fn decide(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Response {
+    let start = std::time::Instant::now();
+    let response = decided(&ctx, headers).await;
+    metrics::observe(start.elapsed());
+    response
+}
+
+async fn decided(ctx: &Ctx, headers: HeaderMap) -> Response {
     // --- Feature Start ---
     // Every one of these is written unconditionally by the shared nginx include
     // (docs/02, request contract), so a missing one does not mean an unusual
@@ -423,7 +452,8 @@ async fn decide(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Response {
     if let Some(key) = &request.key
         && let Some(cached) = ctx.cache.get(key)
     {
-        return answer(&ctx, &request, &cached);
+        metrics::cache(true);
+        return answer(ctx, &request, &cached);
     }
 
     // Single-flight: a page of fifty assets arriving on an expired entry
@@ -436,14 +466,26 @@ async fn decide(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Response {
     if let Some(key) = &request.key
         && let Some(cached) = ctx.cache.get(key)
     {
-        return answer(&ctx, &request, &cached);
+        // Filled by whoever won the single-flight race. It waited, but it was
+        // served from the cache, and the hit rate is about the double hop.
+        metrics::cache(true);
+        return answer(ctx, &request, &cached);
+    }
+    // A request with no session cookie has no key to cache under: it is not a
+    // miss, and counting it would turn the hit rate into a measure of how much
+    // anonymous traffic arrived.
+    if request.key.is_some() {
+        metrics::cache(false);
     }
 
-    let (identity, set_cookie) = match authenticate(&ctx, cookie).await {
+    let (identity, set_cookie) = match authenticate(ctx, cookie).await {
         Authentication::Verified(identity, set_cookie) => (identity, set_cookie),
         // nginx turns this into the login redirect. A 403 here would show the
         // "no access" page to someone who has simply not logged in yet.
-        Authentication::Anonymous => return StatusCode::UNAUTHORIZED.into_response(),
+        Authentication::Anonymous => {
+            metrics::unauthenticated();
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
         // Not audited, and not for want of trying: there is no verified actor
         // to name yet. The tracing line inside authenticate is the record.
         Authentication::Unavailable => return refuse(Deny::AuthUnavailable),
@@ -468,7 +510,7 @@ async fn decide(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Response {
         return refuse(Deny::StoreUnavailable);
     }
 
-    let cached = match load(&ctx, &request, &identity).await {
+    let cached = match load(ctx, &request, &identity).await {
         Ok(cached) => cached,
         // Auditing a Postgres outage would mean writing a row to the Postgres
         // that is not answering. tracing carries this one.
@@ -478,7 +520,7 @@ async fn decide(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Response {
         ctx.cache.insert(key.clone(), sub, cached.clone());
     }
 
-    let mut response = answer(&ctx, &request, &cached);
+    let mut response = answer(ctx, &request, &cached);
     // --- Feature Start ---
     // The relay is not conditional on the answer. oauth2-proxy refreshes the
     // session on the subrequest whatever the decision turns out to be, and a
@@ -595,7 +637,10 @@ fn answer(ctx: &Ctx, request: &Subrequest, cached: &Cached) -> Response {
         });
     }
     let mut response = match decision {
-        Decision::Allow => StatusCode::OK.into_response(),
+        Decision::Allow => {
+            metrics::outcome(decision);
+            StatusCode::OK.into_response()
+        }
         Decision::Deny(reason) => refuse(reason),
     };
     identify(&mut response, &cached.identity);
@@ -674,7 +719,12 @@ fn identify(response: &mut Response, identity: &Identity) {
     headers.insert("x-auth-groups", identity.groups.clone());
 }
 
+// Every refusal in the file goes through here, which is why the counter is
+// here and not at each caller: /decide answers 403 for a policy denial and for
+// an outage alike (ADR-0017), and the series that separates them is the only
+// place the difference is visible from outside.
 fn refuse(reason: Deny) -> Response {
+    metrics::outcome(Decision::Deny(reason));
     let mut response = StatusCode::FORBIDDEN.into_response();
     response.headers_mut().insert(
         HeaderName::from_static("x-deny-reason"),

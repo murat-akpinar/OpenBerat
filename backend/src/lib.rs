@@ -5,6 +5,7 @@ pub mod admin;
 pub mod api;
 pub mod cache;
 pub mod keycloak;
+pub mod metrics;
 pub mod policy;
 pub mod session;
 pub mod store;

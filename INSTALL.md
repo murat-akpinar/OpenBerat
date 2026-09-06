@@ -520,8 +520,42 @@ immutable by rule (`CONTRIBUTING.md`), so a column the newer version added is a
 column the older one cannot take. That file is evidence; it is not always a
 restore.
 
+## 10. Watching it
+
+`GET /metrics` on the backend answers in Prometheus text format. It is on the
+internal network only — nginx does not proxy it, and neither `/healthz` nor
+`/readyz` is proxied either — so it is reached the way the break-glass runbook
+reaches `/readyz`:
+
+```sh
+docker compose exec nginx wget -qO- http://backend:8081/metrics
+```
+
+or by a Prometheus on the `core` network scraping `backend:8081/metrics`. There
+is no authentication in front of it, which is why nothing in it is labelled with
+a user, a `sub` or an application: anything that can open port 8081 can read it.
+
+Four things are worth an alert, and the first two exist because **a fail-closed
+system hides its own outage** — with Postgres or oauth2-proxy down, every user
+is refused, and from outside that is indistinguishable from a policy that
+refuses everybody:
+
+| Series | Watch for |
+|---|---|
+| `openberat_decision_total{reason="store_unavailable"}` | anything above zero. Postgres is not answering and every decision is a denial |
+| `openberat_decision_total{reason="auth_unavailable"}` | the same, for oauth2-proxy |
+| `openberat_decision_cache_total` | the hit rate falling. Misses are the requests that pay for the double hop, and the cache is what N-01 rests on |
+| `openberat_audit_dropped_total` | anything above zero, ever. It counts audit summaries that never reached Postgres — accesses that happened and are not in the record |
+
+`openberat_decision_duration_seconds` is a histogram with bucket edges at 2 ms
+and 10 ms, which are N-01 and N-02 (`docs/06`), so the fraction of decisions
+meeting each target is read off the exposition rather than estimated from a
+quantile. `reason="no_matching_grant"` climbing is not an outage — it is usually
+an application whose entitlements were never mapped, and the `/api/admin/explain`
+screen answers why for one user.
+
 > Phase 1 and the phases after it are done and this file follows them: the
 > certificate, the realm import, the AD federation, the first login, adding an
 > application and integrating one are all written above and were replayed on a
-> clean checkout. What is still missing belongs to Phase 6 —
-> monitoring and the release image (`TODO.md`).
+> clean checkout. What is still missing belongs to Phase 6 — the release image
+> and the offline bundle (`TODO.md`).

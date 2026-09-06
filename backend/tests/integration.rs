@@ -2329,4 +2329,105 @@ async fn decide_section(pool: &PgPool) {
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1, "it really was a miss");
     index.forget(LABUSER_SUB).await.unwrap();
+
+    // --- /metrics ---
+    // The four numbers Phase 6 asks for, asserted as deltas: the counters are
+    // process-global and every request above has already moved them.
+    let scrape = async |ctx: Arc<Ctx>| -> String {
+        let response = router(ctx)
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(response.into_body(), 65536)
+            .await
+            .unwrap();
+        String::from_utf8(body.to_vec()).unwrap()
+    };
+    let value = |body: &str, series: &str| -> u64 {
+        body.lines()
+            .find_map(|line| line.strip_prefix(series)?.trim().parse().ok())
+            .unwrap_or_else(|| panic!("{series} is not in the exposition:\n{body}"))
+    };
+
+    let before = scrape(shared.clone()).await;
+    let cookie = session("counted", "valid");
+    for (uri, expected) in [
+        ("/reports/q1", StatusCode::OK),
+        ("/reports/q2", StatusCode::OK),
+        ("/%2561dmin/", StatusCode::FORBIDDEN),
+    ] {
+        assert_eq!(
+            ask(shared.clone(), full(uri, &cookie)).await.status(),
+            expected
+        );
+    }
+    // An outage, not a decision: it is the series an operator alerts on, and
+    // the one the fail-closed rule makes invisible everywhere else (ADR-0017).
+    assert_eq!(
+        ask(
+            shared.clone(),
+            full("/reports/q1", &session("counted-broken", "broken"))
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    let after = scrape(shared.clone()).await;
+    let moved = |series: &str| value(&after, series) - value(&before, series);
+
+    assert_eq!(
+        moved(r#"openberat_decision_total{decision="allow",reason="allowed"}"#),
+        2
+    );
+    assert_eq!(
+        moved(r#"openberat_decision_total{decision="deny",reason="malformed_uri"}"#),
+        1
+    );
+    assert_eq!(
+        moved(r#"openberat_decision_total{decision="deny",reason="auth_unavailable"}"#),
+        1,
+        "the error rate is a series of its own, not folded into the denials"
+    );
+    // Hit rate: the first request on a key fills it, the next two read it, and
+    // the broken cookie is a second key that never gets that far.
+    assert_eq!(moved(r#"openberat_decision_cache_total{result="hit"}"#), 2);
+    assert_eq!(moved(r#"openberat_decision_cache_total{result="miss"}"#), 2);
+    assert_eq!(moved("openberat_decision_duration_seconds_count"), 4);
+    assert_eq!(
+        moved(r#"openberat_decision_duration_seconds_bucket{le="+Inf"}"#),
+        4
+    );
+    // N-01 and N-02 are bucket edges rather than something to interpolate
+    // between: the two latencies the product promises are read off the
+    // exposition (docs/06).
+    for edge in ["0.002", "0.01"] {
+        value(
+            &after,
+            &format!(r#"openberat_decision_duration_seconds_bucket{{le="{edge}"}}"#),
+        );
+    }
+    // Summaries that never reached Postgres. Not zero: this harness hands the
+    // cache an audit channel with nobody reading it, which is the shape of the
+    // failure the counter exists to make visible from outside.
+    assert_eq!(
+        value(&after, "openberat_audit_dropped_total"),
+        openberat::store::audit_dropped(),
+        "the exposition reports the counter, not a copy of it"
+    );
+
+    // --- Feature Start ---
+    // /metrics is unauthenticated, like /healthz and /readyz, and reachable
+    // from anything on the internal network. So it carries counters and no
+    // identities: a user, a sub or an application slug in a label would make
+    // scraping it a way to enumerate who is signed in and what they reach.
+    // --- Feature End ---
+    for leak in [LABUSER_SUB, "labuser", "finance", "reports"] {
+        assert!(!after.contains(leak), "/metrics exposes {leak:?}");
+    }
 }
