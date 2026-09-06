@@ -24,7 +24,7 @@ pub struct Rule {
 /// Why access was refused. Logged, never shown to the user (docs/02). One
 /// vocabulary for the audit column and the code; the last three are the
 /// caller's, not `decide`'s.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Deny {
     MalformedUri,
     ApplicationDisabled,
@@ -49,7 +49,7 @@ impl Deny {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Decision {
     Allow,
     Deny(Deny),

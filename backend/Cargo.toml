@@ -10,10 +10,11 @@ chrono = "0.4.45"
 reqwest = { version = "0.12.28", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
+sha2 = "0.10.9"
 # The macros feature is only for the FromRow/Type derives; the query! macro is not
 # used — it wants DATABASE_URL at compile time (ADR-0004).
 sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "postgres", "chrono", "json", "macros", "migrate", "uuid", "ipnet"] }
-tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net"] }
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "net", "signal"] }
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
 uuid = { version = "1.19.0", features = ["v4", "serde"] }

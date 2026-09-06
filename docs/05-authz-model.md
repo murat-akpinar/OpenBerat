@@ -131,7 +131,12 @@ So:
   number.
 - **Single-flight:** concurrent requests for the same key wait on one refresh. A
   page with 50 assets does not trigger 50 parallel refreshes when the TTL expires.
-- Bounded LRU. One user cannot produce unbounded entries.
+- Bounded, and evicted in **insertion order** rather than by least-recent use.
+  Under one uniform TTL those are not the same thing and insertion order is the
+  correct one: the oldest entry is also the one closest to expiring anyway,
+  while an LRU would throw away a fresh entry that had simply not been asked
+  for yet. One user cannot produce unbounded entries in either case — their
+  cookie is one value and there are only so many applications.
 - A `sub → keys` reverse index is kept; logout and the kill switch drop **only
   that user's** entries. Clearing the whole cache is self-DoS. A dropped
   entry's counters are flushed to the audit channel first — eviction, logout

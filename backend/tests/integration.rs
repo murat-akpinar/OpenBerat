@@ -6,6 +6,8 @@
 // Without DATABASE_URL the test skips loudly rather than failing.
 
 use sqlx::PgPool;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use uuid::Uuid;
 
 async fn fresh_db() -> Option<PgPool> {
@@ -488,11 +490,13 @@ async fn store_section(pool: &sqlx::PgPool) {
 
 /// A stand-in for oauth2-proxy that answers `/oauth2/auth` from the cookie it is
 /// given, so one server covers every branch the backend has to survive.
-async fn fake_oauth2_proxy() -> String {
+async fn fake_oauth2_proxy() -> (String, Arc<AtomicUsize>) {
+    use axum::extract::State;
     use axum::http::{HeaderMap, StatusCode};
     use axum::response::{IntoResponse, Response};
 
-    async fn auth(headers: HeaderMap) -> Response {
+    async fn auth(State(calls): State<Arc<AtomicUsize>>, headers: HeaderMap) -> Response {
+        calls.fetch_add(1, Ordering::SeqCst);
         let cookie = headers
             .get("cookie")
             .and_then(|v| v.to_str().ok())
@@ -535,11 +539,14 @@ async fn fake_oauth2_proxy() -> String {
         response
     }
 
-    let app = axum::Router::new().route("/oauth2/auth", axum::routing::get(auth));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let app = axum::Router::new()
+        .route("/oauth2/auth", axum::routing::get(auth))
+        .with_state(calls.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    format!("http://{addr}")
+    (format!("http://{addr}"), calls)
 }
 
 /// `GET /decide` — the endpoint nginx asks on every single request.
@@ -547,7 +554,8 @@ async fn decide_section(pool: &PgPool) {
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
     use openberat::api::{Ctx, router};
-    use std::sync::Arc;
+    use openberat::cache::Cache;
+    use openberat::store::audit_channel;
     use tower::ServiceExt;
 
     for stmt in ["drop schema public cascade", "create schema public"] {
@@ -568,12 +576,15 @@ async fn decide_section(pool: &PgPool) {
     .await
     .unwrap();
 
-    let upstream = fake_oauth2_proxy().await;
+    let (upstream, calls) = fake_oauth2_proxy().await;
     let ctx = |oauth2_proxy: &str, pool: PgPool| {
+        let (audit, _queue) = audit_channel(1024);
         Arc::new(Ctx {
             pool,
             http: reqwest::Client::new(),
             oauth2_proxy: oauth2_proxy.to_string(),
+            cache: Arc::new(Cache::new(audit.clone())),
+            audit,
         })
     };
     let ask = async |ctx: Arc<Ctx>, headers: Vec<(&str, &str)>| {
@@ -731,4 +742,118 @@ async fn decide_section(pool: &PgPool) {
     let response = ask(ctx(&upstream, dead), full("/", "_oauth2_proxy=valid")).await;
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     assert_eq!(reason(&response).as_deref(), Some("store_unavailable"));
+
+    // --- the cache, through the endpoint ---
+    // This one keeps its receiver, so the audit half is observable too.
+    let (audit, mut queue) = audit_channel(1024);
+    let shared = Arc::new(Ctx {
+        pool: pool.clone(),
+        http: reqwest::Client::new(),
+        oauth2_proxy: upstream.clone(),
+        cache: Arc::new(Cache::new(audit.clone())),
+        audit,
+    });
+
+    // Fifty assets of one page arriving together on a cold key. Without
+    // single-flight this is fifty oauth2-proxy calls and fifty entitlement
+    // queries for one decision.
+    calls.store(0, Ordering::SeqCst);
+    let burst: Vec<_> = (0..50)
+        .map(|_| {
+            let ctx = shared.clone();
+            tokio::spawn(
+                async move { ask(ctx, full("/reports/q1", "_oauth2_proxy=valid-burst")).await },
+            )
+        })
+        .collect();
+    for task in burst {
+        assert_eq!(task.await.unwrap().status(), StatusCode::OK);
+    }
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "fifty requests, one refresh"
+    );
+
+    // And the hit costs nothing at all upstream.
+    let response = ask(
+        shared.clone(),
+        full("/reports/q2", "_oauth2_proxy=valid-burst"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "a hit does not call oauth2-proxy"
+    );
+    assert!(
+        response.headers().get("set-cookie").is_none(),
+        "there was no refresh to relay on a hit"
+    );
+
+    // What is cached is the rule list, not the verdict: the entry was filled by
+    // an allowed request and the deny rule still bites on the next path. This
+    // is the whole reason the matched pattern is not in the key (docs/05).
+    let response = ask(
+        shared.clone(),
+        full("/admin/users", "_oauth2_proxy=valid-burst"),
+    )
+    .await;
+    assert_eq!(reason(&response).as_deref(), Some("explicit_deny"));
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "still a hit");
+
+    // A different session is a different key.
+    let response = ask(shared.clone(), full("/", "_oauth2_proxy=valid-other")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+    // No session cookie under the name the cache knows: every request is a
+    // miss, and none of them share an entry (cache.rs covers why).
+    calls.store(0, Ordering::SeqCst);
+    for _ in 0..3 {
+        let headers = vec![
+            ("x-app-slug", "finance"),
+            ("x-original-uri", "/"),
+            ("x-original-method", "GET"),
+            ("x-real-ip", "10.0.0.7"),
+            ("x-request-id", "req-1"),
+            ("cookie", "session=valid"),
+        ];
+        // The stand-in reads "valid" out of any cookie, so this still
+        // authenticates — the point is that nothing about it is cached.
+        assert_eq!(ask(shared.clone(), headers).await.status(), StatusCode::OK);
+    }
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        3,
+        "an unkeyable request is never cached"
+    );
+
+    // Nothing holds counters for those three, so each writes its own row rather
+    // than going unrecorded.
+    let mut rows = 0;
+    while queue.try_recv().is_ok() {
+        rows += 1;
+    }
+    assert_eq!(rows, 3, "an uncached decision audits itself");
+
+    // And the counters the cache is holding reach the channel on shutdown.
+    shared.cache.flush_all();
+    let mut summaries = Vec::new();
+    while let Ok(event) = queue.try_recv() {
+        summaries.push(event);
+    }
+    let burst = summaries
+        .iter()
+        .find(|e| e.count == 51)
+        .expect("the burst plus the two hits after it, folded into one row");
+    // /admin/users is not here: counters are per outcome, so the denied path
+    // is in the deny row rather than inflating the allow row's path count.
+    assert_eq!(burst.distinct_path, 2, "/reports/q1 and /reports/q2");
+    assert!(
+        summaries.iter().any(|e| e.decision
+            == openberat::policy::Decision::Deny(openberat::policy::Deny::ExplicitDeny)),
+        "the deny is its own row"
+    );
 }

@@ -346,13 +346,17 @@ has a first draft, and there is still not one line of code.
       and, through the timeout budget, a denial. A dropped summary increments
       `audit_dropped()` and logs. The decision vocabulary is one enum for both
       the column and the code — an allow row's reason is `allowed` (`docs/02`).*
-- [ ] Shutdown flushes the cache's audit counters to the channel before exiting —
+- [x] Shutdown flushes the cache's audit counters to the channel before exiting —
       otherwise up to one TTL of summaries is lost on every restart (`docs/02`,
       "Audit granularity"). A hard crash still loses them; that is accepted
-      *Blocked on the cache, which is Phase 3: there are no counters to flush
-      until something is holding them. The channel half is done — `write_audit`
-      drains and exits when the last sender drops, which is what shutdown looks
-      like from its end.*
+      *Closed with the cache below. SIGTERM and SIGINT both caught, then the
+      order: flush the cache, drop every audit sender, wait for the writer. The
+      first live run hung forever on that wait — the **sweeper task** holds an
+      `Arc` of the cache, so a sender never dropped and the writer never
+      finished; Docker's SIGKILL would have taken the queue with it, and the
+      test suite could not have found it because nothing there runs `main`. The
+      sweeper is aborted first now, and the drain is bounded at 5 s so a stuck
+      Postgres reports the loss instead of waiting for the kill.*
 
 ## Phase 3 — `/decide` and closing the chain
 
@@ -382,10 +386,25 @@ has a first draft, and there is still not one line of code.
       query at 500 ms, both denying rather than hanging. The outer 2 s is
       nginx's `proxy_read_timeout` on the subrequest location and closes with
       `00-auth.conf` below.*
-- [ ] Decision cache: key `(cookie_hash, app_slug)`, value **identity + the
+- [x] Decision cache: key `(cookie_hash, app_slug)`, value **identity + the
       matching rule list + per-outcome counters**; `policy.rs` evaluates the
       cached rules against the normalised path on every hit. Single-flight
       refresh, bounded LRU, `sub → keys` reverse index (`docs/05`)
+      *`cache.rs`. Three things came out different from the sketch. **No
+      session cookie means no key at all** rather than a key over an empty
+      value: if `COOKIE_NAME` ever drifts from `oauth2-proxy.cfg`, hashing what
+      was found would give every user the same key and the first to fill an
+      entry would hand their identity to everyone else — a total authorisation
+      failure with no error anywhere. A miss per request is the cheap way to be
+      wrong, and there is a test for it. The chunk suffix (`_0`, `_1`) has to be
+      **digits** for the same family of reasons: a client can set any cookie it
+      likes on the shared domain (ADR-0015), and a prefix match would let
+      `_oauth2_proxy_anything` move its own key on every request. **Eviction is
+      by insertion order, not LRU** — under one uniform TTL the oldest entry is
+      also the one closest to expiring, while an LRU would evict a fresh entry
+      nobody had asked for yet; `docs/05` says so now. Single-flight is 16 fill
+      locks rather than one per key: nothing to clean up, and two keys sharing a
+      shard only serialise their misses.*
 - [ ] On a cache miss the backend already holds the raw cookie: it records
       `sub → oauth2-proxy session key` in Redis for the kill switch (ADR-0019).
       This is the backend's only Redis use; it stores keys, not tokens. The
@@ -394,10 +413,23 @@ has a first draft, and there is still not one line of code.
       access
 - [ ] **Test:** index write failure → DENY (Redis accepting reads but refusing
       writes)
-- [ ] **Test:** cache TTL, key isolation, single-flight (50 concurrent requests → 1 refresh)
-- [ ] **Test:** an entry leaving the cache by any road — TTL, LRU eviction,
+- [x] **Test:** cache TTL, key isolation, single-flight (50 concurrent requests → 1 refresh)
+      *All three, and the single-flight one counts calls at the stand-in
+      oauth2-proxy: fifty concurrent requests on a cold key → **one**. A hit
+      then costs nothing upstream, and a hit on `/admin/users` still denies —
+      what is cached is the rule list, not the verdict, so a deny can never be
+      skipped by two paths colliding on one key.*
+- [x] **Test:** an entry leaving the cache by any road — TTL, LRU eviction,
       logout, kill switch — flushes its counters to the audit channel first
       (`docs/02`, "Audit granularity")
+      *Five roads, each walked and the summary read back off the channel: TTL
+      sweep, the capacity bound, `drop_sub` (logout and the kill switch),
+      shutdown, and one the list did not have — an entry **replaced by a
+      refill**, which is an exit road like any other. Then confirmed against the
+      running binary: 21 requests wrote **zero** rows while the entry lived, and
+      SIGTERM produced exactly two — one allow with `count=20, distinct=20`, one
+      deny with `count=1` — which is the whole of what "count decisions,
+      summarise rows" was supposed to mean.*
 - [ ] `backend/Dockerfile`: multi-stage build
 - [ ] `nginx/conf.d/00-auth.conf`: `auth_request`, `error_page 401 = @signin`,
       `error_page 403 = @denied` → **302** to the portal host,

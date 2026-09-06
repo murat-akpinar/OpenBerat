@@ -31,8 +31,9 @@
 //                     request in the gap refill what was just cleared.
 // Contract: docs/02-architecture.md
 
+use crate::cache::{Cache, Cached, Identity, Key};
 use crate::policy::{self, Decision, Deny};
-use crate::store;
+use crate::store::{self, AuditEvent};
 use axum::Router;
 use axum::extract::State;
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
@@ -51,27 +52,24 @@ pub struct Ctx {
     pub http: reqwest::Client,
     /// Base URL of oauth2-proxy on the `core` network, no trailing slash.
     pub oauth2_proxy: String,
+    pub cache: Arc<Cache>,
+    pub audit: store::Audit,
 }
 
 pub fn router(ctx: Arc<Ctx>) -> Router {
     Router::new().route("/decide", get(decide)).with_state(ctx)
 }
 
-/// The identity oauth2-proxy vouches for, and the `Set-Cookie` it wants the
-/// browser to have.
-struct Identity {
-    sub: HeaderValue,
-    username: HeaderValue,
-    email: HeaderValue,
-    groups: HeaderValue,
-    set_cookie: Vec<HeaderValue>,
-}
-
 enum Authentication {
-    Verified(Box<Identity>),
+    Verified(Arc<Identity>, Vec<HeaderValue>),
     Anonymous,
     Unavailable,
 }
+
+/// The longest path an audit row keeps. The query string is dropped before
+/// this: it is not part of the decision and it is where a credential ends up
+/// when somebody puts one in a URL.
+const AUDIT_PATH_LIMIT: usize = 512;
 
 async fn decide(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Response {
     // --- Feature Start ---
@@ -92,16 +90,63 @@ async fn decide(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Response {
     {
         return refuse(Deny::MissingContext);
     }
+    let cookie = headers.get("cookie");
+    let request = Request {
+        key: Key::new(cookie.and_then(|v| v.to_str().ok()), slug),
+        slug: slug.to_string(),
+        uri: uri.to_string(),
+        audit_path: uri
+            .split('?')
+            .next()
+            .unwrap_or_default()
+            .chars()
+            .take(AUDIT_PATH_LIMIT)
+            .collect(),
+        src_ip: header_str(&headers, "x-real-ip").and_then(|v| v.parse().ok()),
+        request_id: header_str(&headers, "x-request-id"),
+    };
 
-    let identity = match authenticate(&ctx, headers.get("cookie")).await {
-        Authentication::Verified(identity) => identity,
+    if let Some(key) = &request.key
+        && let Some(cached) = ctx.cache.get(key)
+    {
+        return answer(&ctx, &request, &cached);
+    }
+
+    // Single-flight: a page of fifty assets arriving on an expired entry
+    // refreshes once, not fifty times. Whoever loses the race re-reads the
+    // cache under the lock rather than repeating the work.
+    let _fill = match &request.key {
+        Some(key) => Some(ctx.cache.fill_lock(key).await),
+        None => None,
+    };
+    if let Some(key) = &request.key
+        && let Some(cached) = ctx.cache.get(key)
+    {
+        return answer(&ctx, &request, &cached);
+    }
+
+    let (identity, set_cookie) = match authenticate(&ctx, cookie).await {
+        Authentication::Verified(identity, set_cookie) => (identity, set_cookie),
         // nginx turns this into the login redirect. A 403 here would show the
         // "no access" page to someone who has simply not logged in yet.
         Authentication::Anonymous => return StatusCode::UNAUTHORIZED.into_response(),
+        // Not audited, and not for want of trying: there is no verified actor
+        // to name yet. The tracing line inside authenticate is the record.
         Authentication::Unavailable => return refuse(Deny::AuthUnavailable),
     };
 
-    let mut response = outcome(&ctx, slug, uri, &identity).await;
+    let cached = match load(&ctx, &request, &identity).await {
+        Ok(cached) => cached,
+        // Auditing a Postgres outage would mean writing a row to the Postgres
+        // that is not answering. tracing carries this one.
+        Err(reason) => return refuse(reason),
+    };
+    if let Some(key) = &request.key {
+        let sub = identity.sub.to_str().unwrap_or_default().to_string();
+        ctx.cache.insert(key.clone(), sub, cached.clone());
+    }
+
+    let mut response = answer(&ctx, &request, &cached);
     // --- Feature Start ---
     // The relay is not conditional on the answer. oauth2-proxy refreshes the
     // session on the subrequest whatever the decision turns out to be, and a
@@ -109,13 +154,22 @@ async fn decide(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Response {
     // their groups freeze until the cookie expires and they are sent back to
     // Keycloak. ADR-0006 rests on this arriving at the browser.
     // --- Feature End ---
-    for cookie in &identity.set_cookie {
-        response.headers_mut().append("set-cookie", cookie.clone());
+    for cookie in set_cookie {
+        response.headers_mut().append("set-cookie", cookie);
     }
     response
 }
 
-async fn outcome(ctx: &Ctx, slug: &str, uri: &str, identity: &Identity) -> Response {
+struct Request {
+    key: Option<Key>,
+    slug: String,
+    uri: String,
+    audit_path: String,
+    src_ip: Option<std::net::IpAddr>,
+    request_id: Option<String>,
+}
+
+async fn load(ctx: &Ctx, request: &Request, identity: &Arc<Identity>) -> Result<Cached, Deny> {
     let groups: Vec<String> = identity
         .groups
         .to_str()
@@ -128,7 +182,7 @@ async fn outcome(ctx: &Ctx, slug: &str, uri: &str, identity: &Identity) -> Respo
 
     let found = tokio::time::timeout(
         QUERY_TIMEOUT,
-        store::rules_for(&ctx.pool, slug, sub, &groups),
+        store::rules_for(&ctx.pool, &request.slug, sub, &groups),
     )
     .await;
     // A slow or unreachable Postgres is an outage, not a decision — but
@@ -137,23 +191,86 @@ async fn outcome(ctx: &Ctx, slug: &str, uri: &str, identity: &Identity) -> Respo
         Ok(Ok(found)) => found,
         Ok(Err(e)) => {
             tracing::error!(error = %e, "entitlement query failed");
-            return refuse(Deny::StoreUnavailable);
+            return Err(Deny::StoreUnavailable);
         }
         Err(_) => {
             tracing::error!("entitlement query exceeded {QUERY_TIMEOUT:?}");
-            return refuse(Deny::StoreUnavailable);
+            return Err(Deny::StoreUnavailable);
         }
     };
 
     // A slug with no row decides the same as a disabled application (docs/02).
-    let (enabled, rules) = match &found {
-        Some(app) => (app.enabled, app.rules.as_slice()),
-        None => (false, [].as_slice()),
+    Ok(match found {
+        Some(app) => Cached {
+            identity: identity.clone(),
+            rules: Arc::new(app.rules),
+            enabled: app.enabled,
+            application_id: Some(app.id),
+        },
+        None => Cached {
+            identity: identity.clone(),
+            rules: Arc::new(Vec::new()),
+            enabled: false,
+            application_id: None,
+        },
+    })
+}
+
+/// The decision itself: a pure function over data already in memory, run on
+/// every request — hit or miss — against the full rule list.
+fn answer(ctx: &Ctx, request: &Request, cached: &Cached) -> Response {
+    let decision = policy::decide(
+        cached.enabled,
+        &cached.rules,
+        &request.uri,
+        chrono::Utc::now(),
+    );
+    let counted = match &request.key {
+        Some(key) => ctx.cache.count(
+            key,
+            decision,
+            &request.audit_path,
+            request.src_ip,
+            request.request_id.clone(),
+        ),
+        None => false,
     };
-    match policy::decide(enabled, rules, uri, chrono::Utc::now()) {
-        Decision::Allow => allow(identity),
+    // Nothing is holding counters for this request, so it writes its own row
+    // rather than going unrecorded.
+    if !counted {
+        let now = chrono::Utc::now();
+        ctx.audit.record(AuditEvent {
+            application_id: cached.application_id,
+            application_slug: request.slug.clone(),
+            actor_sub: cached.identity.sub.to_str().unwrap_or_default().to_string(),
+            actor_name: cached
+                .identity
+                .username
+                .to_str()
+                .ok()
+                .filter(|v| !v.is_empty())
+                .map(str::to_owned),
+            decision,
+            count: 1,
+            first_seen: now,
+            last_seen: now,
+            distinct_path: 1,
+            first_path: request.audit_path.clone(),
+            src_ip: request.src_ip,
+            request_id: request.request_id.clone(),
+        });
+    }
+    match decision {
+        Decision::Allow => allow(&cached.identity),
         Decision::Deny(reason) => refuse(reason),
     }
+}
+
+fn header_str(headers: &HeaderMap, name: &str) -> Option<String> {
+    headers
+        .get(name)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned)
 }
 
 async fn authenticate(ctx: &Ctx, cookie: Option<&HeaderValue>) -> Authentication {
@@ -193,13 +310,15 @@ async fn authenticate(ctx: &Ctx, cookie: Option<&HeaderValue>) -> Authentication
             return Authentication::Unavailable;
         }
     };
-    Authentication::Verified(Box::new(Identity {
-        sub,
-        username: value("x-auth-request-preferred-username"),
-        email: value("x-auth-request-email"),
-        groups: value("x-auth-request-groups"),
-        set_cookie: headers.get_all("set-cookie").iter().cloned().collect(),
-    }))
+    Authentication::Verified(
+        Arc::new(Identity {
+            sub,
+            username: value("x-auth-request-preferred-username"),
+            email: value("x-auth-request-email"),
+            groups: value("x-auth-request-groups"),
+        }),
+        headers.get_all("set-cookie").iter().cloned().collect(),
+    )
 }
 
 // --- Feature Start ---
