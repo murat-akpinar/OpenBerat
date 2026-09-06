@@ -13,6 +13,12 @@ RUN cargo build --release
 FROM alpine:3.22
 RUN apk upgrade --no-cache && apk add --no-cache ca-certificates
 COPY --from=build /build/target/release/openberat /usr/local/bin/openberat
+# The generated nginx configuration is staged here (ADR-0011). Docker seeds an
+# empty named volume from the image's directory, ownership included, so this is
+# what makes the mount writable by an unprivileged process — without it the
+# first application an admin defines is saved and never published, and the only
+# sign is a log line.
+RUN mkdir -p /generated && chown nobody:nobody /generated
 USER nobody
 EXPOSE 8081
 CMD ["openberat"]

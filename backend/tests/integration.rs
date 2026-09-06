@@ -625,6 +625,7 @@ async fn decide_section(pool: &PgPool) {
             index: index.clone(),
             admin_group: "OpenBerat-Admins".to_string(),
             portal_origin: "https://portal.apps.example.local".to_string(),
+            nginx_conf_dir: None,
         })
     };
     let ask = async |ctx: Arc<Ctx>, headers: Vec<(&str, String)>| {
@@ -804,6 +805,7 @@ async fn decide_section(pool: &PgPool) {
         index: index.clone(),
         admin_group: "OpenBerat-Admins".to_string(),
         portal_origin: "https://portal.apps.example.local".to_string(),
+        nginx_conf_dir: None,
     });
 
     // Fifty assets of one page arriving together on a cold key. Without
@@ -1052,8 +1054,10 @@ async fn decide_section(pool: &PgPool) {
         .await
         .unwrap();
     let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(created["enabled"], true);
-    let wiki = created["id"].as_str().unwrap().to_string();
+    assert_eq!(created["application"]["enabled"], true);
+    // Nothing to publish to in the tests, so this says so rather than lying.
+    assert_eq!(created["nginx"], "staged");
+    let wiki = created["application"]["id"].as_str().unwrap().to_string();
 
     // A duplicate is a conflict, not a 500 — the admin gets told which field.
     let response = post(
@@ -1123,8 +1127,11 @@ async fn decide_section(pool: &PgPool) {
         .await
         .unwrap();
     let patched: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert_eq!(patched["enabled"], false);
-    assert_eq!(patched["name"], "Wiki", "an absent field is left alone");
+    assert_eq!(patched["application"]["enabled"], false);
+    assert_eq!(
+        patched["application"]["name"], "Wiki",
+        "an absent field is left alone"
+    );
 
     let response = send(
         "PATCH",
@@ -1144,7 +1151,10 @@ async fn decide_section(pool: &PgPool) {
         serde_json::json!({}),
     )
     .await;
-    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    // 200 and not 204: the body carries whether the generated nginx
+    // configuration was staged, which is the difference between "saved" and
+    // "actually unreachable now".
+    assert_eq!(response.status(), StatusCode::OK);
     let response = send(
         "DELETE",
         format!("/api/admin/applications/{wiki}"),
@@ -1172,7 +1182,7 @@ async fn decide_section(pool: &PgPool) {
         .await
         .unwrap();
     let reports: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let reports_id = reports["id"].as_str().unwrap().to_string();
+    let reports_id = reports["application"]["id"].as_str().unwrap().to_string();
 
     for bad in [
         serde_json::json!({"application_id": reports_id, "subject_type": "group",

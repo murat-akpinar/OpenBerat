@@ -63,6 +63,9 @@ pub struct Ctx {
     pub admin_group: String,
     /// The origin state-changing admin calls must come from (docs/02).
     pub portal_origin: String,
+    /// Where generated application blocks are staged for nginx (ADR-0011).
+    /// `None` means "do not generate", which is what the tests want.
+    pub nginx_conf_dir: Option<String>,
 }
 
 pub fn router(ctx: Arc<Ctx>) -> Router {

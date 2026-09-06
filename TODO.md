@@ -667,9 +667,36 @@ So the portal's data does not have to be filled in by hand with SQL.
       (`docs/05` rule 4) — is logged as its own action at `warn`, not folded
       into the ordinary stream: it is the one grant nobody should be able to
       make by accident.*
-- [ ] **nginx config generation** (ADR-0011): generate from the template →
+- [x] **nginx config generation** (ADR-0011): generate from the template →
       `nginx -t` → reload. If validation fails, the current config stays in effect
-- [ ] **Test:** every generated location contains the `X-Auth-*` stripping include
+      *The backend renders and **stages**; the install-test-rollback happens in
+      the nginx container, which is the only place an `nginx -t` can run. It is
+      test-then-keep and never write-then-hope: writing straight to `apps.conf`
+      would let a file nginx cannot parse take the proxy down at its next
+      restart, long after the admin who caused it has gone home. Measured both
+      ways — an application defined through the API was reachable four seconds
+      later with nobody touching a file, and a deliberately corrupt staged file
+      left the previous configuration serving, wrote the `nginx -t` error where
+      the admin can read it, and survived a container restart. The hand-written
+      `20-apps.conf` is deleted: two sources for the same `server_name` is a
+      conflict nginx resolves silently by taking the first.
+      **Two bugs this found, both only visible on a first install.** Deleting
+      `20-apps.conf` removed the only thing declaring `$deny_reason`, and nginx
+      refuses to start when `log_format` names an undeclared variable — so a
+      fresh install, with no applications defined yet, could not boot the proxy
+      at all. The variables are declared at http level now (rule 17). And the
+      backend runs as `nobody` while the shared volume seeds from the image's
+      directory, so without a `chown` in the Dockerfile the first application an
+      admin defines is saved and never published, with one log line to say so.*
+- [x] **Test:** every generated location contains the `X-Auth-*` stripping include
+      *The renderer is a pure function and this is a unit test over it: each
+      generated server has exactly one `location /`, and each pulls in
+      `protected.inc`, `decide.inc` and `errors.inc`. Also that it emits no
+      `return` — that would run before `auth_request` and leave the location
+      open, with `nginx -t` reporting success. A row that fails validation is
+      **skipped rather than rendered**: the schema and the API both refuse such
+      a row, so one arriving here means it got in another way, and one bad
+      record must not take every other application down with it.*
 - [x] `nginx/conf.d/10-portal.conf`: the portal host — frontend static files,
       `/api/*` → backend
       *Its own `location /api/`, with the identity written from the

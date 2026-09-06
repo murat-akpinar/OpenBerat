@@ -11,6 +11,10 @@ COPY nginx/conf.d/ /etc/nginx/conf.d/
 # The break-glass configuration ships in the same image on purpose: nobody
 # should have to build one at 3 a.m. to restore access (ADR-0017). It is inert
 # until `docker compose --profile breakglass` runs nginx against it.
+# Backgrounds a loop that installs generated application blocks; the stock
+# entrypoint runs everything in this directory before exec'ing nginx.
+COPY nginx/docker-entrypoint.d/ /docker-entrypoint.d/
+RUN chmod +x /docker-entrypoint.d/40-generated-reload.sh
 COPY nginx/breakglass.conf /etc/nginx/breakglass.conf
 COPY nginx/breakglass/ /etc/nginx/breakglass/
 COPY frontend/src/ /usr/share/nginx/html/

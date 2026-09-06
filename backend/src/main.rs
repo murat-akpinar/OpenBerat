@@ -86,6 +86,7 @@ async fn main() {
         // No default: every deployment has a different portal hostname, and a
         // default here would be a check that passes for the wrong origin.
         portal_origin: required("PORTAL_ORIGIN").trim_end_matches('/').to_string(),
+        nginx_conf_dir: std::env::var("NGINX_CONF_DIR").ok(),
     });
 
     let listener = match tokio::net::TcpListener::bind(LISTEN).await {

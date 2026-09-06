@@ -9,7 +9,7 @@ authorisation decision. Reference pattern and verified details:
 | `openberat.conf` | The `:80` → `:443` redirect and the default `server`, which answers 404 | now |
 | `00-auth.conf` | http-level only: the `map` that strips the session cookie, and the WebSocket upgrade map | now |
 | `10-portal.conf` | Portal and admin: frontend static files, `/api/*` → backend — **and the two anonymous hosts**, `/oauth2/*` and Keycloak's `/realms/` + `/resources/` | now, minus `/api/*` |
-| `20-apps.conf` | Protected applications (`*.apps.<domain>`) → upstream | now, hand-written for the lab samples; generated in Phase 4 (ADR-0011) |
+| `generated/apps.conf` | Protected applications (`*.apps.<domain>`) → upstream. **Not in this repository**: the backend renders it from the `application` table into a shared volume, and the loop in `docker-entrypoint.d/40-generated-reload.sh` installs it (ADR-0011) | now |
 | `errors.inc` | `@signin`, `@denied`, and the `/unavailable.html` location — included at **server** level | now |
 | `decide.inc` | `location = /decide` — included at **server** level | now |
 | `protected.inc` | `auth_request` and the whole header rewrite — included inside a **location** | now |
@@ -131,7 +131,17 @@ The rules below apply to all of them.
    upstream that receives the session cookie is holding — and probably
    access-logging — a credential valid for every host on `.apps.<domain>`
    (ADR-0015, `docs/05`).
-17. **A reload does not close an established WebSocket, and leaves a worker
+17. **Every variable `log_format` names must be declared at http level.** nginx
+   refuses to start if it names one nothing declared, and the things that
+   declare `$auth_username` and `$deny_reason` are the protected locations —
+   which on a fresh install **do not exist**, because no application has been
+   defined yet. Deleting the hand-written application blocks was enough to
+   produce `unknown "deny_reason" variable` and a proxy that would not boot, on
+   exactly the install where nobody has a working system to compare against.
+   `auth_request_set` is legal in the `http` context; the copies in
+   `00-auth.conf` are there for declaration, and a location that sets them for
+   real overrides them.
+18. **A reload does not close an established WebSocket, and leaves a worker
    behind.** ADR-0011 reloads nginx on every application change. The old worker
    goes to `worker process is shutting down` and keeps serving its open
    connections under the **old** configuration — measured across two reloads,

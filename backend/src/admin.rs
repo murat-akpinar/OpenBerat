@@ -15,6 +15,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
+use std::path::Path as FsPath;
 use std::sync::Arc;
 use url::{Host, Url};
 use uuid::Uuid;
@@ -108,6 +109,51 @@ struct ApplicationPatch {
     enabled: Option<bool>,
 }
 
+/// Renders the whole file and hands it to nginx. Called after every change to
+/// an application, because F-13 is "an application an admin defines becomes
+/// genuinely reachable" and a row nothing acts on is not that.
+///
+/// It writes a *staged* file: installing it, testing it and rolling back if
+/// nginx refuses it is the reloader's job in the nginx container, which is the
+/// only place an `nginx -t` can run (ADR-0011).
+async fn publish(ctx: &Ctx) -> Result<(), String> {
+    let Some(dir) = &ctx.nginx_conf_dir else {
+        return Ok(());
+    };
+    let applications: Vec<Application> = sqlx::query_as(
+        "select id, slug, name, icon, upstream_url, external_hostname, enabled
+           from application order by slug",
+    )
+    .fetch_all(&ctx.pool)
+    .await
+    .map_err(|e| format!("reading applications: {e}"))?;
+
+    let rendered = render_apps_conf(&applications, &ctx.portal_origin);
+    // Written under a different name and renamed, so the reloader can never see
+    // half a file: rename within a filesystem is atomic, a write is not.
+    let staging = FsPath::new(dir).join("apps.conf.writing");
+    let staged = FsPath::new(dir).join("apps.conf.staged");
+    tokio::fs::write(&staging, rendered)
+        .await
+        .map_err(|e| format!("writing {}: {e}", staging.display()))?;
+    tokio::fs::rename(&staging, &staged)
+        .await
+        .map_err(|e| format!("staging {}: {e}", staged.display()))
+}
+
+/// Best effort, and clearly labelled as such: the row exists either way, and an
+/// admin who cannot see this has no way to tell "saved but not published" from
+/// "saved and live".
+async fn publish_status(ctx: &Ctx) -> serde_json::Value {
+    match publish(ctx).await {
+        Ok(()) => serde_json::json!("staged"),
+        Err(why) => {
+            tracing::error!("generating nginx configuration failed: {why}");
+            serde_json::json!(why)
+        }
+    }
+}
+
 fn bad_request(message: impl Into<String>) -> Response {
     (
         StatusCode::BAD_REQUEST,
@@ -180,7 +226,12 @@ async fn create_application(
             // its format is immutable (docs/02).
             tracing::info!(actor, action = "create_application", target = %new.slug,
                 outcome = "ok", "admin");
-            (StatusCode::CREATED, Json(application)).into_response()
+            let nginx = publish_status(&ctx).await;
+            (
+                StatusCode::CREATED,
+                Json(serde_json::json!({ "application": application, "nginx": nginx })),
+            )
+                .into_response()
         }
         // The schema's CHECK constraints are the second line here: a slug with
         // a semicolon in it is nginx config injection (ADR-0011), and it is
@@ -226,7 +277,8 @@ async fn update_application(
         Ok(Some(application)) => {
             tracing::info!(actor, action = "update_application", target = %id,
                 outcome = "ok", "admin");
-            Json(application).into_response()
+            let nginx = publish_status(&ctx).await;
+            Json(serde_json::json!({ "application": application, "nginx": nginx })).into_response()
         }
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => failed("update_application", &actor, e),
@@ -251,7 +303,8 @@ async fn delete_application(
         Ok(result) if result.rows_affected() > 0 => {
             tracing::info!(actor, action = "delete_application", target = %id,
                 outcome = "ok", "admin");
-            StatusCode::NO_CONTENT.into_response()
+            let nginx = publish_status(&ctx).await;
+            Json(serde_json::json!({ "nginx": nginx })).into_response()
         }
         Ok(_) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => failed("delete_application", &actor, e),
@@ -467,6 +520,66 @@ pub fn validate_hostname(hostname: &str, portal_origin: &str) -> Result<(), Stri
     Ok(())
 }
 
+// --- Feature Start ---
+// The generated blocks are a security boundary, not a convenience: every one of
+// them has to pull in protected.inc (the X-Auth-* strip and the auth_request)
+// and decide.inc. Forget either in this template and the claim falls for every
+// application it generates, silently and with `nginx -t` reporting success
+// (ADR-0011). A row that does not validate is skipped rather than rendered —
+// one bad record must not take the whole file, and therefore every other
+// application, down with it.
+// --- Feature End ---
+pub fn render_apps_conf(applications: &[Application], portal_origin: &str) -> String {
+    let mut out = String::from(
+        "# Generated from the `application` table by the backend (ADR-0011).\n         # Do not edit: the next admin change overwrites it. The hand-written\n         # half of the configuration is in the image; only this file is not.\n",
+    );
+    for app in applications {
+        if !app.enabled {
+            continue;
+        }
+        // Belt and braces over the schema's CHECK constraints and the API's
+        // validation: this is the last point before the value becomes nginx
+        // configuration, and it is the only one that is not on a happy path.
+        if let Err(why) = validate_upstream(&app.upstream_url)
+            .and_then(|()| validate_hostname(&app.external_hostname, portal_origin))
+        {
+            tracing::error!(slug = %app.slug, "skipping application in generated config: {why}");
+            continue;
+        }
+        let Ok(url) = Url::parse(&app.upstream_url) else {
+            continue;
+        };
+        let (Some(host), Some(port)) = (url.host_str(), url.port_or_known_default()) else {
+            continue;
+        };
+        out.push_str(&format!(
+            "\nserver {{\n\
+             \x20   listen 443 ssl;\n\
+             \x20   http2 on;\n\
+             \x20   server_name {hostname};\n\n\
+             \x20   ssl_certificate     /etc/nginx/certs/wildcard.crt;\n\
+             \x20   ssl_certificate_key /etc/nginx/certs/wildcard.key;\n\n\
+             \x20   # Fixed here, never taken from the request: the subrequest\n\
+             \x20   # inherits the client's Host verbatim.\n\
+             \x20   set $app_slug {slug};\n\n\
+             \x20   include /etc/nginx/conf.d/errors.inc;\n\
+             \x20   include /etc/nginx/conf.d/decide.inc;\n\n\
+             \x20   location / {{\n\
+             \x20       include /etc/nginx/conf.d/protected.inc;\n\
+             \x20       set $upstream {host};\n\
+             \x20       proxy_pass {scheme}://$upstream:{port};\n\
+             \x20   }}\n\
+             }}\n",
+            hostname = app.external_hostname,
+            slug = app.slug,
+            host = host,
+            port = port,
+            scheme = url.scheme(),
+        ));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -529,6 +642,100 @@ mod tests {
         ] {
             assert!(validate_upstream(bad).is_err(), "{bad} should be refused");
         }
+    }
+
+    fn app(slug: &str, upstream: &str, hostname: &str, enabled: bool) -> Application {
+        Application {
+            id: Uuid::nil(),
+            slug: slug.into(),
+            name: slug.into(),
+            icon: None,
+            upstream_url: upstream.into(),
+            external_hostname: hostname.into(),
+            enabled,
+        }
+    }
+
+    #[test]
+    fn every_generated_location_pulls_in_the_strip() {
+        let rendered = render_apps_conf(
+            &[
+                app(
+                    "wiki",
+                    "http://wiki-app:8080",
+                    "wiki.apps.example.local",
+                    true,
+                ),
+                app("crm", "https://crm-app", "crm.apps.example.local", true),
+            ],
+            PORTAL,
+        );
+        // The one thing that must never be missing. Without it a generated
+        // application trusts whatever X-Auth-* the client sent, and `nginx -t`
+        // is perfectly happy (ADR-0011).
+        assert_eq!(
+            rendered
+                .matches("include /etc/nginx/conf.d/protected.inc;")
+                .count(),
+            2
+        );
+        assert_eq!(
+            rendered
+                .matches("include /etc/nginx/conf.d/decide.inc;")
+                .count(),
+            2
+        );
+        assert_eq!(
+            rendered
+                .matches("include /etc/nginx/conf.d/errors.inc;")
+                .count(),
+            2
+        );
+        // One location per server, so the count above is per application and
+        // not two includes on one of them and none on the other.
+        assert_eq!(rendered.matches("location / {").count(), 2);
+        assert_eq!(rendered.matches("server {").count(), 2);
+        // The slug is fixed in the block, never read from the request.
+        assert!(rendered.contains("set $app_slug wiki;"));
+        // A variable in proxy_pass is what defers DNS to request time, so a
+        // stopped upstream costs one 502 instead of nginx refusing to start.
+        assert!(
+            rendered.contains("set $upstream wiki-app;\n        proxy_pass http://$upstream:8080;")
+        );
+        // https keeps its scheme and its default port.
+        assert!(rendered.contains("proxy_pass https://$upstream:443;"));
+        // Never a `return`: that would run before auth_request and leave the
+        // location open (nginx/conf.d/README.md rule 14).
+        assert!(!rendered.contains("return "));
+    }
+
+    #[test]
+    fn a_row_that_should_not_be_there_is_skipped_not_rendered() {
+        // The schema and the API both refuse these, so a row like this means
+        // something reached the table another way. One bad record must not take
+        // every other application down with it.
+        let rendered = render_apps_conf(
+            &[
+                app(
+                    "good",
+                    "http://good-app:80",
+                    "good.apps.example.local",
+                    true,
+                ),
+                app("pg", "http://postgres:5432", "pg.apps.example.local", true),
+                app("shadow", "http://x:80", "portal.apps.example.local", true),
+                app("off", "http://off-app:80", "off.apps.example.local", false),
+            ],
+            PORTAL,
+        );
+        assert_eq!(rendered.matches("server {").count(), 1);
+        assert!(rendered.contains("good.apps.example.local"));
+        assert!(!rendered.contains("postgres"));
+        assert!(!rendered.contains("portal.apps.example.local"));
+        assert!(
+            !rendered.contains("off-app"),
+            "a disabled application has no block"
+        );
     }
 
     #[test]

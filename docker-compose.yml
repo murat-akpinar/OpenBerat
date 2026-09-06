@@ -33,6 +33,10 @@ services:
       # The wildcard certificate is the operator's (TODO.md Phase 1, first
       # item). Secrets are never baked into an image, so this is the one mount.
       - ./certs:/etc/nginx/certs:ro
+      # The generated application blocks (ADR-0011) — the one relaxation of the
+      # "configuration is baked into the image" rule, and the only thing the
+      # backend and nginx share.
+      - apps_conf:/etc/nginx/conf.d/generated
     networks:
       edge:
       core:
@@ -57,6 +61,9 @@ services:
       # check that passes for somebody else's portal.
       ADMIN_GROUP: ${ADMIN_GROUP:-OpenBerat-Admins}
       PORTAL_ORIGIN: https://portal.apps.example.local
+      NGINX_CONF_DIR: /generated
+    volumes:
+      - apps_conf:/generated
     depends_on: [postgres, redis]
     networks: [core]
 
@@ -182,3 +189,4 @@ networks:
 
 volumes:
   pg_data:
+  apps_conf:

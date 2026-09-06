@@ -132,7 +132,28 @@ it could not reach Postgres, or a migration would not apply.
 Then browse to `https://portal.apps.example.local/`; you are redirected to
 Keycloak, and after logging in as `labuser` you land back on the portal.
 
-## 5. One limitation to know before you expose an application
+## 5. Adding an application
+
+Applications are defined through the admin API, not by editing configuration.
+The backend renders an nginx `server` block per application into a volume nginx
+shares, and nginx installs it itself — an application defined this way is
+reachable within a couple of seconds, and no image is rebuilt (ADR-0011).
+
+Two things it cannot do for you, both of which have to exist **before** the
+application will work from a browser:
+
+- **Name resolution** for the new hostname — a DNS record, or a hosts entry as
+  in §2.
+- **The wildcard certificate** has to cover it. `*.apps.example.local` covers
+  `newapp.apps.example.local` and does not cover
+  `newapp.internal.example.local`.
+
+If a generated block is ever rejected by `nginx -t`, the previous configuration
+stays in effect and the reason is in
+`/etc/nginx/conf.d/generated/apps.status` inside the nginx container. Nothing
+goes down while you read it.
+
+## 6. One limitation to know before you expose an application
 
 Revocation is bounded for HTTP requests — an account disabled in AD or removed
 from a group loses access within six minutes, and the kill switch cuts it in
