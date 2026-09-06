@@ -72,6 +72,7 @@ oauth2-proxy's default settings are **silently wrong** for this project:
 | `cookie_refresh` | off | The session lives as long as `cookie_expire` → **168 hours** of stale groups | `5m` |
 | `session_store_type` | `cookie` | Kill switch impossible + the 4 KB cookie limit | `redis` |
 | `cookie_expire` | `168h0m0s` | 7 days | Shorten per policy |
+| `backend_logout_url` | unset | `/oauth2/sign_out` clears the cookie and leaves the **IdP** session open, so the next login needs no password — the "I logged out" illusion (`docs/02`) | Keycloak's `end_session_endpoint` with `?id_token_hint={id_token}` |
 
 `cookie_refresh` is not supported for every provider in oauth2-proxy, but
 **Keycloak is supported** (along with ADFS, Azure, GitLab, Google and providers

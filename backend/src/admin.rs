@@ -68,11 +68,8 @@ async fn guard(
             "admin refused: not in ADMIN_GROUP");
         return StatusCode::FORBIDDEN.into_response();
     }
-    // SameSite cannot do this job: the portal and the applications are
-    // same-site by design (ADR-0015), so a compromised application's page is a
-    // same-site caller.
     if !matches!(*request.method(), Method::GET | Method::HEAD)
-        && headers.get("origin").and_then(|v| v.to_str().ok()) != Some(ctx.portal_origin.as_str())
+        && !crate::api::from_portal(&headers, &ctx.portal_origin)
     {
         tracing::warn!(actor = %caller.username, path = %request.uri().path(),
             "admin refused: wrong or missing Origin");

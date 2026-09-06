@@ -73,3 +73,18 @@ json('/api/me')
     document.getElementById('whoami').textContent = `Signed in as ${me.username}`;
   })
   .catch(() => {});
+
+// --- Feature Start ---
+// All three logout steps happen in POST /api/logout, in the order docs/02
+// fixes; the href is only the fallback for a browser that never ran this file.
+// A failed call still sends the browser on: the link is steps 1 and 2 on its
+// own, and leaving somebody signed in because the cache could not be cleared is
+// the worse of the two failures.
+// --- Feature End ---
+const signout = document.getElementById('signout');
+signout.addEventListener('click', (event) => {
+  event.preventDefault();
+  fetch('/api/logout', { method: 'POST', credentials: 'same-origin' })
+    .catch((e) => console.error(e))
+    .finally(() => { location.href = signout.href; });
+});

@@ -1313,6 +1313,65 @@ Harness: `verify-ws-idle.sh` and `wsclient.py` (which grew an interval argument;
 `0` is the idle mode) on the lab host. It creates its own application and
 entitlement through `/api/admin/*` and deletes them afterwards.
 
+### TEST — logout, and the step that cannot be taken second
+
+`docs/02` lists three logout steps and warns that skipping step 2 hands the next
+login back without a password prompt. Two of the three are invisible from
+outside, so each was checked for the mark it should leave rather than inferred
+from the end state.
+
+**Measured, on the committed configuration:**
+
+| | |
+|---|---|
+| `POST /api/logout` returns | **0.066 s** (204) |
+| Access gone (first non-200 from the application) | **0.084 s** |
+| N-03 target for a user-initiated logout (ADR-0016) | 5 s |
+
+- **The oauth2-proxy session:** `EXISTS` on the indexed `_oauth2_proxy-<hex>`
+  key returns 0 afterwards.
+- **The cache entries:** the next request to the application is a 302 to the
+  portal on the *first* probe, not after the 30 s cache TTL.
+- **The index:** only this browser's key is gone. The same user's second browser
+  is still signed in **and still indexed** — a live session in no index is one
+  the kill switch cannot find, which is what `SREM` rather than `DEL` buys.
+- **The IdP session:** following the portal to the end afterwards reaches a
+  login **form**.
+
+**Two control runs, and they are the point of the section.** The design as first
+written had the backend delete the oauth2-proxy session key and the browser walk
+`/oauth2/sign_out` afterwards. Run in that order, the last check above came back
+the other way — *no* login form, the user signed straight back in with no
+password. The IdP session had survived its own logout.
+
+The cause is an ordering the design did not see. Keycloak refuses to end a
+session silently without an `id_token_hint`; without one it stops on a
+confirmation page, which is a logout unfinished until a second click and
+unfinished altogether if the tab is closed. The hint has to come from
+oauth2-proxy, whose `backend_logout_url` calls `end_session_endpoint`
+back-channel with the session's own `id_token` — and **that token lives inside
+the session the backend had just deleted**. Deleting the key first leaves
+oauth2-proxy nothing to log out with, and it says nothing about it.
+
+So the sign-out became a call the backend makes, first, before its own DEL. The
+second control is the one that shows the `backend_logout_url` line is load
+bearing at all: with it removed, `/oauth2/sign_out` on a live session still
+answered 302 and cleared the cookie, and the very next request to the portal
+came back **signed in, with no password prompt** — `docs/02`'s "I logged out"
+illusion, reproduced exactly.
+
+The link's `href` is still `/oauth2/sign_out`, so a browser that never ran
+`portal.js` loses only step 3: measured on its own, the link alone also reaches
+a login form.
+
+Refusals, on the same run: a missing `Origin` and a foreign one are both 403,
+and neither reached oauth2-proxy — the session was still alive after both.
+
+Harness: `verify-logout.sh` on the lab host. It creates its own application and
+entitlement through `/api/admin/*` and deletes them afterwards, and signs
+`labuser` in three times over: one session to lose, one to prove the other
+browser survives, and one for the no-JavaScript fallback.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is

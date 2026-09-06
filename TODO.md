@@ -1083,9 +1083,21 @@ So the portal's data does not have to be filled in by hand with SQL.
       cut at 300 s reconnects into a session that can still be 330 s stale. The
       worst case is near **630 s**, past the six minutes, which is why ADR-0016
       excludes every upgraded connection and not only the busy ones.*
-- [ ] Logout: all three steps (`docs/02`, "Logout") — the backend step is
+- [x] Logout: all three steps (`docs/02`, "Logout") — the backend step is
       `POST /api/logout`, called **before** the sign-out redirect; reversed, a
       request in the gap refills the cache from the still-live session
+      *All three run inside `POST /api/logout` now, not two of them afterwards,
+      and the reason is a control run rather than a preference. Written as the
+      box describes it — backend first, browser walks `/oauth2/sign_out` after —
+      step 2 silently did not happen: Keycloak will not end a session without an
+      `id_token_hint`, the hint comes from oauth2-proxy's `backend_logout_url`,
+      and that token lives inside the session the backend had just deleted.
+      Measured: the IdP session survived and the next request signed the user
+      back in with no password. So the backend asks oauth2-proxy to sign out
+      first, then deletes the key, the cache entries and — `SREM`, not `DEL` —
+      this session's index membership, so the same user's other browser stays
+      killable. 0.084 s from the click to access gone, against N-03's 5 s
+      (`docs/07`).*
 
 ## Phase 6 — Hardening and packaging
 

@@ -159,6 +159,12 @@ So:
   the index entry.** In the reverse order a request arriving in the gap refills
   the cache with a fresh ALLOW. Finding the session at all needs that index —
   Redis is keyed by ticket, not by user ([ADR-0019](adr/0019-kill-switch-session-index.md)).
+- Logout runs the same four in the same order, on the caller's own session:
+  oauth2-proxy's `/oauth2/sign_out` (which is where the IdP session is closed,
+  out of the session's own `id_token`) → that session key → this user's cache
+  entries → **only this session's** index membership. The IdP step has to come
+  first for a second reason here: the token it needs lives inside the session
+  being deleted (`docs/02`, "Logout"; measured in `docs/07`).
 - On a miss the `sub → session key` index entry (ADR-0019) is written **before**
   the ALLOW is returned, and a failed write is a DENY `store_unavailable`: a
   session the kill switch cannot find must not gain access. Redis dying

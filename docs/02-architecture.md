@@ -147,7 +147,7 @@ updated together.
 | `GET /decide` | **nginx** (`auth_request`) | 200 / 401 / 403. No body. |
 | `GET /api/me` | frontend | The signed-in user: name, email, groups, admin flag |
 | `GET /api/apps` | frontend | Applications the user can reach (portal buttons) |
-| `POST /api/logout` | frontend | The caller's own kill switch, run **before** the sign-out redirect: session key (derived from the cookie it holds), cache entries, index entry ("Logout" below) |
+| `POST /api/logout` | frontend | The caller's own kill switch, run **before** the sign-out redirect: session key (derived from the cookie it holds), cache entries, this session's index membership ("Logout" below). 204, or 503 if a step fails — the browser walks the other two either way |
 | `GET /api/admin/applications` | admin | Application list |
 | `POST/PATCH/DELETE /api/admin/applications` | admin | Defining applications |
 | `GET/POST/DELETE /api/admin/entitlements` | admin | AD group ↔ application mapping |
@@ -424,25 +424,49 @@ not:
 
 1. oauth2-proxy `/oauth2/sign_out` → cookie cleared, Redis session dropped
 2. Keycloak RP-initiated logout (`end_session_endpoint`) → the IdP session closes
-3. That `sub` is dropped from the backend decision cache **and from the
-   `sub → session` index** (ADR-0019)
+3. That `sub` is dropped from the backend decision cache **and this session
+   leaves the `sub → session` index** (ADR-0019)
 
 Skip step 2 and the next login hands the session straight back without a
 password prompt — the "I logged out" illusion.
 
-Logout has the browser in hand, so step 1 knows which session to drop. The kill
+Logout has the browser in hand, so it knows which session to drop. The kill
 switch does not — the admin acts on a `sub`, and Redis is keyed by ticket. That
 is what the index in step 3 exists for; its order there is fixed (`docs/05`).
 
-Step 3 does not run by itself — an earlier version of this list named no caller,
-which made it a step nobody executes. The portal calls **`POST /api/logout`**
-(the `/api` contract) *before* starting the redirect chain: holding the very
-cookie it was called with, the backend deletes the oauth2-proxy session key,
-then this `sub`'s cache entries, then the index entry — the kill-switch order.
-Cache before session would let a request in the gap refill the cache from the
-still-live session; skipping the call entirely leaves a replayed cookie working
-for up to one cache TTL after "logout". The browser then walks steps 1–2, which
-clear the cookie and the IdP session.
+All three run inside one call, **`POST /api/logout`** (the `/api` contract),
+which the portal makes before sending the browser anywhere. An earlier version
+of this list named no caller for step 3, which made it a step nobody executes;
+an earlier version of *this* paragraph had the browser walk steps 1–2 afterwards
+and that is worse than incomplete — see below. Holding the very cookie it was
+called with, the backend asks oauth2-proxy to sign out, deletes the session key,
+drops this `sub`'s cache entries, then this session's index membership. It is
+the kill switch's order and it is the same order for the same reasons: the IdP
+first, the session before the cache — a request in the gap would otherwise
+refill the cache from a session that is still there — and the index last,
+because it is the map to everything above it. Only *this* session leaves the
+index, not the whole entry: the same user's other browser is still signed in,
+and a live session in no index is one the kill switch cannot find.
+
+Steps 1 and 2 are one request to oauth2-proxy, `GET /oauth2/sign_out`: it drops
+the Redis session, and its `backend_logout_url` calls Keycloak's
+`end_session_endpoint` back-channel with the session's own `id_token` as the
+hint. That is why the sign-out is a call the backend makes rather than a
+redirect the browser walks afterwards — **the `id_token` lives inside the
+session being destroyed**, so a backend that deleted the session key first
+leaves oauth2-proxy nothing to log out with. Measured on the lab in exactly that
+order: the IdP session survived, and following the portal to the end signed the
+user back in with no password (`docs/07`).
+
+Redirecting the browser to `end_session_endpoint` directly is not the
+alternative: the browser has never held an `id_token`, and without the hint
+Keycloak stops on a confirmation page — a logout unfinished until a second click
+and unfinished altogether if the tab is closed.
+
+`/oauth2/sign_out` is still the sign-out link's own `href`. A browser that never
+ran the portal's script therefore reaches steps 1 and 2 by following the link,
+losing only step 3 — a replayed cookie that works for up to one cache TTL, one
+cache TTL late rather than not at all.
 
 `POST /api/logout` is state-changing, so it carries the same `Origin` check as
 the admin endpoints: the hosts behind the proxy are same-site (ADR-0015), and a

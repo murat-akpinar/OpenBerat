@@ -13,9 +13,11 @@
 //   GET /api/me       the signed-in user: name, email, groups, admin flag
 //   POST /api/logout  the caller's own kill switch, run BEFORE the sign-out
 //                     redirect: session key (derived from the cookie it holds),
-//                     cache entries, index entry — kill-switch order (docs/02
-//                     "Logout"). The frontend then sends the browser through
-//                     /oauth2/sign_out -> Keycloak end_session.
+//                     cache entries, this session's index membership —
+//                     kill-switch order (docs/02 "Logout"). Only this session
+//                     leaves the index; the same user's other browser must stay
+//                     killable. The frontend then sends the browser through
+//                     /signout -> /oauth2/sign_out -> Keycloak end_session.
 //   GET /healthz      the process is alive; no dependencies checked
 //   GET /readyz       Postgres and Redis reachable — 200 or 503. /decide cannot
 //                     report an outage (a dead DB looks like a denied user), so
@@ -103,6 +105,7 @@ pub fn router(ctx: Arc<Ctx>) -> Router {
     let api = Router::new()
         .route("/api/me", get(me))
         .route("/api/apps", get(apps))
+        .route("/api/logout", axum::routing::post(logout))
         .merge(crate::admin::routes(ctx.clone()))
         .route_layer(middleware::from_fn_with_state(ctx.clone(), indexed));
     Router::new()
@@ -185,6 +188,98 @@ impl Caller {
                 .collect(),
         })
     }
+}
+
+// --- Feature Start ---
+// The guard on every state-changing call, here rather than spelled out at each
+// one: SameSite cannot do this job, because the portal and the applications are
+// same-site by design (ADR-0015) and a compromised application's page is
+// therefore a same-site caller. Two copies of this test would eventually
+// disagree, and the one that drifted would be the one nobody reads.
+// --- Feature End ---
+pub fn from_portal(headers: &HeaderMap, portal_origin: &str) -> bool {
+    headers.get("origin").and_then(|v| v.to_str().ok()) == Some(portal_origin)
+}
+
+// --- Feature Start ---
+// The caller's own kill switch (docs/02, "Logout"), and the four steps are the
+// kill switch's four in the same order for the same reasons. The IdP first, or
+// the browser is signed straight back in with no password; the oauth2-proxy
+// session before the cache, or a request in the gap refills the cache from a
+// session that is still there; the index entry last, because it is the map to
+// everything above it.
+//
+// Why the sign-out is a call from here rather than a redirect the browser
+// walks afterwards: oauth2-proxy performs the RP-initiated logout out of the
+// session's own id_token, which is inside the session it is being asked to
+// destroy. Deleting the session key first leaves it nothing to log out with —
+// measured on the lab, where exactly that left the IdP session alive and the
+// next request signed the user back in without a prompt (docs/07). Ordering it
+// here is what makes the four steps one call instead of a race with the
+// browser's next navigation.
+//
+// Only this browser leaves the index. `forget` would take the same user's other
+// sessions with it, and a live session in no index is one the kill switch
+// cannot find.
+// --- Feature End ---
+async fn logout(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Response {
+    let Some(caller) = Caller::from(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    if !from_portal(&headers, &ctx.portal_origin) {
+        tracing::warn!(actor = %caller.username, "logout refused: wrong or missing Origin");
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    // Unreachable through nginx: `indexed` runs first and answers 503 for an
+    // authenticated request whose session key cannot be derived.
+    let Some(cookie) = headers.get("cookie") else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    let Some(key) = cache::session_cookie(cookie.to_str().ok())
+        .and_then(|v| session::session_key(v, cache::COOKIE_NAME))
+    else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    // A failed step stops the ones after it: carrying on would report a logout
+    // nobody got. The sign-out link's own href is the retry — it is steps 1 and
+    // 2 on its own.
+    let refused = |step: &str| {
+        tracing::error!(actor = %caller.username, step, "logout failed");
+        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    };
+    let signed_out = ctx
+        .http
+        .get(format!("{}/oauth2/sign_out", ctx.oauth2_proxy))
+        .header("cookie", cookie)
+        .timeout(AUTH_TIMEOUT)
+        .send()
+        .await;
+    // The 302 is the answer, not something to follow (main.rs).
+    match signed_out {
+        Ok(response) if response.status().is_success() || response.status().is_redirection() => {}
+        Ok(response) => {
+            tracing::error!(status = %response.status(), "oauth2-proxy refused the sign-out");
+            return refused("oauth2_proxy_sign_out");
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "oauth2-proxy did not answer the sign-out");
+            return refused("oauth2_proxy_sign_out");
+        }
+    }
+    // oauth2-proxy has just dropped this session itself. The DEL is still ours:
+    // it is the step that actually cuts access, and a sign-out that answered
+    // without deleting would otherwise leave the session live and unnoticed.
+    if let Err(e) = ctx.index.drop_sessions(std::slice::from_ref(&key)).await {
+        tracing::error!(error = %e, "deleting the oauth2-proxy session failed");
+        return refused("delete_session");
+    }
+    ctx.cache.drop_sub(&caller.sub);
+    if let Err(e) = ctx.index.forget_session(&caller.sub, &key).await {
+        tracing::error!(error = %e, "dropping the index entry failed");
+        return refused("forget_index_entry");
+    }
+    tracing::info!(actor = %caller.username, "logout");
+    StatusCode::NO_CONTENT.into_response()
 }
 
 #[derive(Serialize)]

@@ -8,15 +8,21 @@
 <body>
 <header class="site-header">
   <div class="bar">
-    <!-- No "Sign out" and no "Admin" beside the identity, though /api/me
-         already answers `admin`: the admin screens do not exist and
-         POST /api/logout is still open (TODO Phase 5). The space is reserved;
-         a link to neither is a dead link. -->
+    <!-- Still no "Admin" beside the identity, though /api/me already answers
+         `admin`: the admin screens do not exist yet, and a link to nothing is
+         a dead link. The space is reserved. -->
     <a class="brand" href="/">
       <img class="mark" src="/logo.svg" alt="" width="32" height="32">
       <span class="wordmark">Open<span class="wordmark-accent">Berat</span></span>
     </a>
-    <p class="identity" id="whoami"></p>
+    <div class="session">
+      <p class="identity" id="whoami"></p>
+      <!-- The href is the fallback, not decoration: /oauth2/sign_out is steps
+           1 and 2 on its own (oauth2-proxy.cfg, backend_logout_url), so a
+           browser that never ran portal.js still signs out. The script sends
+           POST /api/logout instead, which is all three in the right order. -->
+      <a class="signout" id="signout" href="/oauth2/sign_out?rd=%2F">Sign out</a>
+    </div>
   </div>
 </header>
 <main>

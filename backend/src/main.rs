@@ -72,7 +72,14 @@ async fn main() {
         }
     });
 
-    let http = reqwest::Client::new();
+    // Neither hop this client makes redirects — oauth2-proxy's /oauth2/auth
+    // answers 202 or 401, Keycloak's Admin API answers 200 or 204 — except
+    // /oauth2/sign_out, whose 302 is the answer rather than something to
+    // follow. Chasing it would report the status of whatever it points at.
+    let http = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .expect("build the HTTP client");
     let ctx = Arc::new(Ctx {
         pool,
         http: http.clone(),

@@ -19,6 +19,15 @@ use uuid::Uuid;
 /// The kill switch takes it as one, so the fixture is one.
 const LABUSER_SUB: &str = "cae7c116-24a0-42b8-ac6e-9961b34f5d6b";
 
+/// The backend's own client (main.rs): /oauth2/sign_out answers 302 and that
+/// 302 is the answer, not something to follow.
+fn no_redirects() -> reqwest::Client {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .unwrap()
+}
+
 async fn fresh_db() -> Option<PgPool> {
     let url = std::env::var("DATABASE_URL").ok()?;
     let pool = PgPool::connect(&url)
@@ -499,7 +508,10 @@ async fn store_section(pool: &sqlx::PgPool) {
 
 /// A stand-in for oauth2-proxy that answers `/oauth2/auth` from the cookie it is
 /// given, so one server covers every branch the backend has to survive.
-async fn fake_oauth2_proxy(redis_url: &str) -> (String, Arc<AtomicUsize>) {
+#[allow(clippy::type_complexity)]
+async fn fake_oauth2_proxy(
+    redis_url: &str,
+) -> (String, Arc<AtomicUsize>, Arc<std::sync::Mutex<Vec<String>>>) {
     use axum::extract::State;
     use axum::http::{HeaderMap, StatusCode};
     use axum::response::{IntoResponse, Response};
@@ -508,6 +520,23 @@ async fn fake_oauth2_proxy(redis_url: &str) -> (String, Arc<AtomicUsize>) {
     struct Upstream {
         calls: Arc<AtomicUsize>,
         redis: redis::aio::MultiplexedConnection,
+        signed_out: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    /// Logout's first step. It records the cookie and deletes nothing: the real
+    /// one drops the session too, but then "the session is gone" would be an
+    /// assertion about this stand-in rather than about the backend's own DEL.
+    /// A 302 is what oauth2-proxy answers, and following it is not the client's
+    /// job (main.rs).
+    async fn sign_out(State(state): State<Upstream>, headers: HeaderMap) -> Response {
+        state.signed_out.lock().unwrap().push(
+            headers
+                .get("cookie")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string(),
+        );
+        (StatusCode::FOUND, [("location", "/")]).into_response()
     }
 
     async fn auth(State(state): State<Upstream>, headers: HeaderMap) -> Response {
@@ -587,6 +616,7 @@ async fn fake_oauth2_proxy(redis_url: &str) -> (String, Arc<AtomicUsize>) {
     }
 
     let calls = Arc::new(AtomicUsize::new(0));
+    let signed_out = Arc::new(std::sync::Mutex::new(Vec::new()));
     let redis = redis::Client::open(redis_url)
         .unwrap()
         .get_multiplexed_async_connection()
@@ -594,14 +624,16 @@ async fn fake_oauth2_proxy(redis_url: &str) -> (String, Arc<AtomicUsize>) {
         .unwrap();
     let app = axum::Router::new()
         .route("/oauth2/auth", axum::routing::get(auth))
+        .route("/oauth2/sign_out", axum::routing::get(sign_out))
         .with_state(Upstream {
             calls: calls.clone(),
             redis,
+            signed_out: signed_out.clone(),
         });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    (format!("http://{addr}"), calls)
+    (format!("http://{addr}"), calls, signed_out)
 }
 
 /// Keycloak's Admin API, as much of it as the kill switch's first step touches:
@@ -703,13 +735,13 @@ async fn decide_section(pool: &PgPool) {
     let index = Index::connect(&redis_url)
         .await
         .expect("connect to REDIS_URL");
-    let (upstream, calls) = fake_oauth2_proxy(&redis_url).await;
+    let (upstream, calls, signed_out) = fake_oauth2_proxy(&redis_url).await;
     let (keycloak_url, killed) = fake_keycloak().await;
     let ctx = |oauth2_proxy: &str, pool: PgPool| {
         let (audit, _queue) = audit_channel(1024);
         Arc::new(Ctx {
             pool,
-            http: reqwest::Client::new(),
+            http: no_redirects(),
             oauth2_proxy: oauth2_proxy.to_string(),
             cache: Arc::new(Cache::new(audit.clone())),
             audit,
@@ -896,7 +928,7 @@ async fn decide_section(pool: &PgPool) {
     let (audit, mut queue) = audit_channel(1024);
     let shared = Arc::new(Ctx {
         pool: pool.clone(),
-        http: reqwest::Client::new(),
+        http: no_redirects(),
         oauth2_proxy: upstream.clone(),
         cache: Arc::new(Cache::new(audit.clone())),
         audit,
@@ -1808,7 +1840,7 @@ async fn decide_section(pool: &PgPool) {
 
     // --- the kill switch (ADR-0019) ---
     // Last, because it empties the cache and the index the sections above fill.
-    let mut redis = redis::Client::open(redis_url.as_str())
+    let redis = redis::Client::open(redis_url.as_str())
         .unwrap()
         .get_multiplexed_async_connection()
         .await
@@ -1981,7 +2013,7 @@ async fn decide_section(pool: &PgPool) {
     }
     redis::cmd("DEL")
         .arg(survivor)
-        .exec_async(&mut redis)
+        .exec_async(&mut redis.clone())
         .await
         .unwrap();
 
@@ -2006,4 +2038,111 @@ async fn decide_section(pool: &PgPool) {
         before,
         "none of them reached Keycloak"
     );
+
+    // --- logout (docs/02, "Logout") ---
+    // The caller's own kill switch, and the one step of the three only the
+    // backend can take. `/oauth2/sign_out` clears the cookie and drops the
+    // oauth2-proxy session; it cannot reach the decision cache, so a cookie
+    // captured before the sign-out still answers from a cache entry for up to
+    // one TTL. That is what this endpoint closes.
+    let mine = "_oauth2_proxy-mine";
+    seed(mine).await;
+    let cookie = session("mine", "valid-revocable");
+    let signed_in = |origin: &str| {
+        let mut headers = vec![
+            ("x-auth-subject", LABUSER_SUB.to_string()),
+            ("x-auth-username", "labuser".to_string()),
+            ("x-auth-groups", "OpenBerat-Finance".to_string()),
+            ("cookie", cookie.clone()),
+        ];
+        if !origin.is_empty() {
+            headers.push(("origin", origin.to_string()));
+        }
+        headers
+    };
+    assert_eq!(
+        ask(shared.clone(), full("/reports/q1", &cookie))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    calls.store(0, Ordering::SeqCst);
+    assert_eq!(
+        ask(shared.clone(), full("/reports/q2", &cookie))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 0, "the entry is cached");
+    // The same user signed in somewhere else. Logging out of one browser must
+    // not take the other one's index entry with it: a session in no index is
+    // one the kill switch cannot find (ADR-0019).
+    let elsewhere = "_oauth2_proxy-elsewhere";
+    index.record(LABUSER_SUB, elsewhere).await.unwrap();
+
+    // Origin, for the same reason the admin endpoints check it: the portal and
+    // the applications are same-site (ADR-0015), and a compromised application
+    // logging everybody out at will is a denial of service.
+    signed_out.lock().unwrap().clear();
+    for origin in ["", "https://sample.apps.example.local"] {
+        assert_eq!(
+            call("POST", "/api/logout", signed_in(origin))
+                .await
+                .status(),
+            StatusCode::FORBIDDEN,
+            "origin {origin:?}"
+        );
+    }
+    assert!(exists(mine).await, "a refused logout cut nothing");
+    assert!(
+        signed_out.lock().unwrap().is_empty(),
+        "and did not reach oauth2-proxy either"
+    );
+    // And an unauthenticated caller has no session to end.
+    assert_eq!(
+        call(
+            "POST",
+            "/api/logout",
+            vec![("origin", "https://portal.apps.example.local".to_string())]
+        )
+        .await
+        .status(),
+        StatusCode::UNAUTHORIZED
+    );
+
+    let response = call(
+        "POST",
+        "/api/logout",
+        signed_in("https://portal.apps.example.local"),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    // Step 1, and it has to be first: oauth2-proxy performs the RP-initiated
+    // logout out of the id_token inside the session it is being asked to
+    // destroy, so a backend that deleted the session key before asking leaves
+    // it nothing to log out with — and the IdP session survives the logout
+    // (measured, docs/07).
+    assert_eq!(
+        signed_out.lock().unwrap().as_slice(),
+        std::slice::from_ref(&cookie),
+        "the sign-out was called, with the caller's own cookie"
+    );
+    assert!(!exists(mine).await, "the oauth2-proxy session is gone");
+    assert_eq!(
+        index.sessions(LABUSER_SUB).await.unwrap(),
+        vec![elsewhere],
+        "only this browser left the index"
+    );
+    // The cache entry is gone with it, which is the whole point: the replayed
+    // cookie is a miss now, and oauth2-proxy cannot load a session whose key
+    // has been deleted.
+    calls.store(0, Ordering::SeqCst);
+    assert_eq!(
+        ask(shared.clone(), full("/reports/q1", &cookie))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "it really was a miss");
+    index.forget(LABUSER_SUB).await.unwrap();
 }

@@ -91,7 +91,12 @@ body {
 }
 
 .wordmark-accent { color: var(--gold-ink); }
+.session { display: flex; align-items: center; gap: 0.875rem; }
 .identity { margin: 0; color: var(--muted); font-size: 0.875rem; }
+
+.signout { color: var(--muted); font-size: 0.875rem; text-decoration: none; border-radius: 0.25rem; }
+.signout:hover { color: var(--gold-ink); text-decoration: underline; }
+.signout:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 4px; }
 
 main { max-width: 60rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
 h1 { font-size: 1.375rem; letter-spacing: -0.01em; margin: 0 0 1rem; }

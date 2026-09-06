@@ -99,6 +99,13 @@ impl Index {
     pub async fn forget(&self, sub: &str) -> Result<(), redis::RedisError> {
         self.0.clone().del::<_, ()>(index_key(sub)).await
     }
+
+    /// Logout's last step. Only the browser that logged out leaves the index:
+    /// `forget` would take the same user's other sessions with it, and a live
+    /// session in no index is one the kill switch cannot find.
+    pub async fn forget_session(&self, sub: &str, key: &str) -> Result<(), redis::RedisError> {
+        self.0.clone().srem::<_, _, ()>(index_key(sub), key).await
+    }
 }
 
 #[cfg(test)]
