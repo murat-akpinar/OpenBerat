@@ -32,6 +32,22 @@
 //                     filter widens the list, and a list that is silently not
 //                     the one asked for is the failure this table exists to
 //                     prevent.
+//   GET /api/admin/explain
+//                     the decision the PEP would reach for
+//                     ?user&groups&host&path, and every entitlement row it
+//                     walked, each marked matched / expired. The verdict is
+//                     policy::decide's own and the rows are the decision path's
+//                     own (store's `applicable!`): a screen answering
+//                     differently from the PEP sends an admin to fix the wrong
+//                     rule. `groups` is required rather than defaulted to none
+//                     — the backend keeps no directory, and answering without
+//                     them reports a denial that would not happen. Read-only:
+//                     it fills no cache entry and writes no audit row, so
+//                     asking why cannot change the answer. It reads the
+//                     entitlement table, not the decision cache, so for up to
+//                     one cache TTL after a rule change it is right and the PEP
+//                     is stale (docs/07) — the intended direction, but the
+//                     admin sees the old answer at the URL for that long.
 //   POST /api/admin/kill/{sub}
 //                     four ordered steps: Keycloak logout-all -> the session keys
 //                     from the sub -> session index -> that user's cache entries

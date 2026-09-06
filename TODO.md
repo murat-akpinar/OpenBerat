@@ -995,8 +995,27 @@ So the portal's data does not have to be filled in by hand with SQL.
       from ignoring, so what is asserted is that the halves add back up to the
       whole (`allow` + `deny` == all, `since=T` + `until=T` == all) and that
       paging with `limit=3` walks all 20 rows exactly once.*
-- [ ] `GET /api/admin/explain?user&host&path` — why the decision was made.
+- [x] `GET /api/admin/explain?user&host&path` — why the decision was made.
       `policy.rs` is already pure; the screen ops will use most
+      *`policy::explain` **annotates, it does not decide**: the verdict is
+      `decide`'s own and each rule is marked matched/expired beside it, so the
+      screen and the PEP cannot drift into disagreeing about one request. The
+      rows come from the decision path's own predicate, now written once
+      (`store`'s `applicable!`) rather than copied — an explain answering from a
+      different rule set sends an admin to fix the wrong rule. `groups` is a
+      **required** parameter, not defaulted to none: the backend keeps no
+      directory, and answering without them drops every group rule and reports a
+      denial that would not happen. An expired grant is shown matched **and**
+      expired rather than dropped, because "it ran out on Tuesday" and "there
+      was never a grant" are different answers. Verified on the lab by making
+      both answers for the same request — `labuser` through nginx and an admin
+      through the API — over twelve paths including the normalisation attacks;
+      all twelve agreed (`docs/07`). Two things that run corrected: a deny
+      reaches the browser as a **302 to `/denied`**, not a 403, so the harness
+      checks the redirect target too; and `/admin%00` never reaches the PEP at
+      all, nginx refuses it first. The one disagreement left is deliberate and
+      written down — this reads the table while the PEP may still be serving a
+      cache entry, so for up to `cache::TTL` the explanation is ahead of the URL.*
 - [ ] Kill switch, four steps in this fixed order (ADR-0019): Keycloak
       `logout-all` → the session keys from the `sub → session` index → that user's
       decision-cache entries → the index entry. Only that user's entries are

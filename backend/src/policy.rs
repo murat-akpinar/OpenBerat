@@ -55,6 +55,19 @@ pub enum Decision {
     Deny(Deny),
 }
 
+impl Decision {
+    /// The `(decision, reason)` pair the audit columns hold. One vocabulary for
+    /// the two places an outcome is named: an explain screen calling a refusal
+    /// something the audit record does not is an admin comparing two answers
+    /// that only look different.
+    pub fn as_pair(self) -> (&'static str, &'static str) {
+        match self {
+            Decision::Allow => ("allow", "allowed"),
+            Decision::Deny(reason) => ("deny", reason.as_str()),
+        }
+    }
+}
+
 // --- Feature Start ---
 // Every deny rule in the product depends on this function. `X-Original-URI`
 // arrives as the client wrote it, and prefix-matching that string lets
@@ -174,6 +187,45 @@ fn matches(pattern: &str, path: &str) -> bool {
         || path
             .strip_prefix(base)
             .is_some_and(|rest| rest.starts_with('/'))
+}
+
+/// Why `decide` answered as it did, for the admin's explain screen
+/// (`/api/admin/explain`). The verdict is **`decide`'s own** — this annotates
+/// the rules it walked rather than deciding again, so the screen and the PEP
+/// cannot drift into disagreeing about the same request.
+#[derive(Debug)]
+pub struct Trace {
+    pub decision: Decision,
+    /// `None` when the URI never became a path: the deny is `malformed_uri`
+    /// and no rule was consulted.
+    pub path: Option<String>,
+    /// One entry per rule given, in that order.
+    pub rules: Vec<RuleTrace>,
+}
+
+/// An expired rule that matches is reported as `matched` **and** `expired`
+/// rather than dropped — "the grant ran out on Tuesday" is the answer the
+/// admin came for, and an absent row would read as "there was never a grant".
+#[derive(Debug, PartialEq, Eq)]
+pub struct RuleTrace {
+    pub matched: bool,
+    pub expired: bool,
+}
+
+pub fn explain(app_enabled: bool, rules: &[Rule], raw_uri: &str, now: DateTime<Utc>) -> Trace {
+    let path = normalise(raw_uri).ok();
+    Trace {
+        decision: decide(app_enabled, rules, raw_uri, now),
+        rules: rules
+            .iter()
+            .map(|r| RuleTrace {
+                // A path we refused to normalise was matched against nothing.
+                matched: path.as_deref().is_some_and(|p| matches(&r.path_pattern, p)),
+                expired: r.expires_at.is_some_and(|e| e <= now),
+            })
+            .collect(),
+        path,
+    }
 }
 
 pub fn is_admin(groups: &[String], admin_group: &str) -> bool {
@@ -412,5 +464,121 @@ mod tests {
         ] {
             assert!(!is_admin(&not_admin, "OpenBerat-Admins"));
         }
+    }
+
+    #[test]
+    fn explain_never_disagrees_with_decide() {
+        // The one property that matters: a screen that answers differently from
+        // the PEP is worse than no screen. Every rule set and URI the tests
+        // above attack, run through both.
+        let expired = |effect, pattern| Rule {
+            expires_at: Some("2026-09-06T11:59:59Z".parse().unwrap()),
+            ..rule(effect, pattern)
+        };
+        let corpus = [
+            admin_denied(),
+            vec![],
+            vec![rule(Effect::Allow, "")],
+            vec![rule(Effect::Allow, "/reports/*")],
+            vec![expired(Effect::Allow, "")],
+            vec![rule(Effect::Allow, ""), expired(Effect::Deny, "/admin/*")],
+        ];
+        for rules in &corpus {
+            for enabled in [true, false] {
+                for uri in [
+                    "/",
+                    "/admin/",
+                    "/%61dmin/",
+                    "/x/../admin/",
+                    "/adminx",
+                    "/%2561dmin/",
+                    "/admin%00",
+                    "/%zz",
+                    "",
+                    "/reports/q1",
+                    "/admin/users?next=/public",
+                ] {
+                    assert_eq!(
+                        explain(enabled, rules, uri, now()).decision,
+                        decide(enabled, rules, uri, now()),
+                        "{uri} with {rules:?} enabled={enabled}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn explain_names_the_rules_that_matched() {
+        let rules = admin_denied(); // allow "", deny "/admin/*"
+        let denied = explain(true, &rules, "/x/../admin/users", now());
+        assert_eq!(denied.decision, Decision::Deny(Deny::ExplicitDeny));
+        // The normalised path is the answer to half the tickets this endpoint
+        // exists for: the admin wrote /admin/* and the user typed something else.
+        assert_eq!(denied.path.as_deref(), Some("/admin/users"));
+        assert_eq!(
+            denied.rules,
+            vec![
+                RuleTrace {
+                    matched: true,
+                    expired: false
+                },
+                RuleTrace {
+                    matched: true,
+                    expired: false
+                },
+            ]
+        );
+        let allowed = explain(true, &rules, "/public/", now());
+        assert_eq!(allowed.decision, Decision::Allow);
+        assert_eq!(
+            allowed.rules,
+            vec![
+                RuleTrace {
+                    matched: true,
+                    expired: false
+                },
+                RuleTrace {
+                    matched: false,
+                    expired: false
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn an_expired_grant_is_reported_as_expired_not_as_absent() {
+        let ran_out = Rule {
+            expires_at: Some("2026-09-06T11:59:59Z".parse().unwrap()),
+            ..rule(Effect::Allow, "")
+        };
+        let trace = explain(true, &[ran_out], "/", now());
+        assert_eq!(trace.decision, Decision::Deny(Deny::NoMatchingGrant));
+        assert_eq!(
+            trace.rules,
+            vec![RuleTrace {
+                matched: true,
+                expired: true
+            }],
+            "dropping the row would read as `there was never a grant`"
+        );
+    }
+
+    #[test]
+    fn a_malformed_uri_is_matched_against_nothing() {
+        let trace = explain(true, &admin_denied(), "/%2561dmin/", now());
+        assert_eq!(trace.decision, Decision::Deny(Deny::MalformedUri));
+        assert_eq!(trace.path, None);
+        assert!(trace.rules.iter().all(|r| !r.matched));
+    }
+
+    #[test]
+    fn a_disabled_application_still_shows_its_rules() {
+        // The admin's question is usually "why not", and "the application is
+        // switched off" must not hide the grants that would otherwise apply.
+        let trace = explain(false, &admin_denied(), "/", now());
+        assert_eq!(trace.decision, Decision::Deny(Deny::ApplicationDisabled));
+        assert_eq!(trace.path.as_deref(), Some("/"));
+        assert!(trace.rules[0].matched);
     }
 }

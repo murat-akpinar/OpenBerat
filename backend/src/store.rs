@@ -39,6 +39,22 @@ pub struct AppRules {
 }
 
 // --- Feature Start ---
+// The rows that apply to one user on one application, written once because two
+// copies drift: `/api/admin/explain` answering from a different rule set than
+// `/decide` is a screen that confidently explains a decision nobody made.
+// Binds: $1 the application id, $2 the user's groups, $3 their sub.
+// --- Feature End ---
+// A macro rather than a `const` because sqlx accepts only `&'static str`, by
+// design: it is what stops a query being built by `format!` from user input.
+macro_rules! applicable {
+    () => {
+        "(application_id = $1 or application_id is null)
+            and ( (subject_type = 'ad_group' and subject_id = any($2))
+               or (subject_type = 'user' and subject_id = $3) )"
+    };
+}
+
+// --- Feature Start ---
 // The two things this query gets wrong silently. A rule with a NULL
 // application_id applies to every application (docs/05 rule 4), so the id
 // cannot simply be equality-matched. And expiry is deliberately not filtered
@@ -62,12 +78,10 @@ pub async fn rules_for(
         return Ok(None);
     };
 
-    let rows: Vec<(String, String, Option<DateTime<Utc>>)> = sqlx::query_as(
-        "select effect, path_pattern, expires_at from entitlement
-          where (application_id = $1 or application_id is null)
-            and ( (subject_type = 'ad_group' and subject_id = any($2))
-               or (subject_type = 'user' and subject_id = $3) )",
-    )
+    let rows: Vec<(String, String, Option<DateTime<Utc>>)> = sqlx::query_as(concat!(
+        "select effect, path_pattern, expires_at from entitlement where ",
+        applicable!()
+    ))
     .bind(id)
     .bind(groups)
     .bind(sub)
@@ -77,19 +91,88 @@ pub async fn rules_for(
     let rules = rows
         .into_iter()
         .map(|(effect, path_pattern, expires_at)| Rule {
-            // The column is constrained to these two values by the schema, so
-            // anything else means the schema moved underneath the code.
-            effect: if effect == "deny" {
-                Effect::Deny
-            } else {
-                Effect::Allow
-            },
+            effect: effect_of(&effect),
             path_pattern,
             expires_at,
         })
         .collect();
 
     Ok(Some(AppRules { id, enabled, rules }))
+}
+
+/// One entitlement row as `/api/admin/explain` shows it: the rule the decision
+/// was made from, plus enough of the row for the admin to find it and change it.
+#[derive(Debug)]
+pub struct TracedRule {
+    pub id: Uuid,
+    pub application_id: Option<Uuid>,
+    pub subject_type: String,
+    pub subject_id: String,
+    pub rule: Rule,
+}
+
+/// id, application_id, subject_type, subject_id, and the rule's effect, pattern
+/// and expiry.
+type TracedRow = (
+    Uuid,
+    Option<Uuid>,
+    String,
+    String,
+    String,
+    String,
+    Option<DateTime<Utc>>,
+);
+
+/// The same rows `rules_for` would hand the decision path, with their identity
+/// kept. The application is already resolved here because the explain screen
+/// arrives with a hostname rather than a slug.
+pub async fn traced_rules_for(
+    pool: &PgPool,
+    application_id: Uuid,
+    sub: &str,
+    groups: &[String],
+) -> Result<Vec<TracedRule>, sqlx::Error> {
+    let rows: Vec<TracedRow> = sqlx::query_as(concat!(
+        "select id, application_id, subject_type, subject_id,
+                effect, path_pattern, expires_at
+           from entitlement where ",
+        applicable!(),
+        " order by effect, subject_id"
+    ))
+    .bind(application_id)
+    .bind(groups)
+    .bind(sub)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(
+            |(id, application_id, subject_type, subject_id, effect, path_pattern, expires_at)| {
+                TracedRule {
+                    id,
+                    application_id,
+                    subject_type,
+                    subject_id,
+                    rule: Rule {
+                        effect: effect_of(&effect),
+                        path_pattern,
+                        expires_at,
+                    },
+                }
+            },
+        )
+        .collect())
+}
+
+/// The column is constrained to these two values by the schema, so anything
+/// else means the schema moved underneath the code.
+fn effect_of(effect: &str) -> Effect {
+    if effect == "deny" {
+        Effect::Deny
+    } else {
+        Effect::Allow
+    }
 }
 
 /// One application the portal might show, with the rules that apply to this
@@ -226,10 +309,7 @@ pub fn audit_channel(capacity: usize) -> (Audit, mpsc::Receiver<AuditEvent>) {
 /// like from here.
 pub async fn write_audit(pool: PgPool, mut rx: mpsc::Receiver<AuditEvent>) {
     while let Some(event) = rx.recv().await {
-        let (decision, reason) = match event.decision {
-            Decision::Allow => ("allow", "allowed"),
-            Decision::Deny(reason) => ("deny", reason.as_str()),
-        };
+        let (decision, reason) = event.decision.as_pair();
         let written = sqlx::query(
             "insert into audit_event
                (application_id, application_slug, actor_sub, actor_name, decision, reason,

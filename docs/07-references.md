@@ -1148,6 +1148,52 @@ in `OpenBerat-Finance` and the application and entitlement were deleted
 afterwards; the generated `apps.conf` is back to its header.
 
 
+### `/api/admin/explain` — checked against the PEP rather than against itself
+
+An explain screen is only worth having if it answers the same way as the thing
+it explains, and the cheap way to test one — assert that it reports the rules
+the fixture just created — proves nothing, because a second decision
+implementation would pass it too. So the harness makes both answers for the
+same request: `labuser` fetches the path through nginx while an admin explains
+it, and the two are compared.
+
+Twelve paths, one application, `OpenBerat-Finance` holding `allow ""` and
+`deny /admin/*`. The PEP and the explanation agreed on all twelve, including
+the normalisation cases the deny rule exists to survive: `/x/../admin/users`,
+`/%61dmin/`, `/x\..\admin/` and `/admin/users?next=/public` were denied by
+both, `/adminx` and `/public?next=/admin/` allowed by both, and `/%2561dmin/`
+denied by both — the PEP through `error_page 403`, the explanation as
+`malformed_uri`.
+
+Three things the run corrected or pinned down:
+
+- **A deny reaches the browser as a 302, not a 403.** `protected.inc` maps
+  `error_page 403 = @denied`, so the status a client sees for a refusal is a
+  redirect to `/denied`. The harness therefore checks the redirect *target* as
+  well as the code: a 302 to the login is a 401, a different answer entirely,
+  and reading it as a deny would let a broken session pass the matrix while
+  proving nothing.
+- **`/admin%00` never reaches the PEP.** nginx answers it 400 itself, before
+  `auth_request` runs, so it cannot corroborate anything and was dropped from
+  the matrix. `policy.rs` covers it as a unit test.
+- **The two can legitimately disagree for up to one cache TTL.** The PEP
+  answers from a decision-cache entry (30 s, `cache::TTL`); explain reads the
+  entitlement table directly. Immediately after a rule change the explanation
+  is right and the PEP is stale, which is the intended direction — but an admin
+  who deletes a deny, explains, and then tries the URL will see the old answer
+  for up to half a minute. Documented rather than fixed: making explain read
+  the cache would make it explain a decision that is about to stop being true.
+
+Also confirmed on the lab: a portal user gets 403 (and still 403 while sending
+`X-Auth-Groups: OpenBerat-Admins`, which the shared strip clears), a missing
+`groups` is a 400 rather than a guess, a mistyped parameter name is a 400,
+an unknown hostname is a 404, and three explains in a row wrote no `audit_event`
+row — asking why cannot change the answer.
+
+Harness: `verify-explain.sh` on the lab host. It clears the application and
+entitlement tables before building its fixture and deletes both afterwards;
+both were empty before the run and are empty after it.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is

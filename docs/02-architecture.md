@@ -152,6 +152,7 @@ updated together.
 | `POST/PATCH/DELETE /api/admin/applications` | admin | Defining applications |
 | `GET/POST/DELETE /api/admin/entitlements` | admin | AD group ↔ application mapping |
 | `GET /api/admin/audit` | admin | Audit record, filtered by `actor` / `app` / `decision` / `reason` / `since` / `until`, paged with a `(before_ts, before_id)` keyset cursor. A filter it cannot honour is a 400, never ignored |
+| `GET /api/admin/explain` | admin | Why a request would be decided as it is: `user` (the Keycloak `sub`), `groups` (comma-separated, **required** — the backend holds no directory and guessing drops every group rule), `host`, `path`. Read-only: no cache entry, no audit row. Answers from the entitlement table, so for up to one cache TTL after a rule change it is ahead of the PEP |
 | `POST /api/admin/kill/{sub}` | admin | Kill switch |
 | `GET /healthz` | operator, compose | The process is alive. No dependencies checked, no body |
 | `GET /readyz` | operator, nginx | Postgres and Redis are reachable. 200 or 503 |

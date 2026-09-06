@@ -7,6 +7,7 @@
 
 use crate::api::{Caller, Ctx};
 use crate::policy;
+use crate::store;
 use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::middleware::{self, Next};
@@ -40,6 +41,7 @@ pub fn routes(ctx: Arc<Ctx>) -> Router<Arc<Ctx>> {
             axum::routing::delete(delete_entitlement),
         )
         .route("/api/admin/audit", get(list_audit))
+        .route("/api/admin/explain", get(explain))
         .route_layer(middleware::from_fn_with_state(ctx, guard))
 }
 
@@ -547,6 +549,133 @@ async fn list_audit(State(ctx): State<Arc<Ctx>>, Query(q): Query<AuditQuery>) ->
     }
 }
 // --- Feature End ---
+
+/// `GET /api/admin/explain?user&groups&host&path` — the decision the PEP would
+/// reach for that request, and the rules it walked to get there.
+///
+/// Read-only: it fills no cache entry, writes no audit row and derives no
+/// identity from the caller, so asking why a user was denied cannot itself
+/// change what happens to them next. The verdict is `policy::decide`'s own
+/// (`policy::explain` annotates, it does not decide) over the rows store's
+/// `applicable!` hands the decision path — a screen answering differently from
+/// the PEP would send an admin to fix the wrong rule. The one disagreement left
+/// is deliberate: this reads the table while the PEP may still be serving a
+/// cache entry, so for up to `cache::TTL` after a rule change the explanation
+/// is right and the URL is stale. Reading the cache instead would make it
+/// explain a decision that is about to stop being true.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExplainQuery {
+    /// The Keycloak `sub`, the same value the kill switch takes and the audit
+    /// record's `actor_sub` column holds — not the username. It is echoed back
+    /// so an admin who passed the wrong one can see that they did.
+    user: String,
+    /// Comma-separated, as the token carries them.
+    groups: Option<String>,
+    /// The `external_hostname`, which is how nginx picks the application.
+    host: String,
+    /// As the client would send it, query string and all: half the tickets this
+    /// endpoint answers are a path that normalised into something else.
+    path: String,
+}
+
+async fn explain(State(ctx): State<Arc<Ctx>>, Query(q): Query<ExplainQuery>) -> Response {
+    // --- Feature Start ---
+    // Required, not defaulted to none. The backend keeps no directory of its
+    // own, so a missing `groups` cannot be filled in — and answering anyway
+    // drops every ad_group rule and reports `no_matching_grant` for a user who
+    // has access. That is the one answer this endpoint must never give.
+    // --- Feature End ---
+    let Some(groups) = q.groups else {
+        return bad_request(
+            "groups is required (comma-separated, empty for a user in none): \
+             the backend holds no directory, and explaining without them drops \
+             every group rule and reports a denial that would not happen",
+        );
+    };
+    let groups: Vec<String> = groups
+        .split(',')
+        .map(str::trim)
+        .filter(|g| !g.is_empty())
+        .map(str::to_owned)
+        .collect();
+
+    // An admin pastes a URL's authority, and the schema stores neither a port
+    // nor an uppercase letter.
+    let host = q
+        .host
+        .split(':')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let found: Result<Option<(Uuid, String, bool)>, _> =
+        sqlx::query_as("select id, slug, enabled from application where external_hostname = $1")
+            .bind(&host)
+            .fetch_optional(&ctx.pool)
+            .await;
+    let (application_id, slug, enabled) = match found {
+        Ok(Some(row)) => row,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({
+                    "error": "no application answers on that hostname",
+                    "host": host,
+                })),
+            )
+                .into_response();
+        }
+        Err(e) => return failed("explain", "-", e),
+    };
+
+    let traced = match store::traced_rules_for(&ctx.pool, application_id, &q.user, &groups).await {
+        Ok(traced) => traced,
+        Err(e) => return failed("explain", "-", e),
+    };
+    let rules: Vec<policy::Rule> = traced.iter().map(|t| t.rule.clone()).collect();
+    let trace = policy::explain(enabled, &rules, &q.path, Utc::now());
+    let (decision, reason) = trace.decision.as_pair();
+
+    let walked: Vec<serde_json::Value> = traced
+        .iter()
+        .zip(&trace.rules)
+        .map(|(row, verdict)| {
+            serde_json::json!({
+                "id": row.id,
+                // Null is the wildcard of docs/05 rule 4: this rule applies to
+                // every application, not only the one being explained.
+                "application_id": row.application_id,
+                "subject_type": row.subject_type,
+                "subject_id": row.subject_id,
+                "effect": match row.rule.effect {
+                    policy::Effect::Allow => "allow",
+                    policy::Effect::Deny => "deny",
+                },
+                "path_pattern": row.rule.path_pattern,
+                "expires_at": row.rule.expires_at,
+                "matched": verdict.matched,
+                "expired": verdict.expired,
+            })
+        })
+        .collect();
+
+    Json(serde_json::json!({
+        "subject": { "sub": q.user, "groups": groups },
+        "resource": {
+            "host": host,
+            "application": slug,
+            "enabled": enabled,
+            "path": q.path,
+            // What the rules were actually matched against. `null` means the
+            // URI was refused before any rule was consulted.
+            "normalised_path": trace.path,
+        },
+        "decision": decision,
+        "reason": reason,
+        "rules": walked,
+    }))
+    .into_response()
+}
 
 // --- Feature Start ---
 // upstream_url is a trust boundary input (ADR-0011): it becomes a `proxy_pass`
