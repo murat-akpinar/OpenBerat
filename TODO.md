@@ -774,7 +774,24 @@ So the portal's data does not have to be filled in by hand with SQL.
       Rendered in Firefox against a stubbed API in all three states — the
       injected name is drawn as text, and clipping the icon box was needed
       because nothing validates the `icon` column.*
-- [ ] The "no access" page — where `error_page 403` lands
+- [x] The "no access" page — where `error_page 403` lands
+      *The route was already wired and tested in Phase 3; what landed on it was
+      a placeholder that said the real page "arrives in Phase 5". Now it names
+      the refused application, says what to do, and links back to the portal.
+      The application name comes out of `?app=`, which nginx fills from the
+      matched `$host` — but anyone can type that URL, so it is written with
+      `textContent` and only when it still matches a hostname. Without the
+      second half the sentence itself is the injection: `?app=… contact
+      security@attacker` is a page telling a user, in the product's own voice
+      and on the product's own host, who to send their credentials to.
+      Rendered in Firefox in all three states — named, unnamed, crafted — and
+      verified end to end on the lab: a user with no entitlement gets 302 to
+      `portal…/denied?app=whoami.apps.example.local`, following it ends 200 in
+      one hop with no loop, and `denied.js` comes back from the nginx image.
+      **Not** shown: a per-application owner or request link, which `docs/02`
+      used to promise. Nothing writes that column, and an endpoint that serves
+      it to any authenticated user answers "does application X exist" for
+      applications they cannot reach — `docs/02` now says so instead.*
 - [x] Empty state: "you have access to no applications"
       *The same branch of the same file, so it landed with the portal. It is
       **not** the error branch: `/api/apps` answers 503 when Postgres is down,

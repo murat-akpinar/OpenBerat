@@ -382,13 +382,27 @@ finding across two rows in every report ever run against the table.
 ## What does a denied user see?
 
 A bare `403` is unacceptable. With `error_page 403`, nginx redirects to the
-portal's "no access" page: which application, who to contact, a request link.
-Which rule blocked them is not shown.
+portal's "no access" page: which application refused them, what to do about it,
+and a link back to the portal's list of what they *can* reach. Which rule
+blocked them is not shown — that is the administrator's question, answered from
+the audit log.
 
 Because that page lives on the portal host, nginx **cannot serve it internally**
 (`error_page` does not cross into another `server` block):
 `error_page 403 = @denied` → `return 302 https://portal.apps.<domain>/denied?app=$host`.
 The redirect carries nothing beyond the application name.
+
+The page names the application from that query parameter, and treats it as
+untrusted: nginx puts the matched `$host` there, but anybody can type the URL
+by hand. The name is written as text, never as a link, and only when it still
+looks like a hostname — otherwise the page's own sentence becomes a place to
+put whatever the sender wanted the user to read, including a contact address of
+the sender's choosing. A **per-application** owner or request link would be the
+useful thing to show here and is not shown: it needs a column nothing writes
+yet, and serving it from an endpoint any authenticated user can call would
+answer "does application X exist" for applications they cannot reach. Until an
+operator asks for it, the page points at the portal and at whoever administers
+access.
 
 ## Logout
 

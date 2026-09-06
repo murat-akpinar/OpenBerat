@@ -3,9 +3,23 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OpenBerat — no access</title>
-<h1>You do not have access to this application</h1>
-<p>You are signed in, but your groups do not grant access to it.</p>
-<p>Ask whoever administers access to add you to the right group. The full
-portal, with a request link and the list of what you can reach, arrives in
-Phase 5.</p>
+<link rel="stylesheet" href="/portal.css">
+<body>
+<header>
+  <h1>OpenBerat</h1>
+</header>
+<main>
+  <h2>No access</h2>
+  <!-- Names the application once denied.js has read it out of the query; the
+       sentence has to stand on its own until then, and if the query carries
+       nothing usable it stays this way. -->
+  <p id="headline">You are signed in, but your groups do not grant access to this
+  application.</p>
+  <p id="status">Ask whoever administers access to add you to the right AD group.
+  Which rule refused the request is not shown here — the administrator can look
+  it up.</p>
+  <p><a href="/">See the applications you can reach</a></p>
+</main>
+<script src="/denied.js"></script>
+</body>
 </html>
