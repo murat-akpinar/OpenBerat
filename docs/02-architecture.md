@@ -151,7 +151,7 @@ updated together.
 | `GET /api/admin/applications` | admin | Application list |
 | `POST/PATCH/DELETE /api/admin/applications` | admin | Defining applications |
 | `GET/POST/DELETE /api/admin/entitlements` | admin | AD group ↔ application mapping |
-| `GET /api/admin/audit` | admin | Audit record, filtered |
+| `GET /api/admin/audit` | admin | Audit record, filtered by `actor` / `app` / `decision` / `reason` / `since` / `until`, paged with a `(before_ts, before_id)` keyset cursor. A filter it cannot honour is a 400, never ignored |
 | `POST /api/admin/kill/{sub}` | admin | Kill switch |
 | `GET /healthz` | operator, compose | The process is alive. No dependencies checked, no body |
 | `GET /readyz` | operator, nginx | Postgres and Redis are reachable. 200 or 503 |

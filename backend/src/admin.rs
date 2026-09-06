@@ -7,12 +7,13 @@
 
 use crate::api::{Caller, Ctx};
 use crate::policy;
-use axum::extract::{Path, Request, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::path::Path as FsPath;
@@ -38,6 +39,7 @@ pub fn routes(ctx: Arc<Ctx>) -> Router<Arc<Ctx>> {
             "/api/admin/entitlements/{id}",
             axum::routing::delete(delete_entitlement),
         )
+        .route("/api/admin/audit", get(list_audit))
         .route_layer(middleware::from_fn_with_state(ctx, guard))
 }
 
@@ -439,6 +441,112 @@ async fn delete_entitlement(
         Err(e) => failed("delete_entitlement", &actor, e),
     }
 }
+
+/// One `audit_event` row as the admin reads it. Every column, because the
+/// summary columns are the row — a viewer showing only the decision hides that
+/// it stands for 50,000 requests (docs/02, "Audit granularity").
+#[derive(Serialize, sqlx::FromRow)]
+struct AuditRow {
+    id: Uuid,
+    ts: DateTime<Utc>,
+    actor_sub: String,
+    actor_name: Option<String>,
+    application_id: Option<Uuid>,
+    application_slug: String,
+    decision: String,
+    reason: String,
+    count: i32,
+    first_seen: DateTime<Utc>,
+    last_seen: DateTime<Utc>,
+    distinct_path: i32,
+    first_path: String,
+    src_ip: Option<IpAddr>,
+    request_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum AuditDecision {
+    Allow,
+    Deny,
+}
+
+// --- Feature Start ---
+// Every rule below refuses the one answer an audit viewer must never give: a
+// list that is quietly not the list that was asked for. `deny_unknown_fields`
+// turns a mistyped filter name into a 400 rather than dropping it — a dropped
+// filter widens the result, and the admin then reads "these are the denials"
+// off a page with allows on it. `decision` is an enum for the same reason. And
+// the page cursor is a keyset, `(ts, id)` from the last row shown, not an
+// OFFSET: rows arrive at the head of this ordering while an admin pages through
+// it, so OFFSET repeats page one's rows on page two, and once the retention job
+// starts deleting from the tail (N-04) it skips rows instead.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AuditQuery {
+    /// The `actor_sub` the kill switch takes or the `actor_name` a person reads
+    /// off a ticket — whichever of the two the admin happens to have.
+    actor: Option<String>,
+    app: Option<String>,
+    decision: Option<AuditDecision>,
+    reason: Option<String>,
+    /// Inclusive; `until` is exclusive, so consecutive windows neither overlap
+    /// nor leave a gap.
+    since: Option<DateTime<Utc>>,
+    until: Option<DateTime<Utc>>,
+    before_ts: Option<DateTime<Utc>>,
+    before_id: Option<Uuid>,
+    limit: Option<i64>,
+}
+
+async fn list_audit(State(ctx): State<Arc<Ctx>>, Query(q): Query<AuditQuery>) -> Response {
+    if q.before_ts.is_some() != q.before_id.is_some() {
+        return bad_request("before_ts and before_id are one cursor: pass both or neither");
+    }
+    // A cap, not a preference: this table is designed to grow without bound and
+    // an unbounded LIMIT is a self-DoS an admin can type by accident.
+    let limit = q.limit.unwrap_or(100).clamp(1, 1000);
+    let decision = q.decision.as_ref().map(|d| match d {
+        AuditDecision::Allow => "allow",
+        AuditDecision::Deny => "deny",
+    });
+    // ponytail: matching `actor` against either column defeats
+    // audit_event_actor_idx, which leads on actor_sub alone. The ts index still
+    // bounds the common case — a recent page — and the alternative is two
+    // parameters for one question the admin can only answer one way. Split them
+    // when a search far down the table is measurably slow.
+    let found: Result<Vec<AuditRow>, _> = sqlx::query_as(
+        "select id, ts, actor_sub, actor_name, application_id, application_slug,
+                decision, reason, count, first_seen, last_seen, distinct_path,
+                first_path, src_ip, request_id
+           from audit_event
+          where ($1::text is null or actor_sub = $1 or actor_name = $1)
+            and ($2::text is null or application_slug = $2)
+            and ($3::text is null or decision = $3)
+            and ($4::text is null or reason = $4)
+            and ($5::timestamptz is null or ts >= $5)
+            and ($6::timestamptz is null or ts < $6)
+            and ($7::timestamptz is null or (ts, id) < ($7, $8::uuid))
+          order by ts desc, id desc
+          limit $9",
+    )
+    .bind(&q.actor)
+    .bind(&q.app)
+    .bind(decision)
+    .bind(&q.reason)
+    .bind(q.since)
+    .bind(q.until)
+    .bind(q.before_ts)
+    .bind(q.before_id)
+    .bind(limit)
+    .fetch_all(&ctx.pool)
+    .await;
+    match found {
+        Ok(rows) => Json(rows).into_response(),
+        Err(e) => failed("list_audit", "-", e),
+    }
+}
+// --- Feature End ---
 
 // --- Feature Start ---
 // upstream_url is a trust boundary input (ADR-0011): it becomes a `proxy_pass`

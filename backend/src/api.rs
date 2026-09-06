@@ -24,6 +24,14 @@
 //                     requires ADMIN_GROUP
 //                     membership, never cached, Origin checked on state-changing
 //                     endpoints
+//   GET /api/admin/audit
+//                     the audit record, filtered by actor / app / decision /
+//                     reason / since / until and paged with a
+//                     (before_ts, before_id) keyset cursor. A filter it cannot
+//                     honour answers 400 rather than being ignored: an ignored
+//                     filter widens the list, and a list that is silently not
+//                     the one asked for is the failure this table exists to
+//                     prevent.
 //   POST /api/admin/kill/{sub}
 //                     four ordered steps: Keycloak logout-all -> the session keys
 //                     from the sub -> session index -> that user's cache entries

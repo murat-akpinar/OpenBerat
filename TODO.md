@@ -974,7 +974,27 @@ So the portal's data does not have to be filled in by hand with SQL.
       vhost was written. ADR-0005's directory listing still says "stock image" —
       left as the historical record it is, the way its stale `frontend/` line
       already is*
-- [ ] Audit log viewing + filtering
+- [x] Audit log viewing + filtering
+      *`GET /api/admin/audit`, the API half only — the admin screens do not
+      exist yet for applications or entitlements either, and the two boxes
+      after this one add endpoints the same screen would have to grow, so
+      building it now means building it twice. Filters: `actor`, `app`,
+      `decision`, `reason`, `since` (inclusive) / `until` (exclusive).
+      Two decisions, both the same rule — an audit viewer must never answer
+      with a list that is quietly not the list asked for. A filter the backend
+      cannot honour is a **400 rather than ignored** (`deny_unknown_fields` plus
+      an enum for `decision`): ignoring one widens the result, and the admin
+      then reads "these are the denials" off a page with allows on it. And the
+      cursor is a **keyset** `(ts, id)`, not an OFFSET — rows arrive at the head
+      of this ordering while an admin pages through it, so OFFSET repeats page
+      one on page two, and once the N-04 retention job deletes from the tail it
+      skips rows instead. `limit` caps at 1000; unbounded is a self-DoS on a
+      table designed to grow. Verified on the lab against rows the real decision
+      path wrote (`verify-audit.sh`), with invariants rather than fixtures — a
+      filter tested on a column holding one distinct value cannot tell narrowing
+      from ignoring, so what is asserted is that the halves add back up to the
+      whole (`allow` + `deny` == all, `since=T` + `until=T` == all) and that
+      paging with `limit=3` walks all 20 rows exactly once.*
 - [ ] `GET /api/admin/explain?user&host&path` — why the decision was made.
       `policy.rs` is already pure; the screen ops will use most
 - [ ] Kill switch, four steps in this fixed order (ADR-0019): Keycloak

@@ -1363,6 +1363,11 @@ async fn decide_section(pool: &PgPool) {
             format!("/api/admin/entitlements/{ent_id}"),
             serde_json::json!(null),
         ),
+        (
+            "GET",
+            "/api/admin/audit".to_string(),
+            serde_json::json!(null),
+        ),
     ];
     for (method, path, body) in &plane {
         let response = sneak(method, path.clone(), body.clone()).await;
@@ -1377,7 +1382,7 @@ async fn decide_section(pool: &PgPool) {
         before,
         "a refused portal user still changed something"
     );
-    // The same seven with the admin group, and this is what stops the loop
+    // The same eight with the admin group, and this is what stops the loop
     // above from being vacuous: a mistyped path answers 404 and a wrong method
     // 405, neither of which is the 403 asserted — but a route that quietly
     // stopped existing would still need something to say so. Run last in this
@@ -1422,6 +1427,152 @@ async fn decide_section(pool: &PgPool) {
             StatusCode::FORBIDDEN,
             "origin {origin:?}"
         );
+    }
+
+    // --- reading the audit record back ---
+    // The table is append-only and the admin's question is "did I see
+    // everything", so the two things tested hardest here are the ones that
+    // answer it wrongly in silence: a filter that does not narrow, and a second
+    // page that repeats or skips a row.
+    let audit_row =
+        async |slug: &str, sub: &str, name: &str, decision: &str, reason: &str, ts: &str| {
+            sqlx::query(
+                "insert into audit_event
+                   (application_slug, actor_sub, actor_name, decision, reason, count,
+                    first_seen, last_seen, distinct_path, first_path, src_ip, request_id, ts)
+                 values ($1, $2, $3, $4, $5, 1, now(), now(), 1, '/', '10.0.0.7', 'req-1',
+                         $6::text::timestamptz)",
+            )
+            .bind(slug)
+            .bind(sub)
+            .bind(name)
+            .bind(decision)
+            .bind(reason)
+            .bind(ts)
+            .execute(pool)
+            .await
+            .expect("audit row");
+        };
+    audit_row(
+        "wiki",
+        "sub-a",
+        "alice",
+        "allow",
+        "allowed",
+        "2026-09-01T10:00:00Z",
+    )
+    .await;
+    audit_row(
+        "wiki",
+        "sub-b",
+        "bob",
+        "deny",
+        "no_matching_grant",
+        "2026-09-02T10:00:00Z",
+    )
+    .await;
+    audit_row(
+        "reports",
+        "sub-a",
+        "alice",
+        "deny",
+        "explicit_deny",
+        "2026-09-03T10:00:00Z",
+    )
+    .await;
+    audit_row(
+        "reports",
+        "sub-a",
+        "alice",
+        "allow",
+        "allowed",
+        "2026-09-04T10:00:00Z",
+    )
+    .await;
+
+    let audit = async |query: &str| -> (StatusCode, serde_json::Value) {
+        let response = call(
+            "GET",
+            &format!("/api/admin/audit{query}"),
+            identity("OpenBerat-Admins"),
+        )
+        .await;
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let parsed = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+        (status, parsed)
+    };
+    let slugs = |rows: &serde_json::Value| -> Vec<String> {
+        rows.as_array()
+            .expect("an array of rows")
+            .iter()
+            .map(|r| r["application_slug"].as_str().unwrap().to_string())
+            .collect()
+    };
+
+    let (status, rows) = audit("").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        slugs(&rows),
+        ["reports", "reports", "wiki", "wiki"],
+        "newest first"
+    );
+    // inet is the one column whose decode can only fail at runtime, and it
+    // fails as a 503 that reads like an outage rather than as a type error.
+    assert_eq!(rows[0]["src_ip"], "10.0.0.7");
+    assert_eq!(rows[0]["reason"], "allowed");
+    assert_eq!(rows[0]["count"], 1);
+
+    for (query, expected) in [
+        ("?app=wiki", 2),
+        ("?decision=deny", 2),
+        ("?reason=explicit_deny", 1),
+        // Whichever of the two the admin has: the sub is what the kill switch
+        // takes, the name is what a person reads off a ticket.
+        ("?actor=alice", 3),
+        ("?actor=sub-b", 1),
+        ("?since=2026-09-03T00:00:00Z", 2),
+        ("?until=2026-09-03T00:00:00Z", 2),
+        ("?since=2026-09-02T00:00:00Z&until=2026-09-04T00:00:00Z", 2),
+        ("?app=wiki&decision=allow", 1),
+        ("?app=nonexistent", 0),
+    ] {
+        let (status, rows) = audit(query).await;
+        assert_eq!(status, StatusCode::OK, "{query}");
+        assert_eq!(rows.as_array().unwrap().len(), expected, "{query}");
+    }
+
+    // Keyset and not OFFSET: rows arrive at the head of this ordering while an
+    // admin is paging through it, and OFFSET answers that by showing page one's
+    // rows again on page two — or, when a row ages out, by skipping one. Either
+    // is a lie told by the one table that exists not to tell them.
+    let (_, page1) = audit("?limit=2").await;
+    assert_eq!(slugs(&page1), ["reports", "reports"]);
+    let cursor = format!(
+        "?limit=2&before_ts={}&before_id={}",
+        page1[1]["ts"].as_str().unwrap(),
+        page1[1]["id"].as_str().unwrap()
+    );
+    let (_, page2) = audit(&cursor).await;
+    assert_eq!(slugs(&page2), ["wiki", "wiki"], "no repeat and no skip");
+
+    // A filter the backend cannot honour is refused, never ignored. Ignoring it
+    // returns MORE rows than were asked for, under a heading that says
+    // otherwise — the admin reads "these are the denials" off a list with
+    // allows in it.
+    for bad in [
+        "?decision=nope",
+        "?desicion=deny",
+        "?since=yesterday",
+        "?limit=abc",
+        // The cursor is a pair; half of one silently matches nothing at all.
+        "?before_ts=2026-09-03T00:00:00Z",
+        "?before_id=00000000-0000-0000-0000-000000000000",
+    ] {
+        let (status, _) = audit(bad).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}");
     }
 
     // --- the delimiter the group list is joined with ---
