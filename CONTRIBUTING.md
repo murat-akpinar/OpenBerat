@@ -59,8 +59,12 @@ reader outside the maintainer's machine can find them.
   deny. This applies to the system as a whole, not only to `policy.rs`
   ([ADR-0017](docs/adr/0017-fail-closed-availability.md)).
 - **Configuration is baked into the image, not bind-mounted**, so a running
-  system cannot drift. The one exception is the nginx application blocks
-  generated from the database ([ADR-0011](docs/adr/0011-nginx-config-generation.md)).
+  system cannot drift. Two exceptions: the nginx application blocks generated
+  from the database ([ADR-0011](docs/adr/0011-nginx-config-generation.md)), and
+  `keycloak/realm/`, which is **import data** — read once into Keycloak's own
+  database at boot, not configuration a running system serves from. The test is
+  whether it is read at runtime; if it is, it belongs in the image. A Keycloak
+  login theme is read at runtime, so it is not covered by this exception.
 - **The audit record format is immutable.** Changing what an `audit_event` row
   holds is a breaking change, which is why the summary columns are in the first
   migration rather than added later (`docs/02-architecture.md`).
