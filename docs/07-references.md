@@ -1722,6 +1722,47 @@ returns `migration 2 was previously applied but is missing in the resolved
 migrations` and the process exits. There is no down migration to reach for —
 the way back to the previous version is the dump taken before the upgrade.
 
+### TEST — one page load, two login flows, one CSRF cookie
+
+Reported from the lab as a 403 on the OAuth callback: *"Unable to find a valid
+CSRF token"*, where going back and signing in again worked. oauth2-proxy's own
+dump of the failing request shows the browser sent **no `Cookie` header at
+all**, and the flow that succeeded a second later was a different one — its
+`state` carried `.../favicon.ico` as the return address, not `/`.
+
+The cause is that **a single page load starts more than one login flow**.
+Anything that 401s goes to `@signin` -> `/oauth2/start`, and each start mints a
+CSRF cookie holding that flow's PKCE verifier. With one cookie name for all of
+them the second start overwrites the first, and one browser cannot finish two
+flows. Reproduced with curl in one cookie jar — the document and the favicon
+beside it, then the password typed on the document's flow:
+
+| `cookie_csrf_per_request` | CSRF cookies in the jar after two starts | The document's login | `/api/me` |
+|---|---|---|---|
+| `false` (the default) | **1** | **500** | 302, still anonymous |
+| `true` | **2** | **200** | **200** |
+
+Both of the user-visible failures come from the same overwrite, and which one
+appears is a race:
+
+- the callback finds the **other flow's** cookie, so the code is redeemed with
+  the wrong PKCE verifier and Keycloak answers `invalid_grant "Code not valid"`
+  -> **500**. This is what the reproduction above hits every time.
+- the other flow's callback wins first and **clears** the shared cookie, so the
+  loser arrives with nothing -> **403**, the message the report started from.
+
+The setting exists in oauth2-proxy 7.8.2 (`--cookie-csrf-per-request`) and names
+the cookie `_oauth2_proxy_<nonce>_csrf`, one per flow. There is no
+`cookie_csrf_per_request_limit` in this version, so the bound on how many such
+cookies a browser accumulates is their 15 minute `cookie_csrf_expire` alone.
+
+Our own pages are not what triggers it — `index.html`, `denied.html` and
+`unavailable.html` all declare `<link rel="icon" href="/logo.svg">`, so the
+second flow comes from a page that is not ours: oauth2-proxy's own error page
+and Keycloak's login page have no icon link. Serving `/favicon.ico` anonymously
+would remove that one instance; it does not remove the class, which is why the
+fix is the cookie name and not the favicon.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is
