@@ -53,8 +53,12 @@ other components are affected.
   build. No Node step in CI either way.
 - Alpine.js version upgrades are manual and visible in the commit — a deliberate
   choice.
-- No sources are pulled from an external CDN. Whether the CSP can avoid
-  `unsafe-eval` depends on which Alpine.js build is vendored — the standard one
-  evaluates expressions with `new Function()` (`docs/07`, "Unverified").
+- No sources are pulled from an external CDN. The vendored file is the **CSP
+  build** (`@alpinejs/csp`), not the standard one: measured, the standard build
+  loads under `default-src 'self'` and then evaluates no binding at all, every
+  one of them blocked as `eval` (`docs/07`, "Measured in the browser"). The CSP
+  build costs less than this ADR assumed — it parses ordinary expressions and
+  refuses only arrow functions and template literals — so the CSP needs neither
+  `unsafe-inline` nor `unsafe-eval`.
 - No authorisation decision is made in the UI; hiding admin screens is a
   convenience, and `/api/admin/*` is separately authorised in the backend.

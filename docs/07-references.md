@@ -743,6 +743,69 @@ Two things the backend *can* do, and now does:
   The same seven answer 200/204 for `labadmin`, which is what stops the seven
   403s from being seven typos.
 
+## Measured in the browser
+
+The lab stack is not the system under test here: a Content-Security-Policy is
+enforced by the browser, so this one was run against Firefox 153 (headless,
+screenshotted) over a plain HTTP origin, with the policy delivered as
+`<meta http-equiv="Content-Security-Policy" content="default-src 'self'">`.
+
+### Alpine.js under `default-src 'self'`
+
+Three pages, identical but for which build they load and how `x-data` is
+written. Each one reports whether an external script ran at all, whether the
+`Alpine` object exists, what `document`'s `securitypolicyviolation` events said,
+and whether a binding actually evaluated — the fallback text stays in place if
+it did not.
+
+| page | build | `x-data` | binding | violations |
+|---|---|---|---|---|
+| `std-inline` | `alpinejs@3.17.1` | `{ n: 41 }` inline | **did not evaluate** | `script-src blocked eval`, twice |
+| `csp-inline` | `@alpinejs/csp@3.17.1` | `{ n: 41 }` inline | `42` | none |
+| `csp-data` | `@alpinejs/csp@3.17.1` | `Alpine.data('probe', …)` | `42` | none |
+
+The first row is the claim [ADR-0007](adr/0007-frontend-buildless-static.md)
+rested on, and it holds: the standard build **loads** under the policy — the
+script itself is same-origin, `window.Alpine` is present — and then evaluates
+nothing, because it compiles every expression with `new Function()`. The
+failure is silent in exactly the way that matters: no error on the page, no
+missing file, just attributes that never do anything.
+
+The second row was the surprise. The CSP build of 3.17.1 does not merely accept
+bare property names, as the ADR assumed when it said the build "restricts the
+expression syntax" — it ships a parser, and inline object literals and
+arithmetic go through it untouched. So the entry cost of dropping `unsafe-eval`
+is much lower than the ADR feared. What the parser refuses, tried one expression
+per element on one page, all under the same policy:
+
+| expression | result |
+|---|---|
+| `app.name`, `app.enabled ? 'on' : 'off'`, `app.enabled && app.name` | works |
+| `label()`, `upper(app.name)` — member calls, with arguments | works |
+| `clicks = clicks + 1` in `x-on:click` and in `x-init` | works |
+| `x-for="a in apps"` | works |
+| `$el.tagName` — the magics | works |
+| `apps.filter(a => a.id > 1).length` — arrow function | **fails** |
+| `` `n=${app.id}` `` — template literal | **fails** |
+
+Neither refusal costs anything: both belong in the `Alpine.data()` object, which
+is ordinary JavaScript in an ordinary `.js` file and is not parsed by Alpine at
+all.
+
+`@alpinejs/csp@3.17.1` is therefore vendored at `frontend/src/vendor/alpine.js`
+(provenance and npm integrity hash in the README beside it). Packaging checked
+on the lab stack afterwards, since a new subdirectory of `frontend/src/` had
+never been through ADR-0020's copy before: rebuilt nginx image, and
+`https://portal.apps.example.local/vendor/alpine.js` answers 200,
+`application/javascript`, 71087 bytes, sha256 identical to the committed file —
+and 302 to Keycloak without a session, so the vendor path is authenticated like
+the rest of the portal rather than quietly anonymous. ADR-0007's open
+consequence is closed: the CSP the portal is written for needs neither
+`unsafe-inline` nor `unsafe-eval`. The `frontend` job in CI now fails if any
+file under `vendor/` regains `eval(` or `new Function`, because swapping in the
+standard build looks like nothing but a larger file and would cost `unsafe-eval`
+on the one host every user opens.
+
 ## Unverified, to be tested
 
 These claims have not been confirmed against a source; they will be tried in the
@@ -793,13 +856,6 @@ Phase 1 lab:
       Measured above: such a group reaching the claim is a management-plane
       escalation, and this filter is the only thing that stops it
       ([ADR-0008](adr/0008-group-identity-name.md) mitigation 1). Needs samba-ad.
-- [ ] Does the vendored Alpine.js run under a `default-src 'self'` CSP
-      **without** `unsafe-eval`? The standard build evaluates expressions with
-      `new Function()`; the CSP build restricts the expression syntax.
-      ADR-0007's CSP consequence rests on this. **Narrowed:** the portal was
-      built without Alpine at all — a read-only list needs no reactivity — so
-      the question now applies only to the admin screens, and nothing is
-      vendored yet for the experiment to run against.
 
 ## Licences (to be verified)
 

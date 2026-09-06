@@ -113,7 +113,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # There is no build step to catch this and no linter in the repository
-      # (ADR-0007), so the two rules the portal lives by are checked here.
+      # (ADR-0007), so the three rules the frontend lives by are checked here.
       - run: |
           python3 - <<'EOF'
           # The portal renders strings an admin typed (application name, icon) on the
@@ -124,11 +124,21 @@ jobs:
           import pathlib, re, sys
 
           SINKS = r'innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\s*\(|new\s+Function'
+          # Vendored third-party code writes markup by design (Alpine's x-html) and is
+          # not held to the first rule. It is held to a stricter one: it may not compile
+          # expressions, because compiling them is the `unsafe-eval` the vendored CSP
+          # build exists to avoid, and an upgrade to the standard build would look like
+          # nothing but a bigger file (frontend/src/vendor/README.md, docs/07).
+          COMPILES = r'eval\s*\(|new\s+Function'
           bad = []
           for path in sorted(pathlib.Path('frontend/src').rglob('*')):
               if path.suffix not in ('.html', '.js'):
                   continue
               text = path.read_text()
+              if 'vendor' in path.parts:
+                  for m in re.finditer(COMPILES, text):
+                      bad.append(f'{path}: compiles expressions ({m.group(0)}), so the CSP needs unsafe-eval')
+                  continue
               for m in re.finditer(SINKS, text):
                   bad.append(f'{path}: writes markup instead of text ({m.group(0)})')
               if path.suffix == '.html':
@@ -136,7 +146,7 @@ jobs:
                       bad.append(f'{path}: inline <script> needs unsafe-inline in the CSP')
                   if re.search(r'<[^>]*?\son[a-z]+\s*=', text):
                       bad.append(f'{path}: inline event handler needs unsafe-inline in the CSP')
-          print('\n'.join(bad) if bad else 'the frontend writes text only and carries no inline script')
+          print('\n'.join(bad) if bad else 'text only, no inline script, nothing vendored that compiles expressions')
           sys.exit(1 if bad else 0)
           EOF
 

@@ -803,15 +803,25 @@ So the portal's data does not have to be filled in by hand with SQL.
       that exercised it. `docker compose build nginx` on the lab, and
       `portal.js` and `portal.css` come back 200 with `application/javascript`
       and `text/css` from the image — no volume, no frontend container.*
-- [ ] **VERIFY:** Alpine.js under a `default-src 'self'` CSP — the standard
+- [x] **VERIFY:** Alpine.js under a `default-src 'self'` CSP — the standard
       build needs `unsafe-eval`; if it fails, vendor the CSP build or amend
       ADR-0007 (`docs/07`)
-      *Narrowed, not answered: the portal ships without Alpine, so this now
-      bites only the admin screens (CRUD, audit filtering) — the screens
-      ADR-0007 actually bought Alpine for. Nothing is vendored yet, so the
-      experiment has nothing to run against; it waits for the first admin
-      screen. The CSP header itself is not set on any host yet (Phase 6
-      security headers) — the portal is merely written to survive one.*
+      *Answered by running it, in a browser rather than on the lab — a CSP is
+      enforced by the browser, not by nginx. The standard build **loads** under
+      the policy and then evaluates nothing: `window.Alpine` is present, every
+      binding keeps its fallback text, and the page reports `script-src blocked
+      eval` twice. So `@alpinejs/csp@3.17.1` is vendored at
+      `frontend/src/vendor/alpine.js`. The surprise was how little that costs:
+      the CSP build ships a parser, not a property-name lookup, so inline
+      `x-data="{ n: 41 }"`, ternaries, `&&`, member calls with arguments,
+      assignment in `x-on`/`x-init`, `x-for` and the magics all work — only
+      arrow functions and template literals are refused, and both belong in the
+      `Alpine.data()` object anyway. ADR-0007's consequence and the `docs/07`
+      Unverified entry are rewritten with the measurement. CI keeps it: the
+      `frontend` job now fails if anything under `vendor/` regains `eval(` or
+      `new Function`, since the standard build looks like nothing but a larger
+      file. The CSP header itself is still not set on any host (Phase 6
+      security headers) — the frontend is merely proven to survive one.*
 - [ ] Audit log viewing + filtering
 - [ ] `GET /api/admin/explain?user&host&path` — why the decision was made.
       `policy.rs` is already pure; the screen ops will use most
