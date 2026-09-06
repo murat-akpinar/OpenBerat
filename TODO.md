@@ -1065,8 +1065,24 @@ So the portal's data does not have to be filled in by hand with SQL.
       exception to rule 16, written out where it is made: the key is derived
       from that cookie, and this upstream is the PDP, which `/decide` already
       hands the same cookie).*
-- [ ] **Test:** an **idle** WebSocket connection is cut within `proxy_read_timeout`
+- [x] **Test:** an **idle** WebSocket connection is cut within `proxy_read_timeout`
       (an active one is not — ADR-0016 excludes it, do not assert otherwise)
+      *Both halves in one run, on one vhost with one timeout and one cookie, so
+      the contrast is the result rather than two runs compared across two
+      configurations: the silent connection died at **t+300.002 s** and the
+      talking one was still trading frames at t+420 s (`docs/07`). Through the
+      **committed** configuration this time — the vhost is generated from the
+      `application` table and its location includes `protected.inc`, so the
+      300 s under test is the shipped value. The clock turned out to start at
+      the last read from the **upstream**, not at the upgrade: `echo-server`
+      greets a connection with one frame and the close landed 300.000 s after
+      it, to the millisecond.
+      What the run does **not** support is calling this a revocation. The close
+      is a TCP close, the reconnect is re-authorised — and the idle timer runs
+      beside the session's staleness rather than after it, so an idle connection
+      cut at 300 s reconnects into a session that can still be 330 s stale. The
+      worst case is near **630 s**, past the six minutes, which is why ADR-0016
+      excludes every upgraded connection and not only the busy ones.*
 - [ ] Logout: all three steps (`docs/02`, "Logout") — the backend step is
       `POST /api/logout`, called **before** the sign-out redirect; reversed, a
       request in the gap refills the cache from the still-live session

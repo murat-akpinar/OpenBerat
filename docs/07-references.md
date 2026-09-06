@@ -1263,6 +1263,56 @@ Harness: `verify-kill.sh` and `verify-kill-gap.sh` on the lab host. Both create
 their own application and entitlement through `/api/admin/*` and delete them
 afterwards.
 
+### TEST — the idle WebSocket that `proxy_read_timeout` does cut
+
+The other half of the claim measured above.
+[ADR-0016](adr/0016-n03-revocation-targets.md) keeps `proxy_read_timeout 300s`
+because "it cuts idle connections, which is worth having and costs nothing" —
+and only the half it does **not** cut had ever been run. Both halves run here at
+once, on one vhost with one timeout and one cookie, so the contrast is the
+result rather than two runs compared across two configurations.
+
+Through the **committed** configuration, unlike the measurement above: the vhost
+is generated from the `application` table
+([ADR-0011](adr/0011-nginx-config-generation.md)) and its `location` includes
+`protected.inc`, so the 300 s under test is the shipped value and not a
+throwaway vhost repeating it. The upstream is the compose file's `sample-ws`
+(`jmalloc/echo-server`). Both connections upgrade one second apart, `101` each.
+
+| Connection | Sends | Outcome | nginx's own line |
+|---|---|---|---|
+| **idle** | nothing after the handshake | **dead at t+300.002 s** | `101 32b rt=300.002s urt=300.001` |
+| **active** | one echo a second | **alive at t+420 s**, 420 exchanges | `101 3704b rt=420.052s urt=420.051` |
+
+Three things the run makes concrete:
+
+- **The clock starts at the last read from the upstream, not at the upgrade.**
+  `echo-server` greets a new connection with one frame (`Request served by …`),
+  the only unprompted thing it says, and the close landed 300.000 s after that
+  frame — to the millisecond, which is why the number is this clean.
+- **The access log is where an operator sees it afterwards.** nginx writes the
+  line when the connection closes, so `rt=` is the connection's lifetime: 300 s
+  for the silent one and 420 s for the talking one, on the same directive.
+- **Being cut is not being denied.** The close is a TCP close; the client may
+  reconnect at once, and the reconnect is an ordinary HTTP request that goes
+  through `auth_request` and the decision path again. That is the whole value of
+  the directive — for an idle connection it turns "authorised once, forever"
+  into "re-authorised every 300 s at the latest".
+
+**It bounds an idle connection; it does not bring it inside N-03.** The two
+clocks run side by side rather than in series, so the ceiling is the sum:
+a connection last read just before a group is removed is cut 300 s later, and
+the reconnect at that moment is authorised against a session that can still be
+330 s stale (the measurement above) — a second connection, cut 300 s after that
+one. Arithmetic rather than a measurement, but it puts the worst case near
+**630 s**, past the six minutes. ADR-0016 already excludes every upgraded
+connection from the guarantee, idle ones included; this is why that exclusion is
+not only about busy connections.
+
+Harness: `verify-ws-idle.sh` and `wsclient.py` (which grew an interval argument;
+`0` is the idle mode) on the lab host. It creates its own application and
+entitlement through `/api/admin/*` and deletes them afterwards.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is

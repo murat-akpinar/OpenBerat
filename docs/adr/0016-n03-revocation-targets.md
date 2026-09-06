@@ -23,7 +23,7 @@ with margin, and being explicit about what it does **not** cover.
 | Disabled in AD, or removed from a group | **≤ 6 minutes** | `cookie_refresh` 5 m + cache TTL 30 s + margin |
 | Kill switch (incident response) | **≤ 5 seconds** | Four synchronous steps, no TTL involved (`docs/05`, [ADR-0019](0019-kill-switch-session-index.md)) |
 | Logout initiated by the user | **≤ 5 seconds** | The same steps, with the browser in hand (`docs/02`, "Logout") |
-| Active WebSocket/SSE connection | **Excluded from the guarantee** | See below |
+| WebSocket/SSE connection already upgraded, idle or active | **Excluded from the guarantee** | See below |
 
 Six minutes is the product's promise for the ordinary path: an account disabled
 in AD loses access within six minutes without anyone intervening. That is
@@ -35,7 +35,9 @@ six minutes is not good enough.
 An **active** WebSocket or SSE connection is authorised once, at the upgrade,
 and is not re-authorised afterwards. `proxy_read_timeout` is an idle timeout and
 does not bound a connection carrying steady traffic (`docs/02`, "Long-lived
-connections"). No value of N-03 changes this.
+connections"). No value of N-03 changes this. An **idle** one is cut, at 300 s —
+but cut is not revoked, and the reconnect that follows re-enters the ordinary
+staleness, which is why the row above excludes it too (see the consequences).
 
 So the guarantee is: **the targets above apply to HTTP requests. A connection
 already upgraded is outside them.** Publishing a "6 minutes" number while a
@@ -43,7 +45,9 @@ WebSocket stays open indefinitely would be a false claim, and this is the kind o
 gap a security review finds.
 
 `proxy_read_timeout` is still set to 300 s on protected locations — it cuts idle
-connections, which is worth having and costs nothing.
+connections, which is worth having and costs nothing. **Measured** (`docs/07`):
+on one vhost, one timeout and one cookie, the silent connection died at
+t+300.002 s and the talking one was still trading frames at t+420 s.
 
 ## Consequences
 
@@ -80,6 +84,13 @@ connections, which is worth having and costs nothing.
   the kill switch nor `nginx -s reload` reached it — the connection ran 195 s
   with no session in Redis at all. The exclusion above is the measured
   behaviour, not a cautious guess.
+- **An idle connection is bounded, not revoked, and the bound is not six
+  minutes.** The idle timer and the session's staleness run side by side, not in
+  series: a connection cut at 300 s reconnects into a session that can still be
+  330 s stale, and that reconnect is another 300 s of connection. Arithmetic on
+  top of two measurements rather than a third measurement, but it puts the worst
+  case near 630 s — which is why the exclusion above is written as *every*
+  upgraded connection and not only the busy ones.
 - **A reload is not a revocation, and it is not free either.** ADR-0011
   regenerates the application blocks and reloads nginx; each reload leaves one
   worker in `shutting down`, serving the old configuration, for as long as a

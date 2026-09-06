@@ -296,7 +296,9 @@ touch that connection.
 **`proxy_read_timeout` does not solve this.** It is an idle timeout — nginx
 resets it on every successful read from the upstream — so it closes an idle
 WebSocket but never a busy one. A connection carrying steady traffic can outlive
-any value set here. An earlier version of this document claimed the connection
+any value set here. Both halves are measured (`docs/07`): on the same vhost and
+the same 300 s, the silent connection was cut at 300.002 s and the talking one
+lived past 420 s. An earlier version of this document claimed the connection
 "drops periodically and is re-authorised"; that only holds for idle connections.
 
 nginx OSS has no directive that bounds the total lifetime of an upgraded

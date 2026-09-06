@@ -306,7 +306,7 @@ without a test is visible as a gap rather than an omission.
 | Reaching an upstream while bypassing nginx entirely | v1: two networks — upstreams on `edge` with nginx only, never on `core` (`docs/02`); no published `ports`. **Not fully closed** — the signed identity JWT is the answer that survives an audit | Open question, `docs/06` |
 | A deleted AD group recreated with the same name inheriting its entitlements | **Not closed.** Accepted debt, mitigated by the `OpenBerat-` prefix and change control (ADR-0008) | — |
 | An AD group *named* `Payroll,OpenBerat-Admins` — one group that arrives as two, the second being `ADMIN_GROUP` | **Not closed here, and cannot be.** oauth2-proxy flattens the claim array into one comma-joined header, so the boundary is gone before the request arrives. The control is the Keycloak group filter, which never lets the name into the claim (ADR-0008) | Measured, `docs/07` |
-| Revoking access on an **active** WebSocket/SSE connection | **Not closed.** Explicitly outside the N-03 guarantee (ADR-0016) | Phase 1 measures the gap |
+| Revoking access on an already-upgraded WebSocket/SSE connection, idle or active | **Not closed.** Explicitly outside the N-03 guarantee (ADR-0016) | Measured, `docs/07`: an active one ran 489 s past the revocation, an idle one is cut at 300 s but reconnects into a session up to 330 s stale |
 
 The last four rows are the honest ones: they are open, and a security review
 should find them here rather than in the code.

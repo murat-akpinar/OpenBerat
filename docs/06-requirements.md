@@ -47,7 +47,7 @@
 |---|---|---|
 | N-01 | Authorisation decision latency (cache hit) | **< 2 ms** *(drafted from measurement; fixed under load in Phase 6)*. Measured overhead of the hop itself: **+74 µs** (`docs/07`). The cache entry must carry the identity too, otherwise this is unreachable — `docs/05`. |
 | N-02 | Authorisation decision latency (cache miss) | **< 10 ms** *(drafted from measurement; fixed under load in Phase 6)*. Measured: **+571 µs** for the double hop, before the entitlement query and the index write, which do not exist yet (`docs/07`). |
-| N-03 | Revocation delay | **≤ 6 min** for an AD change, **≤ 5 s** for the kill switch ([ADR-0016](adr/0016-n03-revocation-targets.md)). Measured for the AD change: **283 s** in the ordinary case and **330 s** as a reachable ceiling — `cookie_refresh` + cache TTL, with 30 s of margin left (`docs/07`). Measured for the kill switch: **0.085 s** end to end (`docs/07`), on the session index of [ADR-0019](adr/0019-kill-switch-session-index.md). Active WebSocket/SSE connections are excluded from the guarantee. |
+| N-03 | Revocation delay | **≤ 6 min** for an AD change, **≤ 5 s** for the kill switch ([ADR-0016](adr/0016-n03-revocation-targets.md)). Measured for the AD change: **283 s** in the ordinary case and **330 s** as a reachable ceiling — `cookie_refresh` + cache TTL, with 30 s of margin left (`docs/07`). Measured for the kill switch: **0.085 s** end to end (`docs/07`), on the session index of [ADR-0019](adr/0019-kill-switch-session-index.md). WebSocket/SSE connections already upgraded are excluded from the guarantee, idle or active — measured, `docs/07`. |
 | N-04 | Audit log retention period | **? — depends on KVKK and internal policy** |
 | N-05 | Must come up with `docker compose up` on a single machine | v1 |
 | N-06 | High availability (HA) | No in v1; the design will not prevent it |
@@ -77,7 +77,7 @@ answered and write the decision to `docs/adr/`.
 | Licence | GPL-3.0-or-later; not sold, no dual licensing | [0013](adr/0013-licence-gpl.md) |
 | Why not Pomerium/Authentik | Three differentiators + one to confirm; abandon trigger written down | [0014](adr/0014-differentiator-vs-pomerium.md) |
 | Common parent domain, portal address, cookie scope | Required; portal at `portal.apps.<domain>`; cookie on `.apps.<domain>` | [0015](adr/0015-single-parent-domain.md) |
-| N-03 revocation targets | 6 min / 5 s, WebSocket excluded | [0016](adr/0016-n03-revocation-targets.md) |
+| N-03 revocation targets | 6 min / 5 s, upgraded connections excluded | [0016](adr/0016-n03-revocation-targets.md) |
 | Single point of failure | Accepted, with a rehearsed break-glass | [0017](adr/0017-fail-closed-availability.md) |
 | Outside contributions | DCO (`git commit -s`), no CLA | [0018](adr/0018-contributions-dco.md) |
 | Finding a user's oauth2-proxy session for the kill switch | The backend keeps a `sub → session` index in Redis | [0019](adr/0019-kill-switch-session-index.md) |
