@@ -291,6 +291,12 @@ has a first draft, and there is still not one line of code.
       nginx half is measured; this half is not
 - [ ] `nginx/conf.d/20-apps.conf`: protected applications, **strip** incoming
       `X-Auth-*` headers
+- [ ] **Strip the `_oauth2_proxy` session cookie before proxying** — a `map`
+      rewriting `$http_cookie` in the shared include, applied to every protected
+      location **and to the Keycloak host**, which forwards it today. An upstream
+      that receives it holds a credential valid for every host on
+      `.apps.<domain>` (`docs/05` attack table, ADR-0015). `docs/05` already
+      names the test; nothing built the thing it tests
 - [ ] `proxy_read_timeout 300s` on protected locations — cuts idle long-lived
       connections only; active ones are outside the N-03 guarantee (ADR-0016)
 - [ ] `Origin` check on state-changing `/api/admin/*` endpoints

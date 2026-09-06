@@ -20,7 +20,8 @@
 //   GET /readyz       Postgres and Redis reachable — 200 or 503. /decide cannot
 //                     report an outage (a dead DB looks like a denied user), so
 //                     this is the only outage signal the operator has.
-//   /api/admin/*      application and entitlement management — requires ADMIN_GROUP
+//   /api/admin/*      application and entitlement management, audit viewing —
+//                     requires ADMIN_GROUP
 //                     membership, never cached, Origin checked on state-changing
 //                     endpoints
 //   POST /api/admin/kill/{sub}

@@ -15,7 +15,17 @@
   first. Which CA issues the production certificate is an open question
   (`docs/06`); the lab uses self-signed (§1). Mind the expiry: when this one
   certificate lapses, every application goes down at once (ADR-0015).
+- **Write access to Active Directory** to create the `OpenBerat-` groups.
+  Entitlements *are* AD groups; somebody has to be able to make them
+  (ADR-0008).
+- **A read-only AD service account** for Keycloak's LDAP bind
+  (`docs/03-keycloak-ad.md`).
+- **One AD group for administrators**, named in `ADMIN_GROUP`. In a fail-closed
+  system the first admin cannot come from the database.
 - Docker with Compose v2.
+
+The three Active Directory items are the operator's, not this repository's, and
+none can be skipped — the same table is in both READMEs.
 
 ## 1. Certificate
 
@@ -84,6 +94,7 @@ together in the admin console is lost the same way, on purpose
 Then browse to `https://portal.apps.example.local/`; you are redirected to
 Keycloak, and after logging in as `labuser` you land back on the portal.
 
-> Phase 1 is in progress: only nginx is verified so far. The oauth2-proxy
-> configuration, the Keycloak realm import, the LDAP bind account and the
-> first login are documented here as their TODO items land.
+> Phase 1 is in progress. The certificate, the realm import, the oauth2-proxy
+> configuration and the first login are done and written above. Still to come:
+> the LDAP bind account and everything downstream of it, which waits on the
+> lab AD (TODO.md Phase 1).

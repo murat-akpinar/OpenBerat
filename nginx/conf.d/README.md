@@ -4,11 +4,15 @@ nginx plays the **PEP** role here: it intercepts every request and asks for an
 authorisation decision. Reference pattern and verified details:
 `docs/07-references.md`.
 
-| File | Contents |
-|---|---|
-| `00-auth.conf` | `auth_request /decide` + `error_page 401/403` + the shared `X-Auth-*` stripping |
-| `10-portal.conf` | Portal and admin: frontend static files, `/api/*` → backend — **and the two anonymous hosts**, `/oauth2/*` and Keycloak's `/realms/` + `/resources/` |
-| `20-apps.conf` | Protected applications (`*.apps.<domain>`) → upstream |
+| File | Contents | |
+|---|---|---|
+| `openberat.conf` | The `:80` → `:443` redirect and the default `server` block | now |
+| `10-portal.conf` | Portal and admin: frontend static files, `/api/*` → backend — **and the two anonymous hosts**, `/oauth2/*` and Keycloak's `/realms/` + `/resources/` | now, minus `/api/*` |
+| `00-auth.conf` | `auth_request /decide` + `error_page 401/403` + the shared `X-Auth-*` stripping | Phase 3 |
+| `20-apps.conf` | Protected applications (`*.apps.<domain>`) → upstream | Phase 4 (generated, ADR-0011) |
+
+The rules below apply to all four. The last two do not exist yet, which is why
+several of the rules read as requirements rather than as descriptions.
 
 ## Do not skip these
 
@@ -65,8 +69,10 @@ authorisation decision. Reference pattern and verified details:
    like infrastructure rather than a page the browser visits. Proxy only
    `/realms/*` and `/resources/*` on the Keycloak host — never `/admin` (the
    Keycloak admin console) or `/metrics`. The Keycloak host defaults to
-   `auth.apps.<domain>` — covered by the wildcard certificate, and the session
-   cookie is stripped before proxying to it exactly as in item 16.
+   `auth.apps.<domain>`, covered by the wildcard certificate. It needs the same
+   session-cookie strip as item 16 and **does not have it yet** — the `map` that
+   item describes is Phase 3 work, so today `_oauth2_proxy` reaches Keycloak
+   with every login request (TODO.md Phase 3).
 9. **Timeout budget.** For `/decide`: `proxy_connect_timeout 1s; proxy_read_timeout 2s;`
    The default is 60 seconds; if the backend slows down, workers fill up and
    everything stops. `error_page 500 502 503 504 = @unavailable` → a local static
