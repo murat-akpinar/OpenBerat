@@ -702,9 +702,12 @@ async fn decide_section(pool: &PgPool) {
         .await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN, "{uri}");
         assert_eq!(reason(&response).as_deref(), Some("explicit_deny"), "{uri}");
-        assert!(
-            response.headers().get("x-auth-subject").is_none(),
-            "no identity on a deny"
+        // The identity comes back on a deny too. Nothing is proxied upstream
+        // after one, so nothing is rewritten from it — the nginx access log is,
+        // and a denied line that can say why but not who is half a diagnostic.
+        assert_eq!(
+            response.headers().get("x-auth-username").unwrap(),
+            "labuser"
         );
         // The refresh happened at oauth2-proxy whatever the answer turned out
         // to be. Swallow it here and a denied user's groups freeze until their

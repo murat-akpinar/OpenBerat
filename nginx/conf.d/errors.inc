@@ -5,6 +5,7 @@
 # response, and without it nginx forces the original 401 back with a Location
 # the browser will not follow (measured, docs/07 — README rule 1).
 location @signin {
+    limit_req zone=login burst=20 nodelay;
     set $oauth2_proxy oauth2-proxy;
     # The return address travels in a header. nginx cannot percent-encode
     # $request_uri, so `?rd=…$request_uri` hands the client's own query string

@@ -311,10 +311,12 @@ fn answer(ctx: &Ctx, request: &Request, cached: &Cached) -> Response {
             request_id: request.request_id.clone(),
         });
     }
-    match decision {
-        Decision::Allow => allow(&cached.identity),
+    let mut response = match decision {
+        Decision::Allow => StatusCode::OK.into_response(),
         Decision::Deny(reason) => refuse(reason),
-    }
+    };
+    identify(&mut response, &cached.identity);
+    response
 }
 
 fn header_str(headers: &HeaderMap, name: &str) -> Option<String> {
@@ -374,18 +376,19 @@ async fn authenticate(ctx: &Ctx, cookie: Option<&HeaderValue>) -> Authentication
 
 // --- Feature Start ---
 // auth_request passes no response body, so these headers are the only channel
-// nginx can lift the verified identity from (docs/02, response contract). The
-// Set-Cookie relay is the other half: drop it and cookie_refresh stops without
-// an error anywhere, and ADR-0006's group freshness goes with it.
+// nginx can lift the verified identity from (docs/02, response contract). They
+// are written on a DENY as well as on an ALLOW: nginx never proxies upstream
+// after a deny, so nothing is rewritten from them, but the access log is, and
+// without them a denied line can say why and not who — which is the one
+// question anybody asks about a denial. They do not reach the client either
+// way; auth_request response headers only reach nginx.
 // --- Feature End ---
-fn allow(identity: &Identity) -> Response {
-    let mut response = StatusCode::OK.into_response();
+fn identify(response: &mut Response, identity: &Identity) {
     let headers = response.headers_mut();
     headers.insert("x-auth-subject", identity.sub.clone());
     headers.insert("x-auth-username", identity.username.clone());
     headers.insert("x-auth-email", identity.email.clone());
     headers.insert("x-auth-groups", identity.groups.clone());
-    response
 }
 
 fn refuse(reason: Deny) -> Response {

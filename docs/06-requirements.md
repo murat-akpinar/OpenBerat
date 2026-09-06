@@ -122,6 +122,10 @@ network and policy. Phase 1 exists partly to establish them.
       groups a single user is in is now a sizing input, not only a load-test
       one:** the whole list travels in one header on every decision, and the
       nginx buffer that reads it is set from this number (`docs/07`).
+      **The rate limits are set from it too** — `00-auth.conf` currently guesses
+      50 r/s per address for decisions and 5 r/s for the login flow, and the
+      case that breaks them first is a site behind NAT, where one address is an
+      entire office.
 
 ### 🔴 Security, still open
 

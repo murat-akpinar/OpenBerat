@@ -514,8 +514,20 @@ has a first draft, and there is still not one line of code.
       *Set in `protected.inc`, alongside the `Upgrade`/`Connection` pair a
       WebSocket needs. Verified: `101 Switching Protocols` through the PEP.*
 - [ ] `Origin` check on state-changing `/api/admin/*` endpoints
-- [ ] Rate limiting (pulled forward from Phase 6 — audit and backend are a single
+      *Waits for Phase 4: there is no `/api/admin/*` handler to put it on, and
+      a check written against an endpoint that does not exist is a check nobody
+      ever ran. It belongs in the same commit as the first admin mutation.*
+- [x] Rate limiting (pulled forward from Phase 6 — audit and backend are a single
       point of failure)
+      *Two zones, both per address: 50 r/s for decisions with a burst of 100 —
+      one page of fifty assets is fifty decisions — and 5 r/s for the login
+      flow, which is the sharper limit because every request through it reaches
+      Keycloak. `limit_req_status 429` and not 503, or `error_page` would catch
+      it and serve the "unavailable" page, telling the user the access control
+      service is down when it is working exactly as configured. Both numbers
+      are guesses and are written down as guesses: N-07 is still open, and the
+      case that breaks them first is a site behind NAT where one address is an
+      office. Noted in `docs/06` beside N-07.*
 - [x] **Test:** a forged `X-Auth-Groups` grants no access
       *Against the running stack, not a unit test: a client sending
       `X-Auth-Groups: OpenBerat-Admins`, `X-Auth-Subject: root` and
@@ -568,8 +580,18 @@ has a first draft, and there is still not one line of code.
       A direct request answers 404 against the running stack. The other half is
       the network split — the backend is on `core`, which no protected
       application joins.*
-- [ ] Diagnostics: `X-Deny-Reason` into the access log; `request_id` correlating
+- [x] Diagnostics: `X-Deny-Reason` into the access log; `request_id` correlating
       nginx with audit
+      *One line answers both questions now — measured end to end:
+      `user="labuser" deny="explicit_deny" id=4f10…` in nginx, and the
+      `audit_event` row with **the same id** carrying `actor=labuser
+      reason=explicit_deny path=/admin/secret`. Getting the `user` half needed a
+      contract change: `/decide` returned the identity headers on a 200 only, so
+      a denied line could say why but not who — which is the one question anyone
+      asks about a denial. It now returns them on a DENY too. Nothing is proxied
+      upstream after a deny so nothing is rewritten from them, and they never
+      reach the client: `auth_request` response headers stop at nginx. `docs/02`
+      updated.*
 
 - [ ] `docs/08-breakglass.md`: the runbook itself — the symptom that justifies
       pulling it (`/readyz` is what tells you), the command, how to verify the

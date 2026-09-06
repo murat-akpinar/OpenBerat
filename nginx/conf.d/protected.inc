@@ -3,6 +3,10 @@
 # that application that falls but the security claim of the whole product
 # (docs/05, "Header spoof protection").
 
+# One page of fifty assets is fifty decisions, so the burst has to absorb a
+# page load and the rate has to survive a few users behind one address.
+limit_req zone=decisions burst=100 nodelay;
+
 auth_request /decide;
 
 # One per location — a second one silently overrides the first, which is why
