@@ -875,7 +875,8 @@ It answered 200 through `t+272 s` and 302 from `t+282 s` (10 s resolution). The
 cut is at the `cookie_refresh` boundary — 299 s after the token was issued, not
 after the disable — so the worst case is `cookie_refresh` (300 s) plus the
 decision cache TTL (30 s) = **330 s**, inside N-03's 6 minutes with half a
-minute to spare. Disabling shortens nothing: the session dies at the next
+minute to spare — added here, and measured directly further down, where a
+cache entry minted just before the boundary carries access to t+328. Disabling shortens nothing: the session dies at the next
 refresh, exactly as a group removal does.
 
 The instruments lied twice before this was the answer, both times in the
@@ -1034,6 +1035,80 @@ group behind on the first run: `docker compose exec -T` reads stdin, so a
 `while read` delete loop fed by a pipe loses every line after the first
 deletion. The cleanup list goes through a file.
 
+### MEASURE — a group removed in AD, and the 330 seconds it can take
+
+The claim under test is [ADR-0016](adr/0016-n03-revocation-targets.md)'s six
+minutes for the ordinary deprovisioning path, and the arithmetic
+[ADR-0006](adr/0006-group-membership-source.md) puts behind it: staleness lives
+in `cookie_refresh` plus the decision cache TTL and nowhere else. The
+`userAccountControl` measurement above reached 330 s by adding the two; this one
+removes a group and watches the whole committed chain do it.
+
+One application `wiki` on `sample-app` and one entitlement allowing
+`OpenBerat-Finance`, both created through `/api/admin/*` so the vhost under test
+is the generated one ([ADR-0011](adr/0011-nginx-config-generation.md)). Controls
+first: `labuser` 200, anonymous 302 into the login flow. The cut, when it comes,
+is `deny="no_matching_grant"` in the nginx log and a 302 to the portal's
+`/denied` — the deny page is on the portal host, so a refusal is a redirect and
+not a 403 on the wire.
+
+**Run 1 — a client that never stops asking.** Poll every 2 s from login; the
+group goes out of AD 19.5 s in.
+
+| t | event | answer |
+|---|---|---|
+| +0 s | session minted, first request | 200 |
+| +19.5 s | `samba-tool group removemembers` | — |
+| +19.5 s | Keycloak asked for the user's groups | **already empty** |
+| +300.7 s | last request on the old membership | 200 |
+| +302.7 s | `Refreshing session … SessionAge: 5m2.057s` | **302** |
+
+**283.2 s after the AD change**, at the `cookie_refresh` boundary and nothing
+else. The directory contributed **zero** — at `NO_CACHE` the group was gone from
+Keycloak's answer in the same second (VERIFY (2) above), so every one of those
+283 seconds is ours.
+
+The structural half of the run is the more useful one. 150 polls produced
+**10** consultations of `/oauth2/auth`, exactly 30 s apart. A cache hit never
+reaches oauth2-proxy, so on a hit nothing looks at the session's age at all: the
+decision cache does not add its TTL *after* the refresh, it decides **when the
+refresh is attempted**. The two terms are not sequential delays, and treating
+them as a sum is right for the ceiling and wrong for the mechanism.
+
+**Run 2 — the ceiling, on purpose.** Same setup, but one request at t+296 and
+silence before it. That request misses the cache at session age 4 m 56 s, so
+oauth2-proxy answers from the unrefreshed session and the entry is minted with
+the *old* groups, 4 s before the boundary — and it is a hit for one whole TTL.
+
+| t | request | answer |
+|---|---|---|
+| +0 s | control | 200 |
+| +13.8 s | group removed in AD | — |
+| +296 s | cache miss, session age 4 m 56 s | 200 |
+| +298 … +326 s | **16 hits, every one of them past the refresh boundary** | 200 |
+| +328 s | cache miss, `SessionAge: 5m27.187s` | **302** |
+
+**314.2 s after the AD change**, and 28 s after the session should have been
+re-checked. Three consultations for the whole run. A fill at t+299.9 gives
+t+329.9, so the ceiling is exactly `cookie_refresh + TTL` = **330 s**, and it is
+reached rather than approached — the worst case is not a tail, it is one
+ordinary request landing a few seconds before the boundary.
+
+Against N-03's 360 s that leaves **30 s of margin**, and the margin is the whole
+of it: there is no term left to absorb a slower Keycloak or a longer poll gap.
+
+Which lever to reach for if 330 ever has to come down follows from the same
+consultation grid, and it is not the one ADR-0016 names. Shaving `cookie_refresh`
+buys time at the price of a token refresh against Keycloak per user per period;
+shaving the cache TTL buys the same seconds at the price of a subrequest and an
+entitlement query, both local. Neither is free, but only one of them is paid to
+the IdP.
+
+Harness: `verify-n03.sh` on the lab host, driven from the workstation — the DC
+is on the other host, so no single script sees both ends. `labuser` was put back
+in `OpenBerat-Finance` and the application and entitlement were deleted
+afterwards; the generated `apps.conf` is back to its header.
+
 
 ## Measured in the browser
 
@@ -1109,7 +1184,9 @@ Phase 1 lab:
       internal HTTP call does not disappear.
 - [ ] Can Keycloak carry an AD group's `objectSid` into a token claim? If it can,
       ADR-0008 (name vs SID) becomes easy to resolve.
-- [ ] The real deprovisioning delay as measured with `cookie_refresh`.
+- [x] **Answered: 283 s ordinarily, 330 s at the ceiling.** The real
+      deprovisioning delay as measured with `cookie_refresh`. Measured above,
+      through the committed chain and with the directory contributing nothing.
 - [x] Does oauth2-proxy return `Set-Cookie` when performing `cookie_refresh` on
       `/oauth2/auth`? **Yes** — measured above. In the official pattern the subrequest's upstream is
       oauth2-proxy; in ours it is the backend. **If it is not relayed the cookie

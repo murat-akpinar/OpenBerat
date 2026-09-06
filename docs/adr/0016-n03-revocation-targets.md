@@ -59,6 +59,16 @@ connections, which is worth having and costs nothing.
   measurement as an exit criterion. If the measured value exceeds the target,
   the lever is `cookie_refresh` — at the cost of more token refresh traffic to
   Keycloak.
+- **The six-minute row is measured** (`docs/07`): a group removed in AD cut a
+  polling client **283 s** later, and the `cookie_refresh` + cache TTL ceiling
+  of **330 s** was reached deliberately, by minting a cache entry four seconds
+  before the refresh boundary — sixteen requests answered 200 past a boundary
+  the session had already crossed. Inside the target, with 30 s of margin and
+  no term left to absorb anything slower. It also corrects the lever named
+  above: the two terms are not sequential delays, because a cache hit never
+  reaches oauth2-proxy at all, and shaving the **cache TTL** buys the same
+  seconds for a subrequest and a query rather than for a token refresh against
+  Keycloak.
 - The WebSocket exclusion is a **documented product limitation**, and it belongs
   in the installation documentation, not only here. An application whose
   security depends on immediate revocation should not be exposed over a

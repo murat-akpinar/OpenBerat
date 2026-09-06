@@ -47,7 +47,7 @@
 |---|---|---|
 | N-01 | Authorisation decision latency (cache hit) | **< 2 ms** *(drafted from measurement; fixed under load in Phase 6)*. Measured overhead of the hop itself: **+74 µs** (`docs/07`). The cache entry must carry the identity too, otherwise this is unreachable — `docs/05`. |
 | N-02 | Authorisation decision latency (cache miss) | **< 10 ms** *(drafted from measurement; fixed under load in Phase 6)*. Measured: **+571 µs** for the double hop, before the entitlement query and the index write, which do not exist yet (`docs/07`). |
-| N-03 | Revocation delay | **≤ 6 min** for an AD change, **≤ 5 s** for the kill switch ([ADR-0016](adr/0016-n03-revocation-targets.md)). The 5 s figure depends on the session index in [ADR-0019](adr/0019-kill-switch-session-index.md), verified in Phase 1. Active WebSocket/SSE connections are excluded from the guarantee. |
+| N-03 | Revocation delay | **≤ 6 min** for an AD change, **≤ 5 s** for the kill switch ([ADR-0016](adr/0016-n03-revocation-targets.md)). Measured for the AD change: **283 s** in the ordinary case and **330 s** as a reachable ceiling — `cookie_refresh` + cache TTL, with 30 s of margin left (`docs/07`). The 5 s figure depends on the session index in [ADR-0019](adr/0019-kill-switch-session-index.md), verified in Phase 1. Active WebSocket/SSE connections are excluded from the guarantee. |
 | N-04 | Audit log retention period | **? — depends on KVKK and internal policy** |
 | N-05 | Must come up with `docker compose up` on a single machine | v1 |
 | N-06 | High availability (HA) | No in v1; the design will not prevent it |

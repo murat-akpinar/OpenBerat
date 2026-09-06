@@ -287,8 +287,20 @@ Verify the architecture actually works before writing code.
       for Phase 6: two rounds in nine had all five paths displaced ~3 ms at once
       by in-guest CPU contention, so the headline is the median of per-round
       p50s, and under contention the double hop degraded first and furthest.*
-- [ ] **MEASURE:** remove a user from a group in AD → how many seconds until access
+- [x] **MEASURE:** remove a user from a group in AD → how many seconds until access
       is cut? Verify the `cookie_refresh` + cache TTL sum, compare with N-03
+      *Measured (`docs/07`), two runs. A client polling every 2 s was cut
+      **283 s** after the group left AD, at the `cookie_refresh` boundary; the
+      directory itself contributed **zero**, because at `NO_CACHE` Keycloak
+      reported the group gone in the same second. The sum is a real ceiling and
+      it is reachable: a cache entry minted at t+296 — four seconds before the
+      boundary — carried **16 consecutive 200s past it** and the cut came at
+      t+328, `SessionAge: 5m27.187s`. So `cookie_refresh` + TTL = **330 s** is
+      the worst case, inside N-03's 360 s with 30 s to spare. The mechanism is
+      not a sum of two delays, though: 150 polls produced 10 consultations of
+      `/oauth2/auth`, exactly one TTL apart, because a cache hit never reaches
+      oauth2-proxy at all — the cache decides **when the refresh is attempted**.
+      Harness: `verify-n03.sh` on the lab host, driven from the workstation*
 - [x] **MEASURE:** an **active** WebSocket connection (steady traffic, not idle) —
       how long does access survive after the user is removed from the group?
       `proxy_read_timeout` is an idle timeout and will not cut it; this measurement
