@@ -361,7 +361,10 @@ buys nothing.
 ```
 
 Every DENY is logged with a `reason`. The message shown to the user is generic —
-which rule blocked them is never leaked.
+which rule blocked them is never leaked. `audit_event.reason` is NOT NULL, so an
+allow row carries the single reason `allowed`; the vocabulary is closed and
+lives in one enum, because a typo in a reason string silently splits one
+finding across two rows in every report ever run against the table.
 
 ## What does a denied user see?
 

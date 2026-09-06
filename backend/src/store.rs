@@ -1,9 +1,15 @@
 // Postgres access (sqlx). application / entitlement / audit_event queries.
 // Schema: migrations/0001_init.sql, model: docs/02-architecture.md
 
+use crate::policy::{Decision, Effect, Rule};
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
+use std::net::IpAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
+use tokio::sync::mpsc;
+use uuid::Uuid;
 
 // --- Feature Start ---
 // The schema is applied by the process itself and a failure is fatal. A backend
@@ -21,4 +27,153 @@ pub async fn connect(url: &str) -> Result<PgPool, sqlx::Error> {
         .await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
     Ok(pool)
+}
+
+/// One application and the rules that apply to one user on it — the whole of
+/// what a cache entry is filled from (docs/05, "Decision cache").
+#[derive(Debug)]
+pub struct AppRules {
+    pub id: Uuid,
+    pub enabled: bool,
+    pub rules: Vec<Rule>,
+}
+
+// --- Feature Start ---
+// The two things this query gets wrong silently. A rule with a NULL
+// application_id applies to every application (docs/05 rule 4), so the id
+// cannot simply be equality-matched. And expiry is deliberately not filtered
+// here: the rules live in a cache entry for a TTL, and policy.rs re-checks
+// expires_at against the clock on every hit — filtering now would freeze the
+// answer at the moment of the query and keep an expired grant alive for the
+// rest of the TTL.
+// --- Feature End ---
+pub async fn rules_for(
+    pool: &PgPool,
+    slug: &str,
+    sub: &str,
+    groups: &[String],
+) -> Result<Option<AppRules>, sqlx::Error> {
+    let Some((id, enabled)): Option<(Uuid, bool)> =
+        sqlx::query_as("select id, enabled from application where slug = $1")
+            .bind(slug)
+            .fetch_optional(pool)
+            .await?
+    else {
+        return Ok(None);
+    };
+
+    let rows: Vec<(String, String, Option<DateTime<Utc>>)> = sqlx::query_as(
+        "select effect, path_pattern, expires_at from entitlement
+          where (application_id = $1 or application_id is null)
+            and ( (subject_type = 'ad_group' and subject_id = any($2))
+               or (subject_type = 'user' and subject_id = $3) )",
+    )
+    .bind(id)
+    .bind(groups)
+    .bind(sub)
+    .fetch_all(pool)
+    .await?;
+
+    let rules = rows
+        .into_iter()
+        .map(|(effect, path_pattern, expires_at)| Rule {
+            // The column is constrained to these two values by the schema, so
+            // anything else means the schema moved underneath the code.
+            effect: if effect == "deny" {
+                Effect::Deny
+            } else {
+                Effect::Allow
+            },
+            path_pattern,
+            expires_at,
+        })
+        .collect();
+
+    Ok(Some(AppRules { id, enabled, rules }))
+}
+
+/// One summary row: a cache entry's requests for one outcome, folded together
+/// (docs/02, "Audit granularity").
+#[derive(Debug)]
+pub struct AuditEvent {
+    pub application_id: Option<Uuid>,
+    pub application_slug: String,
+    pub actor_sub: String,
+    pub actor_name: Option<String>,
+    pub decision: Decision,
+    pub count: i32,
+    pub first_seen: DateTime<Utc>,
+    pub last_seen: DateTime<Utc>,
+    pub distinct_path: i32,
+    pub first_path: String,
+    pub src_ip: Option<IpAddr>,
+    pub request_id: Option<String>,
+}
+
+static AUDIT_DROPPED: AtomicU64 = AtomicU64::new(0);
+
+/// Summaries lost because the channel was full or the insert failed. Read by
+/// the operator, not by the decision path.
+pub fn audit_dropped() -> u64 {
+    AUDIT_DROPPED.load(Ordering::Relaxed)
+}
+
+#[derive(Clone)]
+pub struct Audit(mpsc::Sender<AuditEvent>);
+
+impl Audit {
+    // --- Feature Start ---
+    // Never waits. A blocking send would put the audit write back on the
+    // decision path, which is the one thing docs/02 says it must not be — a
+    // slow Postgres would then become a slow /decide and, through the timeout
+    // budget, a denial. Losing a summary row is the lesser failure, and it is
+    // counted rather than silent.
+    // --- Feature End ---
+    pub fn record(&self, event: AuditEvent) {
+        if self.0.try_send(event).is_err() {
+            AUDIT_DROPPED.fetch_add(1, Ordering::Relaxed);
+            tracing::warn!(dropped = audit_dropped(), "audit channel full");
+        }
+    }
+}
+
+pub fn audit_channel(capacity: usize) -> (Audit, mpsc::Receiver<AuditEvent>) {
+    let (tx, rx) = mpsc::channel(capacity);
+    (Audit(tx), rx)
+}
+
+/// Drains the channel until every sender is gone, which is what shutdown looks
+/// like from here.
+pub async fn write_audit(pool: PgPool, mut rx: mpsc::Receiver<AuditEvent>) {
+    while let Some(event) = rx.recv().await {
+        let (decision, reason) = match event.decision {
+            Decision::Allow => ("allow", "allowed"),
+            Decision::Deny(reason) => ("deny", reason.as_str()),
+        };
+        let written = sqlx::query(
+            "insert into audit_event
+               (application_id, application_slug, actor_sub, actor_name, decision, reason,
+                count, first_seen, last_seen, distinct_path, first_path, src_ip, request_id)
+             values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
+        )
+        .bind(event.application_id)
+        .bind(&event.application_slug)
+        .bind(&event.actor_sub)
+        .bind(&event.actor_name)
+        .bind(decision)
+        .bind(reason)
+        .bind(event.count)
+        .bind(event.first_seen)
+        .bind(event.last_seen)
+        .bind(event.distinct_path)
+        .bind(&event.first_path)
+        .bind(event.src_ip)
+        .bind(&event.request_id)
+        .execute(&pool)
+        .await;
+        if let Err(e) = written {
+            AUDIT_DROPPED.fetch_add(1, Ordering::Relaxed);
+            tracing::error!(error = %e, dropped = audit_dropped(), "audit row lost");
+        }
+    }
 }

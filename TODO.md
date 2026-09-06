@@ -333,11 +333,26 @@ has a first draft, and there is still not one line of code.
       `is_admin` (a portal user, a look-alike group name and a differently
       cased one are all refused), but there is no `/api/admin/*` handler to
       reach until Phase 4. The box closes there, against the endpoint.*
-- [ ] `backend/src/store.rs`: the entitlement query + audit writing (off the
+- [x] `backend/src/store.rs`: the entitlement query + audit writing (off the
       decision path, bounded channel; a full channel does not block the request)
+      *`rules_for` returns the application and the rules in one call; expiry is
+      deliberately **not** filtered in SQL, because the rows live in a cache
+      entry for a TTL and `policy.rs` re-checks `expires_at` on every hit —
+      filtering at query time would freeze the answer and keep an expired grant
+      alive for the rest of the TTL. Both of those, and the `application_id IS
+      NULL` wildcard join, were checked by mutation. `Audit::record` uses
+      `try_send` and never waits: a blocking send would put the audit write back
+      on the decision path, so a slow Postgres would become a slow `/decide`
+      and, through the timeout budget, a denial. A dropped summary increments
+      `audit_dropped()` and logs. The decision vocabulary is one enum for both
+      the column and the code — an allow row's reason is `allowed` (`docs/02`).*
 - [ ] Shutdown flushes the cache's audit counters to the channel before exiting —
       otherwise up to one TTL of summaries is lost on every restart (`docs/02`,
       "Audit granularity"). A hard crash still loses them; that is accepted
+      *Blocked on the cache, which is Phase 3: there are no counters to flush
+      until something is holding them. The channel half is done — `write_audit`
+      drains and exits when the last sender drops, which is what shutdown looks
+      like from its end.*
 
 ## Phase 3 — `/decide` and closing the chain
 

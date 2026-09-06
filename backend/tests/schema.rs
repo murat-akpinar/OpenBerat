@@ -245,6 +245,8 @@ async fn migration_0001() {
     .unwrap();
     assert_eq!(pk, ["id", "ts"], "audit_event primary key");
 
+    store_section(&pool).await;
+
     // --- startup ---
     // The operator never runs the migration by hand, so these three are the
     // whole of what stands between an install and a process deciding /decide
@@ -275,4 +277,202 @@ async fn migration_0001() {
     openberat::store::connect(&url)
         .await
         .expect_err("a checksum mismatch stops the process");
+}
+
+/// The entitlement query and the audit writer. Its own section rather than its
+/// own test for the reason above: they share one database.
+async fn store_section(pool: &sqlx::PgPool) {
+    use openberat::policy::{Decision, Deny, Effect};
+    use openberat::store::{self, AuditEvent};
+
+    for stmt in ["drop schema public cascade", "create schema public"] {
+        sqlx::query(stmt).execute(pool).await.expect("reset schema");
+    }
+    sqlx::migrate!("./migrations")
+        .run(pool)
+        .await
+        .expect("migrate");
+
+    let finance = insert_app(pool, "finance").await;
+    let payroll = insert_app(pool, "payroll").await;
+    let grant = |app: Option<uuid::Uuid>, subject_type, subject_id, effect, pattern| {
+        sqlx::query(
+            "insert into entitlement (application_id, subject_type, subject_id, effect, path_pattern)
+             values ($1, $2, $3, $4, $5)",
+        )
+        .bind(app)
+        .bind(subject_type)
+        .bind(subject_id)
+        .bind(effect)
+        .bind(pattern)
+        .execute(pool)
+    };
+    grant(Some(finance), "ad_group", "OpenBerat-Finance", "allow", "")
+        .await
+        .unwrap();
+    grant(
+        Some(finance),
+        "ad_group",
+        "OpenBerat-Finance",
+        "deny",
+        "/admin/*",
+    )
+    .await
+    .unwrap();
+    grant(Some(payroll), "ad_group", "OpenBerat-Finance", "allow", "")
+        .await
+        .unwrap();
+    grant(Some(finance), "ad_group", "OpenBerat-Hr", "allow", "")
+        .await
+        .unwrap();
+    grant(
+        Some(finance),
+        "user",
+        "sub-of-one-person",
+        "allow",
+        "/reports/*",
+    )
+    .await
+    .unwrap();
+    grant(None, "ad_group", "OpenBerat-Admins", "allow", "")
+        .await
+        .unwrap();
+
+    let groups = ["OpenBerat-Finance".to_string()];
+    let found = store::rules_for(pool, "finance", "sub-of-someone-else", &groups)
+        .await
+        .expect("query")
+        .expect("the application exists");
+    assert!(found.enabled);
+    assert_eq!(found.id, finance);
+    // Two rules for this group on this application. Not the other application's,
+    // not the other group's, and not the one keyed to a different person.
+    assert_eq!(found.rules.len(), 2, "{:?}", found.rules);
+    assert!(found.rules.iter().any(|r| r.effect == Effect::Deny));
+
+    // A rule with no application_id applies to every application — docs/05
+    // rule 4, and the reason the query cannot simply equality-match the id.
+    let admin_groups = ["OpenBerat-Admins".to_string()];
+    let found = store::rules_for(pool, "payroll", "x", &admin_groups)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(found.rules.len(), 1, "the wildcard entitlement");
+
+    // Keyed to the person rather than to a group.
+    let found = store::rules_for(pool, "finance", "sub-of-one-person", &[])
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(found.rules.len(), 1);
+    assert_eq!(found.rules[0].path_pattern, "/reports/*");
+
+    // A user in no relevant group gets an empty rule set, not an error — the
+    // deny is policy.rs's to make, and it is `no_matching_grant`.
+    let found = store::rules_for(pool, "finance", "x", &[])
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(found.rules.is_empty());
+
+    // An expired rule still comes back: the cache holds this list for a TTL and
+    // policy.rs re-checks expiry against the clock on every hit, so filtering
+    // here would freeze the answer at the moment of the query.
+    grant(Some(payroll), "ad_group", "OpenBerat-Hr", "allow", "")
+        .await
+        .unwrap();
+    sqlx::query("update entitlement set expires_at = now() - interval '1 day' where subject_id = 'OpenBerat-Hr'")
+        .execute(pool)
+        .await
+        .unwrap();
+    let hr = ["OpenBerat-Hr".to_string()];
+    let found = store::rules_for(pool, "payroll", "x", &hr)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        found.rules.len(),
+        1,
+        "an expired rule is policy.rs's to ignore"
+    );
+    assert!(found.rules[0].expires_at.is_some());
+
+    // A slug nobody defined is None, which the caller turns into
+    // `application_disabled` — the same answer as a disabled one (docs/02).
+    assert!(
+        store::rules_for(pool, "no-such-app", "x", &groups)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    sqlx::query("update application set enabled = false where slug = 'payroll'")
+        .execute(pool)
+        .await
+        .unwrap();
+    assert!(
+        !store::rules_for(pool, "payroll", "x", &groups)
+            .await
+            .unwrap()
+            .unwrap()
+            .enabled
+    );
+
+    // --- audit ---
+    let event = |slug: &str| AuditEvent {
+        application_id: Some(finance),
+        application_slug: slug.to_string(),
+        actor_sub: "11111111-1111-1111-1111-111111111111".to_string(),
+        actor_name: Some("labuser".to_string()),
+        decision: Decision::Deny(Deny::NoMatchingGrant),
+        count: 4,
+        first_seen: chrono::Utc::now(),
+        last_seen: chrono::Utc::now(),
+        distinct_path: 2,
+        first_path: "/admin/".to_string(),
+        src_ip: Some("10.0.0.7".parse().unwrap()),
+        request_id: Some("req-1".to_string()),
+    };
+
+    // A full channel drops the summary and counts the loss; it never waits.
+    // Blocking here would put the audit write back on the decision path, which
+    // is the one thing docs/02 says it must never be.
+    let (audit, rx) = store::audit_channel(1);
+    let before = store::audit_dropped();
+    for _ in 0..5 {
+        audit.record(event("finance"));
+    }
+    assert_eq!(
+        store::audit_dropped() - before,
+        4,
+        "four of five did not fit"
+    );
+    drop(rx);
+
+    // And what is handed to a channel with a writer on the other end reaches
+    // the table, with the decision vocabulary the audit column is checked
+    // against.
+    let (audit, rx) = store::audit_channel(8);
+    let writer = tokio::spawn(store::write_audit(pool.clone(), rx));
+    audit.record(event("finance"));
+    audit.record(AuditEvent {
+        decision: Decision::Allow,
+        count: 1,
+        ..event("finance")
+    });
+    drop(audit);
+    writer
+        .await
+        .expect("the writer drains and exits when the sender goes");
+    let rows: Vec<(String, String, i32)> =
+        sqlx::query_as("select decision, reason, count from audit_event order by count desc")
+            .fetch_all(pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        rows,
+        [
+            ("deny".to_string(), "no_matching_grant".to_string(), 4),
+            ("allow".to_string(), "allowed".to_string(), 1),
+        ]
+    );
 }
