@@ -46,6 +46,10 @@
 - The security policy asked for secrets and hid its own worst case ([7c4296d](https://github.com/murat-akpinar/OpenBerat/commit/7c4296d4bd58271141fb63f0f6285eb2ca9f07e0)) — Four things wrong with SECURITY.md, one of them not cosmetic. The report template asked for "the configuration that matters (oauth2-proxy settings)" with nothing said about redaction — an invitation to paste a client secret, a cookie secret or a live session cookie into an email or an advisory, none of which reproduce anything.
 - Four files described a repository that does not exist yet ([4942959](https://github.com/murat-akpinar/OpenBerat/commit/4942959000b6b9b455a09ec00579f2867cb1b1cd)) — A sweep of every markdown file for the thing SECURITY.md turned out to have: a sentence asserting something is in place when it is not.
 
+### 🧪 Testing
+
+- *(api)* Measure the backend's own limit on the group header ([74618f5](https://github.com/murat-akpinar/OpenBerat/commit/74618f541a8c06584f04508f938e9cb86b897a6e)) — nginx's half of this is measured — the group list travels comma-joined in one header, and a 4 KB buffer breaks between 100 and 200 groups. The backend reads the same header off oauth2-proxy's response with a different HTTP client, so its number is different and nobody had asked for it.
+
 ### ⚙️ Miscellaneous Tasks
 
 - Keep .claude/ out of the repository ([ea13122](https://github.com/murat-akpinar/OpenBerat/commit/ea13122ad1f99284d8154f0e40f00e6408d33ed5)) — The /basla slash command lives in .claude/commands/ and encodes the maintainer's own working loop, the same reason CLAUDE.md is not committed either.
