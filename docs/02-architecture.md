@@ -24,7 +24,7 @@ Sources for the technical claims: [`docs/07-references.md`](07-references.md).
 | Component | Role | Do we write it? |
 |---|---|---|
 | **Active Directory** | Source of truth for identity and `memberOf` membership — though not the only source of the group claim Keycloak issues (`docs/07`) | Exists |
-| **Keycloak** | IdP. LDAP federation to AD, OIDC, MFA | Configured |
+| **Keycloak** | IdP. LDAP federation to AD, OIDC, MFA. Its Admin API is also the kill switch's first step, called by the backend through a service account whose only role is `manage-users` (ADR-0019) | Configured |
 | **nginx** | PEP. TLS, carries traffic, `auth_request`, serves static files | Configured |
 | **oauth2-proxy** | Authentication: the OIDC dance, session (Redis) | Configured |
 | **backend** | **Authorisation decision + `/api` + audit** | **Written** |
@@ -153,7 +153,7 @@ updated together.
 | `GET/POST/DELETE /api/admin/entitlements` | admin | AD group ↔ application mapping |
 | `GET /api/admin/audit` | admin | Audit record, filtered by `actor` / `app` / `decision` / `reason` / `since` / `until`, paged with a `(before_ts, before_id)` keyset cursor. A filter it cannot honour is a 400, never ignored |
 | `GET /api/admin/explain` | admin | Why a request would be decided as it is: `user` (the Keycloak `sub`), `groups` (comma-separated, **required** — the backend holds no directory and guessing drops every group rule), `host`, `path`. Read-only: no cache entry, no audit row. Answers from the entitlement table, so for up to one cache TTL after a rule change it is ahead of the PEP |
-| `POST /api/admin/kill/{sub}` | admin | Kill switch |
+| `POST /api/admin/kill/{sub}` | admin | Kill switch: Keycloak `logout-all` → the session keys from the index → that user's cache entries → the index entry (ADR-0019). `sub` is the Keycloak user id and is parsed as a UUID — it is interpolated into an Admin API path. A failed step stops the ones after it and answers 503 naming which, rather than reporting a kill that did not happen; a `sub` no user has is a 404, not an outage |
 | `GET /healthz` | operator, compose | The process is alive. No dependencies checked, no body |
 | `GET /readyz` | operator, nginx | Postgres and Redis are reachable. 200 or 503 |
 
@@ -497,9 +497,10 @@ is the rehearsed break-glass below, not a promise of uptime.
                   ┌───────▼──────────┐
                   │ oauth2-proxy:4180│──► Redis :6379 (session)
                   └───────┬──────────┘
-                  ┌───────▼──────────┐
-                  │  Keycloak  :8080 │──► Active Directory (LDAPS :636)
-                  └──────────────────┘
+                  ┌───────▼──────────┐◄── backend: Admin API logout-all,
+                  │  Keycloak  :8080 │    the kill switch's first step
+                  └───────┬──────────┘    (ADR-0019)
+                          └─────────────►  Active Directory (LDAPS :636)
 ```
 
 **443 is the only published port.** Every other container publishes nothing.

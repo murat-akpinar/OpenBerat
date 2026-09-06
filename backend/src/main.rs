@@ -3,6 +3,7 @@
 
 use openberat::api::{self, Ctx};
 use openberat::cache::Cache;
+use openberat::keycloak::Keycloak;
 use openberat::session::Index;
 use openberat::store;
 use std::sync::Arc;
@@ -71,15 +72,25 @@ async fn main() {
         }
     });
 
+    let http = reqwest::Client::new();
     let ctx = Arc::new(Ctx {
         pool,
-        http: reqwest::Client::new(),
+        http: http.clone(),
         oauth2_proxy: required("OAUTH2_PROXY_URL")
             .trim_end_matches('/')
             .to_string(),
         cache: cache.clone(),
         audit: audit.clone(),
         index,
+        // The realm and the client id are our own realm export's, so they have
+        // defaults; the secret cannot have one (ADR-0019 step 1).
+        keycloak: Keycloak::new(
+            &http,
+            required("KEYCLOAK_URL").trim_end_matches('/'),
+            &std::env::var("KEYCLOAK_REALM").unwrap_or_else(|_| "openberat".into()),
+            &std::env::var("KEYCLOAK_CLIENT_ID").unwrap_or_else(|_| "openberat-backend".into()),
+            &required("KEYCLOAK_CLIENT_SECRET"),
+        ),
         // ADR-0008's default, overridable for a customer with a fixed AD naming
         // policy. It is the one grant that cannot come from the database.
         admin_group: std::env::var("ADMIN_GROUP").unwrap_or_else(|_| "OpenBerat-Admins".into()),

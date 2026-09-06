@@ -83,6 +83,18 @@ impl Index {
         redis::cmd("PING").exec_async(&mut self.0.clone()).await
     }
 
+    /// The kill switch's third step, and the one that actually cuts access:
+    /// oauth2-proxy answers 401 for a ticket whose key is gone, so the cache
+    /// cannot be refilled behind us. An empty list is not a DEL — Redis
+    /// refuses one with no keys, and "this user had no session here" is a
+    /// normal outcome, not a failed kill.
+    pub async fn drop_sessions(&self, keys: &[String]) -> Result<(), redis::RedisError> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        self.0.clone().del::<_, ()>(keys).await
+    }
+
     /// The kill switch's last step, after the cache entries are gone.
     pub async fn forget(&self, sub: &str) -> Result<(), redis::RedisError> {
         self.0.clone().del::<_, ()>(index_key(sub)).await

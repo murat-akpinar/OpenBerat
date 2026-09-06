@@ -14,6 +14,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use uuid::Uuid;
 
+/// The `sub` oauth2-proxy puts in `X-Auth-Request-User`: Keycloak's user id,
+/// which is a UUID (`docs/07`, "Which claim lands in X-Auth-Request-User").
+/// The kill switch takes it as one, so the fixture is one.
+const LABUSER_SUB: &str = "cae7c116-24a0-42b8-ac6e-9961b34f5d6b";
+
 async fn fresh_db() -> Option<PgPool> {
     let url = std::env::var("DATABASE_URL").ok()?;
     let pool = PgPool::connect(&url)
@@ -494,18 +499,44 @@ async fn store_section(pool: &sqlx::PgPool) {
 
 /// A stand-in for oauth2-proxy that answers `/oauth2/auth` from the cookie it is
 /// given, so one server covers every branch the backend has to survive.
-async fn fake_oauth2_proxy() -> (String, Arc<AtomicUsize>) {
+async fn fake_oauth2_proxy(redis_url: &str) -> (String, Arc<AtomicUsize>) {
     use axum::extract::State;
     use axum::http::{HeaderMap, StatusCode};
     use axum::response::{IntoResponse, Response};
 
-    async fn auth(State(calls): State<Arc<AtomicUsize>>, headers: HeaderMap) -> Response {
+    #[derive(Clone)]
+    struct Upstream {
+        calls: Arc<AtomicUsize>,
+        redis: redis::aio::MultiplexedConnection,
+    }
+
+    async fn auth(State(state): State<Upstream>, headers: HeaderMap) -> Response {
+        let calls = state.calls.clone();
         calls.fetch_add(1, Ordering::SeqCst);
         let cookie = headers
             .get("cookie")
             .and_then(|v| v.to_str().ok())
             .unwrap_or_default()
             .to_string();
+        // --- Feature Start ---
+        // The one oauth2-proxy behaviour the kill switch rests on: a ticket
+        // whose Redis key has been deleted cannot be loaded, so the answer is
+        // 401. Modelled here rather than assumed, or "access is cut" would be
+        // an assertion about the stand-in and not about the kill switch.
+        // --- Feature End ---
+        if cookie.contains("revocable")
+            && let Some(value) = openberat::cache::session_cookie(Some(&cookie))
+            && let Some(key) = openberat::session::session_key(value, openberat::cache::COOKIE_NAME)
+        {
+            let live: bool = redis::cmd("EXISTS")
+                .arg(&key)
+                .query_async(&mut state.redis.clone())
+                .await
+                .unwrap();
+            if !live {
+                return StatusCode::UNAUTHORIZED.into_response();
+            }
+        }
         if cookie.contains("broken") {
             return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
@@ -534,7 +565,7 @@ async fn fake_oauth2_proxy() -> (String, Arc<AtomicUsize>) {
         };
         let mut response = StatusCode::ACCEPTED.into_response();
         let h = response.headers_mut();
-        h.insert("x-auth-request-user", "sub-labuser".parse().unwrap());
+        h.insert("x-auth-request-user", LABUSER_SUB.parse().unwrap());
         h.insert(
             "x-auth-request-preferred-username",
             "labuser".parse().unwrap(),
@@ -556,13 +587,68 @@ async fn fake_oauth2_proxy() -> (String, Arc<AtomicUsize>) {
     }
 
     let calls = Arc::new(AtomicUsize::new(0));
+    let redis = redis::Client::open(redis_url)
+        .unwrap()
+        .get_multiplexed_async_connection()
+        .await
+        .unwrap();
     let app = axum::Router::new()
         .route("/oauth2/auth", axum::routing::get(auth))
-        .with_state(calls.clone());
+        .with_state(Upstream {
+            calls: calls.clone(),
+            redis,
+        });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     (format!("http://{addr}"), calls)
+}
+
+/// Keycloak's Admin API, as much of it as the kill switch's first step touches:
+/// the service-account token endpoint and `users/{id}/logout`. It records the
+/// subs it was asked to log out, because "step 1 ran" is otherwise invisible
+/// from outside — and a kill switch that skips it leaves a live SSO session
+/// that signs the user straight back in.
+async fn fake_keycloak() -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
+    use axum::extract::{Path, State};
+    use axum::http::StatusCode;
+    use axum::response::{IntoResponse, Response};
+
+    type Killed = Arc<std::sync::Mutex<Vec<String>>>;
+
+    async fn token() -> Response {
+        axum::Json(serde_json::json!({ "access_token": "service-account-token" })).into_response()
+    }
+    async fn logout(State(killed): State<Killed>, Path(sub): Path<String>) -> Response {
+        killed.lock().unwrap().push(sub.clone());
+        // Two subs Keycloak refuses, so the test can watch the kill switch stop
+        // at a failed first step instead of reporting a success it did not get
+        // — and tell "nobody by that name" from "Keycloak is down", which are
+        // different answers to the admin holding the button.
+        if sub.ends_with("ffff") {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+        if sub.ends_with("eeee") {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        StatusCode::NO_CONTENT.into_response()
+    }
+
+    let killed: Killed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let app = axum::Router::new()
+        .route(
+            "/realms/openberat/protocol/openid-connect/token",
+            axum::routing::post(token),
+        )
+        .route(
+            "/admin/realms/openberat/users/{sub}/logout",
+            axum::routing::post(logout),
+        )
+        .with_state(killed.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    (format!("http://{addr}"), killed)
 }
 
 /// A cookie header carrying a real oauth2-proxy ticket for `id`, plus a marker
@@ -617,7 +703,8 @@ async fn decide_section(pool: &PgPool) {
     let index = Index::connect(&redis_url)
         .await
         .expect("connect to REDIS_URL");
-    let (upstream, calls) = fake_oauth2_proxy().await;
+    let (upstream, calls) = fake_oauth2_proxy(&redis_url).await;
+    let (keycloak_url, killed) = fake_keycloak().await;
     let ctx = |oauth2_proxy: &str, pool: PgPool| {
         let (audit, _queue) = audit_channel(1024);
         Arc::new(Ctx {
@@ -627,6 +714,13 @@ async fn decide_section(pool: &PgPool) {
             cache: Arc::new(Cache::new(audit.clone())),
             audit,
             index: index.clone(),
+            keycloak: openberat::keycloak::Keycloak::new(
+                &reqwest::Client::new(),
+                &keycloak_url,
+                "openberat",
+                "openberat-backend",
+                "test-secret",
+            ),
             admin_group: "OpenBerat-Admins".to_string(),
             portal_origin: "https://portal.apps.example.local".to_string(),
             nginx_conf_dir: None,
@@ -702,7 +796,7 @@ async fn decide_section(pool: &PgPool) {
     .await;
     assert_eq!(response.status(), StatusCode::OK);
     let h = response.headers();
-    assert_eq!(h.get("x-auth-subject").unwrap(), "sub-labuser");
+    assert_eq!(h.get("x-auth-subject").unwrap(), LABUSER_SUB);
     assert_eq!(h.get("x-auth-username").unwrap(), "labuser");
     assert_eq!(h.get("x-auth-email").unwrap(), "labuser@example.local");
     assert_eq!(h.get("x-auth-groups").unwrap(), "OpenBerat-Finance");
@@ -807,6 +901,13 @@ async fn decide_section(pool: &PgPool) {
         cache: Arc::new(Cache::new(audit.clone())),
         audit,
         index: index.clone(),
+        keycloak: openberat::keycloak::Keycloak::new(
+            &reqwest::Client::new(),
+            &keycloak_url,
+            "openberat",
+            "openberat-backend",
+            "test-secret",
+        ),
         admin_group: "OpenBerat-Admins".to_string(),
         portal_origin: "https://portal.apps.example.local".to_string(),
         nginx_conf_dir: None,
@@ -897,12 +998,12 @@ async fn decide_section(pool: &PgPool) {
     assert_eq!(reason(&response).as_deref(), Some("store_unavailable"));
 
     // What the kill switch will read in Phase 5.
-    let sessions = index.sessions("sub-labuser").await.unwrap();
+    let sessions = index.sessions(LABUSER_SUB).await.unwrap();
     assert!(
         sessions.contains(&"_oauth2_proxy-burst".to_string()),
         "the derived session key reached the index: {sessions:?}"
     );
-    index.forget("sub-labuser").await.unwrap();
+    index.forget(LABUSER_SUB).await.unwrap();
     while queue.try_recv().is_ok() {}
 
     // --- the management plane ---
@@ -916,12 +1017,17 @@ async fn decide_section(pool: &PgPool) {
             .await
             .unwrap()
     };
+    // The cookie is not decoration: nginx proxies it to every /api location,
+    // and the backend records the session it names so the kill switch can find
+    // it (ADR-0019). A fixture without one would test a request nginx never
+    // makes.
     let identity = |groups: &str| {
         vec![
-            ("x-auth-subject", "sub-labuser".to_string()),
+            ("x-auth-subject", LABUSER_SUB.to_string()),
             ("x-auth-username", "labuser".to_string()),
             ("x-auth-email", "labuser@example.local".to_string()),
             ("x-auth-groups", groups.to_string()),
+            ("cookie", session("portal", "valid")),
         ]
     };
 
@@ -1368,6 +1474,11 @@ async fn decide_section(pool: &PgPool) {
             "/api/admin/audit".to_string(),
             serde_json::json!(null),
         ),
+        (
+            "POST",
+            format!("/api/admin/kill/{LABUSER_SUB}"),
+            serde_json::json!(null),
+        ),
     ];
     for (method, path, body) in &plane {
         let response = sneak(method, path.clone(), body.clone()).await;
@@ -1693,5 +1804,206 @@ async fn decide_section(pool: &PgPool) {
         summaries.iter().any(|e| e.decision
             == openberat::policy::Decision::Deny(openberat::policy::Deny::ExplicitDeny)),
         "the deny is its own row"
+    );
+
+    // --- the kill switch (ADR-0019) ---
+    // Last, because it empties the cache and the index the sections above fill.
+    let mut redis = redis::Client::open(redis_url.as_str())
+        .unwrap()
+        .get_multiplexed_async_connection()
+        .await
+        .unwrap();
+    let exists = async |key: &str| -> bool {
+        redis::cmd("EXISTS")
+            .arg(key)
+            .query_async(&mut redis.clone())
+            .await
+            .unwrap()
+    };
+    let seed = async |key: &str| {
+        redis::cmd("SET")
+            .arg(key)
+            .arg("a live oauth2-proxy session")
+            .exec_async(&mut redis.clone())
+            .await
+            .unwrap();
+    };
+    // An admin killing somebody else, which is the case that matters: with the
+    // caller's own identity the count below would include the session this very
+    // request records on its way in.
+    let kill = async |sub: &str| {
+        let request = Request::builder()
+            .method("POST")
+            .uri(format!("/api/admin/kill/{sub}"))
+            .header("origin", "https://portal.apps.example.local")
+            .header("x-auth-subject", "11111111-1111-1111-1111-111111111111")
+            .header("x-auth-username", "labadmin")
+            .header("x-auth-groups", "OpenBerat-Admins")
+            .header("cookie", session("labadmin", "valid"));
+        router(shared.clone())
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap()
+    };
+
+    // A session the index never saw is one the kill switch reports zero for and
+    // does not cut. The portal does not go through /decide, so a freshly
+    // signed-in user who has not opened an application yet is recorded here
+    // instead — measured on the lab, where before this a portal-only session
+    // survived its own kill (`docs/07`).
+    index.forget(LABUSER_SUB).await.unwrap();
+    assert_eq!(
+        call("GET", "/api/me", identity("OpenBerat-Finance"))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        index.sessions(LABUSER_SUB).await.unwrap(),
+        vec!["_oauth2_proxy-portal"],
+        "the portal call recorded the session"
+    );
+    // And one whose session key cannot be derived is refused rather than served
+    // unkillably — the same answer /decide gives.
+    let no_cookie: Vec<(&str, String)> = identity("OpenBerat-Finance")
+        .into_iter()
+        .filter(|(name, _)| *name != "cookie")
+        .collect();
+    assert_eq!(
+        call("GET", "/api/me", no_cookie).await.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+
+    // From a known state: the sections above left this user several index
+    // entries whose sessions never existed in Redis.
+    index.forget(LABUSER_SUB).await.unwrap();
+    killed.lock().unwrap().clear();
+    let doomed = "_oauth2_proxy-doomed";
+    seed(doomed).await;
+    calls.store(0, Ordering::SeqCst);
+    let cookie = session("doomed", "valid-revocable");
+    assert_eq!(
+        ask(shared.clone(), full("/reports/q1", &cookie))
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        ask(shared.clone(), full("/reports/q2", &cookie))
+            .await
+            .status(),
+        StatusCode::OK,
+        "and the second is a hit"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "one authentication, two requests"
+    );
+    assert_eq!(index.sessions(LABUSER_SUB).await.unwrap(), vec![doomed]);
+    while queue.try_recv().is_ok() {}
+
+    let response = kill(LABUSER_SUB).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["sessions"],
+        1
+    );
+
+    // Each of the four steps, in the order ADR-0019 fixes: without step 1 the
+    // browser is sent back to a Keycloak that still holds a live SSO session,
+    // and without step 2 the cache refills from a session that is still there.
+    assert_eq!(killed.lock().unwrap().as_slice(), [LABUSER_SUB]);
+    assert!(!exists(doomed).await, "the oauth2-proxy session is gone");
+    assert!(
+        index.sessions(LABUSER_SUB).await.unwrap().is_empty(),
+        "and so is the index entry"
+    );
+
+    // Access is cut, and the cache does not refill: the request is a miss (it
+    // reached oauth2-proxy again) and oauth2-proxy cannot load a session whose
+    // key the kill switch deleted.
+    assert_eq!(
+        ask(shared.clone(), full("/reports/q1", &cookie))
+            .await
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "the entry really left the cache"
+    );
+
+    // The counters of the entries it dropped land in the audit channel. A kill
+    // switch that took the record of the user it killed with it would erase
+    // exactly the evidence the incident is about (docs/05).
+    let mut dropped = Vec::new();
+    while let Ok(event) = queue.try_recv() {
+        dropped.push(event);
+    }
+    let allow = dropped
+        .iter()
+        .find(|e| e.decision == openberat::policy::Decision::Allow)
+        .expect("the killed entry wrote its summary");
+    assert_eq!((allow.count, allow.distinct_path), (2, 2));
+
+    // A first step that fails stops the other three rather than reporting a
+    // success it did not get — and leaves the index entry behind, so the same
+    // call can be made again once Keycloak answers.
+    let survivor = "_oauth2_proxy-survivor";
+    seed(survivor).await;
+    // A sub nobody has and a Keycloak that is down are different answers: the
+    // first cannot be retried into working, and an operator mid-incident reads
+    // 503 as "the system is broken" and goes looking at a Keycloak that is fine.
+    for (sub, expected) in [
+        (
+            "00000000-0000-0000-0000-00000000ffff",
+            StatusCode::NOT_FOUND,
+        ),
+        (
+            "00000000-0000-0000-0000-00000000eeee",
+            StatusCode::SERVICE_UNAVAILABLE,
+        ),
+    ] {
+        index.record(sub, survivor).await.unwrap();
+        assert_eq!(kill(sub).await.status(), expected, "sub {sub}");
+        assert!(exists(survivor).await, "step 2 did not run for {sub}");
+        assert_eq!(
+            index.sessions(sub).await.unwrap(),
+            vec![survivor],
+            "and neither did step 4, so the kill can be retried"
+        );
+        index.forget(sub).await.unwrap();
+    }
+    redis::cmd("DEL")
+        .arg(survivor)
+        .exec_async(&mut redis)
+        .await
+        .unwrap();
+
+    // The sub is interpolated into a Keycloak admin URL. Anything that is not a
+    // user id is refused before it gets there, and a traversal attempt is not
+    // "no such user" — it never reaches Keycloak at all.
+    let before = killed.lock().unwrap().len();
+    for sub in [
+        "..",
+        "%2e%2e",
+        "not-a-uuid",
+        "cae7c116-24a0-42b8-ac6e-9961b34f5d6",
+    ] {
+        assert_eq!(
+            kill(sub).await.status(),
+            StatusCode::BAD_REQUEST,
+            "sub {sub:?}"
+        );
+    }
+    assert_eq!(
+        killed.lock().unwrap().len(),
+        before,
+        "none of them reached Keycloak"
     );
 }

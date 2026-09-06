@@ -32,11 +32,20 @@ cannot be rebuilt.
 
 **No real secrets in the export.** The repository is public: a re-export is
 scrubbed before committing — the OIDC client secret is a `${OPENBERAT_CLIENT_SECRET}`
-placeholder and the LDAP bind password an `${AD_BIND_PASSWORD}` one. Real values arrive
+placeholder, the backend service account's an `${OPENBERAT_BACKEND_SECRET}` one
+and the LDAP bind password an `${AD_BIND_PASSWORD}` one. Real values arrive
 through `.env` at deploy and the import resolves them from Keycloak's own
 environment; **the syntax is plain `${VAR}`** — `$(env:VAR)` and `${env.VAR}`
 are stored verbatim, which silently produces a client whose secret is the
 literal placeholder text (measured, `docs/07`).
+
+**Two clients, and the second one has no browser flow.** `openberat-proxy` is
+what oauth2-proxy logs users in with; `openberat-backend` is a service account
+whose only right is `manage-users`, which is the narrowest role Keycloak offers
+for the kill switch's `logout-all` (ADR-0019). Keeping them apart is the point:
+one secret sits in oauth2-proxy, and it is not the one that can manage users.
+The role arrives through the `users` entry in the export — a service account is
+a user, and a client on its own carries no role mapping.
 
 **The file name must match the realm name.** `openberat-realm.json` holds realm
 `openberat`; any other name and Keycloak refuses to start at all — the import

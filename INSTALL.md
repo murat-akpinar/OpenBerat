@@ -110,6 +110,11 @@ AD_ADMIN_PASSWORD=…
 # The OIDC client secret. The committed realm export carries a placeholder;
 # this is the real value, injected at import and read by oauth2-proxy.
 OPENBERAT_CLIENT_SECRET=…
+# The second client secret: the backend's own service account, which exists
+# only so the kill switch can call Keycloak's logout-all (ADR-0019). A
+# different value from the one above — that one lives in oauth2-proxy, and
+# sharing it would give oauth2-proxy the right to manage users.
+OPENBERAT_BACKEND_SECRET=…
 # oauth2-proxy measures the string it is given, not the bytes it decodes to,
 # and only decodes the URL-safe alphabet — plain `openssl rand -base64 32` is
 # 44 characters and is refused. `cookie_refresh` (ADR-0006) is what makes the

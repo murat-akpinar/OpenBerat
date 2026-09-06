@@ -56,6 +56,13 @@ services:
       # name that may not resolve, and /decide would report an outage instead of
       # a misconfiguration.
       OAUTH2_PROXY_URL: http://oauth2-proxy:4180
+      # The kill switch's first step (ADR-0019). The service account is its
+      # own client, not the realm administrator: `manage-users` on one client
+      # is the narrowest role Keycloak has for logout-all, and KC_ADMIN_PASSWORD
+      # here would hand password resets to whoever reads this environment.
+      # KEYCLOAK_REALM and KEYCLOAK_CLIENT_ID default to the realm export's own.
+      KEYCLOAK_URL: http://keycloak:8080
+      KEYCLOAK_CLIENT_SECRET: ${OPENBERAT_BACKEND_SECRET}
       # The management plane. ADMIN_GROUP has a default (ADR-0008);
       # PORTAL_ORIGIN deliberately does not — a default would be an Origin
       # check that passes for somebody else's portal.
@@ -128,6 +135,7 @@ services:
       # Read by the realm export at import (keycloak/README.md): the public
       # repository carries placeholders, the real values arrive here.
       OPENBERAT_CLIENT_SECRET: ${OPENBERAT_CLIENT_SECRET}
+      OPENBERAT_BACKEND_SECRET: ${OPENBERAT_BACKEND_SECRET}
       AD_BIND_PASSWORD: ${AD_BIND_PASSWORD}
     volumes:
       # Realm export lands here in Phase 1 (keycloak/README.md); an empty dir

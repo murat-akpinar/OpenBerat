@@ -56,11 +56,13 @@
 // Contract: docs/02-architecture.md
 
 use crate::cache::{self, Cache, Cached, Identity, Key};
+use crate::keycloak::Keycloak;
 use crate::policy::{self, Decision, Deny};
 use crate::session::{self, Index};
 use crate::store::{self, AuditEvent};
-use axum::extract::State;
+use axum::extract::{Request, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
+use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
@@ -81,6 +83,8 @@ pub struct Ctx {
     pub cache: Arc<Cache>,
     pub audit: store::Audit,
     pub index: Index,
+    /// The Admin API, for the kill switch's first step (ADR-0019).
+    pub keycloak: Keycloak,
     /// The AD group that grants the management plane (ADR-0008). It comes from
     /// the environment and never from the database: in a fail-closed system the
     /// first admin cannot come from a table nobody can write to yet.
@@ -93,14 +97,56 @@ pub struct Ctx {
 }
 
 pub fn router(ctx: Arc<Ctx>) -> Router {
-    Router::new()
-        .route("/decide", get(decide))
+    // Everything a signed-in person calls, behind the ADR-0019 index write.
+    // /decide is not here: it writes its own entry, at the one point in the
+    // flow where it holds the raw cookie for another reason anyway.
+    let api = Router::new()
         .route("/api/me", get(me))
         .route("/api/apps", get(apps))
+        .merge(crate::admin::routes(ctx.clone()))
+        .route_layer(middleware::from_fn_with_state(ctx.clone(), indexed));
+    Router::new()
+        .route("/decide", get(decide))
         .route("/healthz", get(async || StatusCode::OK))
         .route("/readyz", get(readyz))
-        .merge(crate::admin::routes(ctx.clone()))
+        .merge(api)
         .with_state(ctx)
+}
+
+// --- Feature Start ---
+// ADR-0019, and this half was found by measuring rather than by reading: the
+// index was written only on a /decide miss, and the portal does not go through
+// /decide. A user who logged in and had not yet opened an application was
+// therefore invisible to the kill switch — it reported zero sessions and left
+// them holding every application they opened next. Every authenticated /api
+// call records the session now, and a session that cannot be recorded is
+// refused for the same reason it is on /decide: one the kill switch cannot
+// find must not carry access.
+// --- Feature End ---
+async fn indexed(State(ctx): State<Arc<Ctx>>, request: Request, next: Next) -> Response {
+    let headers = request.headers();
+    // No identity means nginx put none there, and the handler's own 401 is the
+    // answer. There is no session to index for an anonymous caller.
+    let Some(sub) = headers
+        .get("x-auth-subject")
+        .and_then(|v| v.to_str().ok())
+        .filter(|sub| !sub.is_empty())
+        .map(str::to_owned)
+    else {
+        return next.run(request).await;
+    };
+    let cookie = headers.get("cookie").and_then(|v| v.to_str().ok());
+    let Some(key) =
+        cache::session_cookie(cookie).and_then(|v| session::session_key(v, cache::COOKIE_NAME))
+    else {
+        tracing::error!("no session key could be derived from an authenticated /api request");
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+    if let Err(e) = ctx.index.record(&sub, &key).await {
+        tracing::error!(error = %e, "session index write failed");
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    next.run(request).await
 }
 
 /// The signed-in user, as nginx rewrote them onto the request. Read from the

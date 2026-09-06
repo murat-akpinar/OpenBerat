@@ -72,6 +72,7 @@ flowchart LR
     backend -->|"GET /oauth2/auth"| o2p
     backend -->|"entitlements · audit"| pg
     backend -.->|"kill switch · sub → session"| redis
+    backend -.->|"kill switch · logout-all"| kc
     backend -.->|"generated app blocks<br>(shared volume)"| nginx
     o2p -->|session| redis
     o2p -->|"token exchange"| kc

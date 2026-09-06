@@ -1194,6 +1194,75 @@ Harness: `verify-explain.sh` on the lab host. It clears the application and
 entitlement tables before building its fixture and deletes both afterwards;
 both were empty before the run and are empty after it.
 
+### MEASURE — the kill switch, and the session it could not see
+
+ADR-0016 promises **≤ 5 s** for the kill switch, and ADR-0019 is the four steps
+that make it possible. Measured from the admin's `POST /api/admin/kill/{sub}`
+to the first request the protected application refuses:
+
+| | |
+|---|---|
+| `POST /api/admin/kill/{sub}` returns | **0.064 s** |
+| Access gone (first non-200 from the application) | **0.085 s** |
+| N-03 target | 5 s |
+
+Two orders of magnitude of headroom, and it is not surprising: the four steps
+are one Keycloak call, two Redis commands and an in-memory map deletion, and
+none of them waits on a TTL. The number that would matter is the one this
+replaces — without the index the same kill takes `cookie_refresh`, 300 s.
+
+Each step was checked for the mark it should leave rather than inferred from
+the end state, because three of the four are invisible from outside and a kill
+switch that silently skips one still looks like it worked:
+
+- **Keycloak `logout-all`:** following the portal to the end afterwards reaches
+  a login **form**. Without this step the browser is redirected to a Keycloak
+  that still holds the SSO session and signs the user straight back in with no
+  password — the kill switch would look instantaneous and cut nothing.
+- **The session keys:** `EXISTS` on the indexed `_oauth2_proxy-<hex>` key
+  returns 0 afterwards.
+- **The cache entries:** the next request is a 302 to `/denied`, on the first
+  probe, rather than after the 30 s cache TTL.
+- **The index entry:** gone, so nothing is left pointing at a session that no
+  longer exists.
+
+Refusals, on the same run: a `sub` that is not a UUID is a 400 before anything
+is called (it is interpolated into an Admin API path), a portal user is 403, an
+admin with no `Origin` is 403, and a `sub` no user has is a **404** — not a
+503, which would send an operator mid-incident to look at a Keycloak that is
+working.
+
+**What the measurement found.** The first run killed a session that had opened
+an application, and it worked. The second — a user who had signed in and stayed
+on the portal — reported `{"sessions":0}` and cut nothing: `/api/me` still
+answered 200 afterwards, and the applications would have opened for the next
+five minutes, until `cookie_refresh` noticed the revoked refresh token. The
+index was only ever written on a `/decide` miss, and **the portal does not go
+through `/decide`** — its `auth_request` goes to `/oauth2/auth`, authentication
+without a policy decision. Every user is in that state for the seconds between
+signing in and clicking the first application, which is exactly when an admin
+under incident response reaches for the kill switch.
+
+Two changes closed it, and the second is why it was not simply a backend fix:
+
+1. Every authenticated `/api` call records the session now, not only a
+   `/decide` miss, and one whose session key cannot be derived is refused —
+   the same answer `/decide` gives, for the same reason (ADR-0019: a session
+   the kill switch cannot find must not carry access).
+2. The portal's `/api/` location stops stripping the session cookie. Rule 16 in
+   `nginx/conf.d/README.md` removes `_oauth2_proxy` from the `Cookie` header
+   before proxying anywhere, and the session key is derived *from* that cookie,
+   so with it gone the backend answered 503 rather than indexing anything. The
+   exception is narrow and written out where it is made: this upstream is the
+   PDP itself, and `/decide` already hands it the same cookie.
+
+Re-measured after both: the portal-only session is indexed, the kill reports
+one session, and `/api/me` answers 302 to the login afterwards.
+
+Harness: `verify-kill.sh` and `verify-kill-gap.sh` on the lab host. Both create
+their own application and entitlement through `/api/admin/*` and delete them
+afterwards.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is

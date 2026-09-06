@@ -130,7 +130,12 @@ The rules below apply to all of them.
    in the shared include); the application's own cookies pass through. An
    upstream that receives the session cookie is holding — and probably
    access-logging — a credential valid for every host on `.apps.<domain>`
-   (ADR-0015, `docs/05`).
+   (ADR-0015, `docs/05`). **One exception, written out where it is made:** the
+   portal's `/api/` location keeps it, because the backend derives the
+   ADR-0019 session key from it and the portal never reaches `/decide` — a
+   signed-in user who has not opened an application yet would otherwise be
+   invisible to the kill switch. That upstream is the PDP, which is handed the
+   same cookie on `/decide` anyway.
 17. **Every variable `log_format` names must be declared at http level.** nginx
    refuses to start if it names one nothing declared, and the things that
    declare `$auth_username` and `$deny_reason` are the protected locations —

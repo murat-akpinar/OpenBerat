@@ -845,14 +845,16 @@ So the portal's data does not have to be filled in by hand with SQL.
       rule" is a decision (`no_matching_grant`) and not an absence. Tested that
       a deny at the root takes the button away and a disabled application is
       not a button.*
-- [ ] Admin mutations and kill switch invocations recorded to the structured
+- [x] Admin mutations and kill switch invocations recorded to the structured
       log — actor, action, target, outcome (F-14, `docs/02` "Management plane")
-      *The mutation half is done and running:
-      `admin actor="labadmin" action="create_application" target=wiki
-      outcome="ok"`, with refusals logged the same way and naming which guard
-      turned them away. Not in `audit_event`: that table's rows are decision
-      summaries and its format is immutable (`docs/02`). The kill switch half
-      is Phase 5, where the kill switch is.*
+      *Both halves now: `admin actor="labadmin" action="create_application"
+      target=wiki outcome="ok"`, and the kill switch the same way at `warn`
+      with the session count beside it —
+      `action="kill" target=<sub> outcome="ok" sessions=1`. The count is the
+      operator's answer to "did it find anything", and a failed step logs which
+      step. Refusals are logged naming the guard that turned them away. Not in
+      `audit_event`: that table's rows are decision summaries and its format is
+      immutable (`docs/02`).*
 
 ## Phase 5 — Portal + audit + kill switch
 
@@ -1016,16 +1018,53 @@ So the portal's data does not have to be filled in by hand with SQL.
       all, nginx refuses it first. The one disagreement left is deliberate and
       written down — this reads the table while the PEP may still be serving a
       cache entry, so for up to `cache::TTL` the explanation is ahead of the URL.*
-- [ ] Kill switch, four steps in this fixed order (ADR-0019): Keycloak
+- [x] Kill switch, four steps in this fixed order (ADR-0019): Keycloak
       `logout-all` → the session keys from the `sub → session` index → that user's
       decision-cache entries → the index entry. Only that user's entries are
       dropped; flushing the whole cache is self-DoS
-- [ ] **Test:** access is cut after a kill switch **and the cache does not
+      *`POST /api/admin/kill/{sub}`, and `{sub}` is parsed as a **UUID**: it is
+      interpolated into a Keycloak Admin API path, and Keycloak's `sub` is the
+      user id (`docs/07`), so nothing legitimate is refused by insisting on one
+      while `../` would otherwise reach a different admin endpoint with the
+      service account's rights. That service account is its own client with
+      `manage-users` and no browser flow — `manage-users` is the narrowest role
+      Keycloak has for `logout-all`, and putting `KC_ADMIN_PASSWORD` in the
+      backend's environment would hand password resets to whoever reads it. A
+      step that fails **stops the ones after it**: carrying on would report a
+      kill nobody got and would delete the index entry that makes the call
+      retryable. A `sub` no user has is a 404, not a 503 — an operator
+      mid-incident reads 503 as "the system is broken".*
+- [x] **Test:** access is cut after a kill switch **and the cache does not
       refill**; the dropped entries' counters land in the audit channel, not
       the void
-- [ ] **MEASURE:** kill switch end to end — is it under the 5 s of N-03?
+      *The oauth2-proxy stand-in learned the one behaviour the kill switch
+      rests on — a ticket whose Redis key is gone is a 401 — so "access is cut"
+      is an assertion about the kill switch and not about the fixture. After the
+      kill the next request reaches oauth2-proxy again (the entry really left
+      the cache) and comes back 401, and the dropped entry's counters arrive on
+      the audit channel with the right count and path total. Also tested: both
+      failure answers stop at step 1 and leave the index entry behind, and a
+      `sub` that is not a UUID never reaches Keycloak at all.*
+- [x] **MEASURE:** kill switch end to end — is it under the 5 s of N-03?
       A user still signed in elsewhere is not cut: their entry never existed in
       the index if they never hit `/decide` on this instance
+      ***0.085 s** from the admin's POST to the first refusal — two orders of
+      magnitude under the 5 s (`docs/07`). All four steps checked for the mark
+      they should leave rather than inferred from the end state; the one that
+      matters most is Keycloak, because without it the browser is redirected to
+      a live SSO session and signed straight back in, and the kill switch would
+      look instantaneous while cutting nothing.
+      **The measurement found a hole and it is now closed.** A user who had
+      signed in and stayed on the portal was invisible: the index was written
+      only on a `/decide` miss and the portal does not go through `/decide`, so
+      the kill reported `sessions:0` and cut nothing for the five minutes until
+      `cookie_refresh`. Every user is in that state between signing in and
+      opening their first application — exactly when the kill switch is
+      reached for. Every authenticated `/api` call records the session now, and
+      the portal's `/api/` location stops stripping the session cookie (the one
+      exception to rule 16, written out where it is made: the key is derived
+      from that cookie, and this upstream is the PDP, which `/decide` already
+      hands the same cookie).*
 - [ ] **Test:** an **idle** WebSocket connection is cut within `proxy_read_timeout`
       (an active one is not — ADR-0016 excludes it, do not assert otherwise)
 - [ ] Logout: all three steps (`docs/02`, "Logout") — the backend step is

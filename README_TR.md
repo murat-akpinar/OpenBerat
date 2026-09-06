@@ -71,6 +71,7 @@ flowchart LR
     backend -->|"GET /oauth2/auth"| o2p
     backend -->|"entitlement · audit"| pg
     backend -.->|"kill switch · sub → oturum"| redis
+    backend -.->|"kill switch · logout-all"| kc
     backend -.->|"üretilen uygulama blokları<br>(paylaşılan volume)"| nginx
     o2p -->|oturum| redis
     o2p -->|"token exchange"| kc

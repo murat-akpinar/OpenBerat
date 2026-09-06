@@ -6,6 +6,7 @@
 // membership, and an Origin check on anything state-changing.
 
 use crate::api::{Caller, Ctx};
+use crate::keycloak::LogoutError;
 use crate::policy;
 use crate::store;
 use axum::extract::{Path, Query, Request, State};
@@ -42,6 +43,7 @@ pub fn routes(ctx: Arc<Ctx>) -> Router<Arc<Ctx>> {
         )
         .route("/api/admin/audit", get(list_audit))
         .route("/api/admin/explain", get(explain))
+        .route("/api/admin/kill/{sub}", axum::routing::post(kill))
         .route_layer(middleware::from_fn_with_state(ctx, guard))
 }
 
@@ -77,6 +79,74 @@ async fn guard(
         return StatusCode::FORBIDDEN.into_response();
     }
     next.run(request).await
+}
+
+// --- Feature Start ---
+// The kill switch (ADR-0019). The order of the four steps is the whole design:
+// Keycloak first, because a live SSO session signs the user straight back in;
+// the oauth2-proxy session before the cache, because a request arriving in the
+// gap would otherwise refill the cache with a fresh ALLOW from a session that
+// is still there; the index entry last, because it is the map to everything
+// above it. Only this user's cache entries are dropped — clearing the cache for
+// everybody is self-DoS (docs/05).
+//
+// A step that fails stops the ones after it. Carrying on would report a
+// success nobody got, and it would delete the index entry that makes the call
+// retryable once the failed dependency answers again. The admin sees which
+// step, and the break-glass runbook (docs/08) is what is left if none of them
+// can run.
+// --- Feature End ---
+// ponytail: one window the order does not close — a request that oauth2-proxy
+// already answered 200 to when step 2 runs still inserts its cache entry after
+// step 3, and keeps access for up to cache::TTL. It is one /decide miss wide
+// and needs a request in flight at that instant. Close it with a
+// `killed:{sub}` tombstone in Redis, read on the miss path, if a measurement
+// ever shows it.
+async fn kill(State(ctx): State<Arc<Ctx>>, headers: HeaderMap, Path(sub): Path<Uuid>) -> Response {
+    let actor = Caller::from(&headers)
+        .map(|c| c.username)
+        .unwrap_or_default();
+    let refused = |step: &str, why: String| {
+        tracing::error!(actor, action = "kill", target = %sub, outcome = "error",
+            step, error = %why, "admin");
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": why, "step": step })),
+        )
+            .into_response()
+    };
+    match ctx.keycloak.logout_all(&sub).await {
+        Ok(()) => {}
+        // Not an outage: this sub names nobody, and answering 503 would send an
+        // operator mid-incident to look at a Keycloak that is working.
+        Err(e @ LogoutError::NoSuchUser) => {
+            tracing::warn!(actor, action = "kill", target = %sub, outcome = "not_found", "admin");
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+        Err(e) => return refused("keycloak_logout_all", e.to_string()),
+    }
+    let sub = sub.to_string();
+    let sessions = match ctx.index.sessions(&sub).await {
+        Ok(sessions) => sessions,
+        Err(e) => return refused("read_session_index", e.to_string()),
+    };
+    if let Err(e) = ctx.index.drop_sessions(&sessions).await {
+        return refused("delete_sessions", e.to_string());
+    }
+    ctx.cache.drop_sub(&sub);
+    if let Err(e) = ctx.index.forget(&sub).await {
+        return refused("forget_index_entry", e.to_string());
+    }
+    // F-14, and the count is the operator's answer to "did it find anything":
+    // a user signed in on an instance that never served them has no index
+    // entry here, and zero is what says so.
+    tracing::warn!(actor, action = "kill", target = %sub, outcome = "ok",
+        sessions = sessions.len(), "admin");
+    Json(serde_json::json!({ "sessions": sessions.len() })).into_response()
 }
 
 #[derive(Serialize, sqlx::FromRow)]

@@ -52,6 +52,22 @@
           }
         }
       ]
+    },
+    {
+      "clientId": "openberat-backend",
+      "name": "OpenBerat backend (kill switch)",
+      "description": "Service account for the ADR-0019 kill switch: logout-all only. No browser flow.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "bearerOnly": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "secret": "${OPENBERAT_BACKEND_SECRET}",
+      "redirectUris": [],
+      "webOrigins": []
     }
   ],
   "components": {
@@ -331,5 +347,17 @@
         }
       }
     ]
-  }
+  },
+  "users": [
+    {
+      "username": "service-account-openberat-backend",
+      "enabled": true,
+      "serviceAccountClientId": "openberat-backend",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users"
+        ]
+      }
+    }
+  ]
 }
