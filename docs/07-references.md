@@ -803,6 +803,44 @@ The failure mode is the same shape as the missing `cookie_refresh`: no error,
 no warning, a working login, and entitlements that stopped tracking AD. It is
 now a second mandatory line in ADR-0006's consequences.
 
+#### Federation — an AD user logs in with no Keycloak-side account
+
+**Answer: yes, and the credential never leaves AD.** The test refuses the
+incidental evidence — `labuser` and `labadmin` log in, but both were in the
+directory before the provider was declared, so their working login proves only
+that *some* account works. The account under test was created in AD after the
+realm was already running and deleted at the end: `labfed`, in `OU=Users`, in
+no group at all.
+
+| step | done in | result |
+|---|---|---|
+| `samba-tool user create labfed` | AD | Keycloak lists the user without anyone logging in |
+| full OIDC login, first ever | browser flow | `/api/me` answers `labfed`, `sub` `0d4928bd…` |
+| `samba-tool user setpassword` | AD | old password **refused** on the next login, new one accepted, same `sub` |
+| `samba-tool user delete` | AD | login refused; the imported user disappears from Keycloak's list |
+
+Two things follow that the happy path alone does not show. The password
+rotation is the one that matters: with `editMode: READ_ONLY` the credential
+Keycloak stores for a federated user carries a `federationLink` and no hash, so
+the bind is delegated to the DC on **every** login — the old password stops
+working the moment AD changes it, with no sync period, no cache flush and no
+Keycloak restart. And `sub` survives the rotation, because it is derived from
+`objectGUID` and not from anything a credential change touches, which is what
+lets the ADR-0019 session index key on it.
+
+The listing step is the counter-intuitive one: `labfed` appeared in Keycloak's
+user list *before* the first login, because with `importEnabled: true` a user
+search is itself an LDAP query and imports what it finds. Keycloak's user list
+is therefore not a record of who has logged in; it is a cache of who was
+looked up. Reading it as an audit of access would be wrong.
+
+The harness is `ob-login-pw.sh` on the lab host — `ob-login.sh` with the
+password as an argument, because rotating `labuser`'s would break every other
+script. Its first version called the login successful whenever the jar held a
+cookie matching `_oauth2_proxy`, which the **failed** flow also leaves behind
+as `_oauth2_proxy_csrf`: a wrong password passed. The signal is `/api/me`
+answering 200 with the expected username.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is

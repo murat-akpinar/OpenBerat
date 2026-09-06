@@ -145,7 +145,21 @@ Verify the architecture actually works before writing code.
       the deletion test was re-run after a refresh had fired and behaved
       identically. Option C is not needed, ADR-0016's 5 s target stands. Both
       halves in `docs/07`; the one-shot test is `verify4.sh` on the lab host.*
-- [ ] Keycloak LDAP federation → can an AD user log in
+- [x] Keycloak LDAP federation → can an AD user log in
+      *Yes, and the credential never leaves AD. `labuser` logging in proves
+      little — it predates the provider — so the test used `labfed`, created in
+      AD after the realm was running and deleted afterwards: first-ever login
+      through the real flow answered `/api/me` as `labfed`. The half worth
+      keeping is the password rotation. With `editMode: READ_ONLY` the
+      credential Keycloak stores carries a `federationLink` and no hash, so the
+      bind is delegated on every login: changed in AD, the old password is
+      refused on the very next one and the new one works — no sync period, no
+      restart — and `sub` is unchanged, because it comes from `objectGUID`,
+      which is what lets the ADR-0019 index key on it. Deleting the account in
+      AD stops the login and drops the imported user. One trap: Keycloak listed
+      `labfed` **before** any login, because with `importEnabled` a user search
+      is itself an LDAP query — that list is a lookup cache, not a record of
+      who has access. `docs/07`; harness `ob-login-pw.sh` on the lab host*
 - [ ] `userAccountControl` filter → a disabled account cannot log in
 - [ ] Group mapper `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` → `groups` claim in the token
 - [ ] **Nested group test:** does a user in a parent group see the child group?
