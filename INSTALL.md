@@ -35,7 +35,10 @@
   *named* `Payroll,OpenBerat-Admins` arrives as two names and the second one is
   `ADMIN_GROUP`; the filter is what stops such a name from ever entering the
   claim (ADR-0008, `docs/07`). Without it, anyone who can create a group in AD
-  can grant themselves the management plane.
+  can grant themselves the management plane. Widening it is not undone by
+  narrowing it again: the groups it excludes are **imported into Keycloak**
+  while it is wide and stay there afterwards, so they have to be deleted by
+  hand.
 - Docker with Compose v2.
 - **Lab only:** the `samba-ad` container provisions a real AD domain, and that
   writes `security.*` extended attributes. A user namespace refuses them

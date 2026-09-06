@@ -729,8 +729,8 @@ small; it turns out to be the control that stops this, because the Keycloak LDAP
 group filter matches the **whole** `cn` and `Payroll,OpenBerat-Admins` does not
 match `OpenBerat-*`. A group that never enters Keycloak never reaches the
 header. That makes the filter load-bearing rather than an optimisation, and
-`docs/05` and ADR-0008 now say so. Still unverified against a real filter —
-listed below, and a Phase 1 box.
+`docs/05` and ADR-0008 now say so. Verified against a real LDAP filter two
+sections below, by taking the filter away.
 
 Two things the backend *can* do, and now does:
 
@@ -984,6 +984,56 @@ back on `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE`. Writing the mapper back needs
 the two `kcadm` habits the `userAccountControl` section describes — read the
 whole component, not `--fields config`, and read it back after every write.
 
+### The group filter is what stops the comma — measured by taking it away
+
+`Payroll,OpenBerat-Admins` is a real group in the lab AD (`samba-ad/fixture.sh`,
+created as LDIF because `samba-tool` cannot build the DN) and it is in
+`labuser`'s `memberOf` next to `OpenBerat-Finance`. The escalation measured
+above used a Keycloak-local group; this is the same name arriving the way a
+customer's would, through LDAP — and the row that settles
+[ADR-0008](adr/0008-group-identity-name.md) mitigation 1 is the second one, the
+same login with `groups.ldap.filter` emptied.
+
+| `groups.ldap.filter` | `groups` claim for `labuser` | `/api/me` | `GET /api/admin/applications` |
+|---|---|---|---|
+| `(cn=OpenBerat-*)` | `["OpenBerat-Finance"]` | `admin: false` | 403 |
+| *(empty)* | `["Payroll,OpenBerat-Admins", "OpenBerat-Finance"]` | `groups: ["Payroll", "OpenBerat-Admins", …]`, **`admin: true`** | **200** |
+
+One name in the claim, two in the backend, and the second is `ADMIN_GROUP`. The
+filter is the control, and it is the only one: an installation that widens it
+has an escalation path open to anyone who can create a group in AD, not merely a
+large token.
+
+A negative result is worth what the proof that the filter was really off is
+worth, so `labnested` rides along as a positive control — its only group is
+`Finance-All`, a name the filter excludes for an ordinary reason. Claim
+**absent** with the filter on, `["Finance-All"]` with it off. The edit took
+effect, so the quiet `labuser` row above is the filter working rather than the
+write failing silently, which is exactly how the `userAccountControl` control
+case nearly went.
+
+Two things that were not predicted:
+
+- **Removing the filter imports the excluded groups into Keycloak's own
+  database, and restoring it does not remove them.** After the control the realm
+  held `Finance-All` and a group literally named `Payroll,OpenBerat-Admins`. The
+  claim goes clean on the very next login — under
+  `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` membership is re-resolved through the
+  filter every time — so the leftover object grants nothing by itself. It is one
+  Keycloak-side assignment away from granting everything, and that assignment is
+  the one the section above measured as invisible to AD. Ten minutes of a widened
+  filter therefore leaves cleanup behind that nothing prompts for.
+- **The filter is consulted per login, not only at sync time.** That is what
+  makes it usable as a control rather than a sync-time hygiene setting:
+  tightening it takes effect on the next token, with no restart and no sync.
+
+Harness: `verify-commafilter.sh` on the lab host — baseline, control, restore,
+cleanup, then a fifth pass that proves the restoration from the outside rather
+than from the setting. It carries one shell trap worth naming, because it left a
+group behind on the first run: `docker compose exec -T` reads stdin, so a
+`while read` delete loop fed by a pipe loses every line after the first
+deletion. The cleanup list goes through a file.
+
 
 ## Measured in the browser
 
@@ -1095,11 +1145,14 @@ Phase 1 lab:
       reference environment variables for the OIDC client secret at import, or
       does the secret need a post-import step? The repository is public, so the export is committed scrubbed
       (`keycloak/README.md`) and the real value has to arrive some other way.
-- [ ] Does the Keycloak **LDAP group filter** exclude a group whose `cn`
+- [x] **Answered: yes, and it is the only thing that does.** Does the Keycloak
+      **LDAP group filter** exclude a group whose `cn`
       contains a comma — `Payroll,OpenBerat-Admins` against `(cn=OpenBerat-*)`?
       Measured above: such a group reaching the claim is a management-plane
       escalation, and this filter is the only thing that stops it
-      ([ADR-0008](adr/0008-group-identity-name.md) mitigation 1). Needs samba-ad.
+      ([ADR-0008](adr/0008-group-identity-name.md) mitigation 1). The control
+      case — the same login with the filter emptied — reaches
+      `/api/admin/applications` with a 200.
 
 ## Licences (to be verified)
 

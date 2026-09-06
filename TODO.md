@@ -211,12 +211,25 @@ Verify the architecture actually works before writing code.
       direction and is corrected; ADR-0006's reversal trigger 3 has an answer
       and does not fire. Harness `verify-nested.sh` on the lab host; the mapper
       is restored*
-- [ ] **VERIFY:** does the LDAP group filter `(cn=OpenBerat-*)` exclude a group
+- [x] **VERIFY:** does the LDAP group filter `(cn=OpenBerat-*)` exclude a group
       whose `cn` contains a comma? A group named `Payroll,OpenBerat-Admins`
       reaching the claim is a management-plane escalation, measured in Phase 2
       (`docs/07`), and this filter is the only thing that stops it (ADR-0008
-      mitigation 1). Needs samba-ad.
-      If not, switch to `LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY`
+      mitigation 1).
+      *Yes, and the control case is what says so: the group is in AD and in
+      `labuser`'s `memberOf`, and with the filter in place the claim carries
+      `OpenBerat-Finance` alone. Emptying that one field — no restart, no sync —
+      put `["Payroll,OpenBerat-Admins", "OpenBerat-Finance"]` in the next token,
+      `admin: true` in `/api/me` and a **200** on `/api/admin/applications`.
+      `labnested` rode along as the positive control (claim absent →
+      `["Finance-All"]`), so the quiet baseline is the filter working rather than
+      the write failing. ADR-0008 mitigation 1 holds and is no longer an
+      assertion. Not predicted: while the filter is wide the excluded groups are
+      **imported into Keycloak** and narrowing it again does not remove them —
+      the claim goes clean on the next login, but the realm keeps a group named
+      `Payroll,OpenBerat-Admins` until someone deletes it, one assignment away
+      from being live. `INSTALL.md` says so now. Harness `verify-commafilter.sh`
+      on the lab host; realm and filter restored*
 - [x] User in many groups → is the cookie size problem gone with the Redis session
       *Yes — and it took the ceiling with it to a place nothing warns about.
       Ramped labuser to 800 generated groups: the session cookie stays **192

@@ -54,7 +54,10 @@ carries no SID column. A nullable column that nothing ever writes is exactly the
    cannot detect it — oauth2-proxy flattens the claim array before the request
    arrives — so the filter, which matches the whole `cn` against `OpenBerat-*`
    and rejects that name, is the control. An installation that skips it has an
-   escalation path, not merely a large token.
+   escalation path, not merely a large token. Verified against a real LDAP
+   filter and its control case (`docs/07`): with the filter in place the name is
+   in AD, in the user's `memberOf` and absent from the claim; with it emptied
+   the same account reaches `/api/admin/*`.
 2. **Change control on deletion and recreation** of prefixed groups, on the AD
    side. This is an operational control, written into the installation
    documentation, not something the software can enforce.
