@@ -16,8 +16,13 @@ right. Authentication is delegated to Keycloak and oauth2-proxy — the only thi
 this codebase decides is what you are permitted to reach
 ([ADR-0012](docs/adr/0012-project-name-openberat.md)).
 
-**Status:** design complete, no code yet. Phase 0 is closed — every decision the
-design could settle has an ADR. Next up: the Phase 1 lab in `TODO.md`.
+**Status:** the code is written and runs. Phases 0–6 in [TODO.md](TODO.md) are
+closed: the chain from login to a protected application works end to end on a
+lab against a real AD, and N-01 to N-03 are measured rather than estimated
+([docs/07](docs/07-references.md)). **No version is tagged yet** — `release.sh`
+builds the offline bundle, but cutting the tag stays a deliberate manual act
+([ADR-0023](docs/adr/0023-versioning-and-release.md)). The one box still open is
+running the backend on more than one instance, which N-06 puts outside v1.
 
 **Licence:** [GPL-3.0-or-later](LICENSE). Free to install and run in your own
 environment; there is no paid edition. Patches welcome under
@@ -40,8 +45,8 @@ not the whole job. These are the operator's, and none of them can be skipped:
 
 Realistically this asks for an operator who is comfortable with AD, Keycloak and
 nginx. It replaces a VPN; it is not lighter than one to set up, only lighter to
-live with. The installation guide is written during the Phase 1 lab
-([TODO.md](TODO.md)).
+live with. [INSTALL.md](INSTALL.md) is complete for v1, and every step in it has
+been run on the lab rather than reasoned about.
 
 ## How it works
 

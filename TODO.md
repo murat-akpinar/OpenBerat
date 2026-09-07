@@ -1,6 +1,7 @@
 # TODO
 
-Status: **design complete, no code yet.**
+Status: **Phases 0–6 are closed; nothing is tagged.** The only box left open is
+HA, which N-06 puts outside v1.
 Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
 
 ---

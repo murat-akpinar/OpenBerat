@@ -13,8 +13,13 @@ görür ve bunlara VPN olmadan erişir. Her istek kimlikle yeniden yetkilendiril
 doğrulama Keycloak ve oauth2-proxy'ye devredildi — bu kod tabanının verdiği tek
 karar neye erişebileceğin ([ADR-0012](docs/adr/0012-project-name-openberat.md)).
 
-**Durum:** Tasarım tamam, kod yok. Faz 0 kapandı — tasarımın kendi başına
-verebileceği her kararın bir ADR'si var. Sıradaki iş: `TODO.md` Faz 1 lab.
+**Durum:** Kod yazıldı ve çalışıyor. [TODO.md](TODO.md)'deki 0–6. fazlar kapalı:
+girişten korumalı uygulamaya kadar olan zincir, gerçek bir AD'ye karşı laboratuvarda
+uçtan uca çalışıyor ve N-01 ile N-03 tahmin değil, ölçüm
+([docs/07](docs/07-references.md)). **Henüz sürüm etiketi atılmadı** — `release.sh`
+çevrimdışı paketi üretiyor, ama etiketi kesmek bilerek elle yapılan bir iş olarak
+kalıyor ([ADR-0023](docs/adr/0023-versioning-and-release.md)). Açık kalan tek kutu,
+backend'i birden fazla instance'ta çalıştırmak; N-06 onu v1'in dışında bırakıyor.
 
 **Lisans:** [GPL-3.0-or-later](LICENSE). Kendi ortamına kurup bedava
 kullanabilirsin; ücretli sürüm yok. Katkılar [DCO](CONTRIBUTING.md) ile alınır,
@@ -40,7 +45,8 @@ ibaret değil. Aşağıdakiler operatörün sorumluluğunda ve hiçbiri atlanama
 
 Gerçekçi olmak gerekirse bu, AD'ye, Keycloak'a ve nginx'e hâkim bir operatör
 ister. VPN'in yerine geçiyor; kurulumu VPN'den hafif değil, yaşatması hafif.
-Kurulum belgesi Phase 1 laboratuvarı sırasında yazılıyor ([TODO.md](TODO.md)).
+[INSTALL.md](INSTALL.md) v1 için tamamlandı; içindeki her adım akıl yürütülerek
+değil, laboratuvarda çalıştırılarak yazıldı.
 
 ## Nasıl çalışıyor
 
