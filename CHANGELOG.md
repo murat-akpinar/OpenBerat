@@ -53,6 +53,7 @@
 - *(oauth2-proxy)* The second login flow that takes the first one's cookie ([374c9ff](https://github.com/murat-akpinar/OpenBerat/commit/374c9ffa4ee823f4aa4233e585af47f12bbfe009)) — A login on the lab answered 403 "Unable to find a valid CSRF token", and retrying worked. One page load starts more than one flow — anything that 401s reaches @signin and mints a CSRF cookie holding that flow's PKCE verifier — and with one cookie name for all of them the second start overwrites the first. The callback then redeems the code with the wrong verifier (Keycloak: invalid_grant, 500) or, if the other flow finished first and cleared the shared cookie, finds nothing at all (403).
 - *(admin)* A deny rule could be stored that no request could ever equal ([792c1fc](https://github.com/murat-akpinar/OpenBerat/commit/792c1fc7e44d099666ef9e84d8c47965466df887))
 - *(cache)* Two cookie sets could name one cache entry ([443e8f3](https://github.com/murat-akpinar/OpenBerat/commit/443e8f371f61a7f2a6c50146f0cd29fd75755e8d))
+- *(nginx)* Keep the authorization code out of the access log ([24018be](https://github.com/murat-akpinar/OpenBerat/commit/24018befed9abab5a6d34d0a8238740746e9b5c0)) — nginx logs `$request`, query string included, so every login wrote the OAuth authorization code at `/oauth2/callback` and Keycloak's `session_code` at `/login-actions/authenticate` into the access log, where the log shipper and the backup keep them. oauth2-proxy logged the callback a second time in its own request log.
 
 ### 💼 Other
 
