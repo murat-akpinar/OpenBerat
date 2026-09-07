@@ -230,6 +230,28 @@ jobs:
           print('\n'.join(sorted(bad)) if bad else 'every upstream hop pins the whole X-Forwarded-* family')
           sys.exit(1 if bad else 0)
           EOF
+      # An include is shared by every application, so a hostname in one is the
+      # deployment's hostname written where the deployment never looks (rule 25).
+      - run: |
+          python3 - <<'EOF'
+          # A shared include is used by every application, so a hostname written into one
+          # is the deployment's hostname written somewhere the deployment does not look.
+          # `errors.inc` carried the portal's, and `@denied` is included by every block
+          # ADR-0011 generates: on any install that is not the lab, every refused user was
+          # sent to a host that does not exist (rule 25).
+          import pathlib, re, sys
+
+          bad = []
+          for path in sorted([*pathlib.Path('nginx/conf.d').glob('*.inc'),
+                              *pathlib.Path('nginx/breakglass').glob('*.inc')]):
+              body = re.sub(r'#.*', '', path.read_text())
+              for m in re.finditer(r'https?://(.)', body):
+                  if m.group(1) != '$':
+                      line = body[:m.start()].count('\n') + 1
+                      bad.append(f'{path.name}:{line}: a shared include names a host literally; use a variable')
+          print('\n'.join(bad) if bad else 'no shared include carries a literal hostname')
+          sys.exit(1 if bad else 0)
+          EOF
       # `worker_shutdown_timeout` is main-context, so unlike the TLS and header
       # settings it cannot live in a shared include: it is written twice, and
       # the two copies have to agree (ADR-0025).

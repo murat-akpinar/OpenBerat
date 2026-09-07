@@ -30,10 +30,13 @@ location @signin {
 
 # The "no access" page lives on the portal host, and nginx cannot serve another
 # server block internally — so this is a 302 and not an internal redirect
-# (README rule 7). `return` is safe in a named location: it is the locations
+# (README rule 7). `$portal_origin` and not the hostname: this file is included
+# by every generated application block, and a deployment's hostname written into
+# a shared include is one nobody finds when the domain changes (00-auth.conf,
+# README rule 25). `return` is safe in a named location: it is the locations
 # carrying auth_request where the rewrite phase would run first (rule 14).
 location @denied {
-    return 302 https://portal.apps.example.local/denied?app=$host;
+    return 302 $portal_origin/denied?app=$host;
 }
 
 # Never a bare 500. Note there is no `=`: with one, nginx would answer with the

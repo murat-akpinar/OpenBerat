@@ -242,3 +242,11 @@ The rules below apply to all of them.
    one (`KC_PROXY_HEADERS=xforwarded`), which put a forged source address on
    every login event it records. nginx is the only edge here, so the value is
    `$remote_addr`. CI checks every location that writes a `proxy_set_header`.
+25. **A shared `.inc` carries no literal hostname.** `errors.inc` had the
+   portal's written into `@denied`, and `errors.inc` is included by every block
+   ADR-0011 generates — so on any deployment that is not the lab, every refused
+   user was redirected to a host that does not exist. The origin is a `map` at
+   http level now (`00-auth.conf`): `set` is server or location context, and a
+   `map` is nginx's only http-level constant. Two comments claimed the lab
+   domain lived in three files; it is five, and both now name all five. CI
+   refuses a `https?://` in an include that is not followed by a variable.
