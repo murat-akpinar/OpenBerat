@@ -1285,10 +1285,28 @@ So the portal's data does not have to be filled in by hand with SQL.
       login theme still pulls `css/openberat.css` — a comment in
       `theme.properties` would have failed silently by falling back to stock —
       and both notices reach a browser (`docs/07`).*
-- [ ] Finish `INSTALL.md` (drafted in Phase 1): DNS, wildcard certificate,
+- [x] Finish `INSTALL.md` (drafted in Phase 1): DNS, wildcard certificate,
       `ADMIN_GROUP`, first login, and the prerequisites an operator cannot skip —
       write access to AD for the `OpenBerat-` groups, a common parent domain
       (ADR-0015), a Keycloak service account
+      *All of the listed items were already written; what the checklist did not
+      name is what was missing. **§6 said applications are defined "through the
+      admin API" and never showed a call**, so the document could be followed to
+      the end and leave nothing behind the proxy. The two calls are in it now,
+      with the `Origin` requirement, what `upstream_url` refuses and why,
+      what each entitlement field means, and `/api/admin/explain` as the check
+      to make before a user does. Also added: two checks at the end of §5 that
+      separate an outage from a strict policy, and a pointer to the break-glass
+      runbook from §10 — an operator reading about monitoring is the one who
+      will need it.
+      Run literally on the lab, cookie and all (`verify-install6.sh`): the
+      no-`Origin` 403, the infrastructure-upstream 400, `"nginx":"staged"`, the
+      302 to `/denied` before any entitlement, 200 after one, `explain` agreeing
+      with the PEP and refusing to guess without `groups`, and the delete.
+      Two things the document got wrong until it was executed — `DELETE`
+      answers 200 with a body rather than 204, and the `Origin` guard is the
+      first thing a curl-driven admin hits (`docs/07`).
+      The draft banner is gone: the file is complete for v1.*
 - [ ] Load test → fix N-01/N-02 (answer N-07 first, otherwise the test has no target)
 - [ ] Backend on 2 instances + nginx health check (HA — after the first deployment)
 

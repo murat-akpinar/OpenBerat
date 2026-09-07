@@ -1,10 +1,12 @@
 # INSTALL
 
-> **Draft.** Started in Phase 1 and grows with it (TODO.md); rewritten for v1.
-> Steps are in install order. §1–§3 and the start-up in §5 have been replayed
-> from a fresh checkout on
-> the lab host, as written, by someone who had nothing but this file — three
-> things in §1 and §3 were wrong and are fixed (`docs/07`).
+> Steps are in install order, and every one of them has been run as written on
+> the lab host rather than reasoned about: §1–§3 and the start-up in §5 from a
+> fresh checkout by someone who had nothing but this file — which is how three
+> things in §1 and §3 turned out to be wrong — then the application in §6, the
+> integration in §7, the backup in §9 and the offline install in §11.
+> The numbers quoted throughout are measurements, and `docs/07` has the runs
+> they come from.
 
 ## Prerequisites
 
@@ -313,6 +315,22 @@ log lines.
 Then browse to `https://portal.apps.example.local/`; you are redirected to
 Keycloak, and after logging in as `labuser` you land back on the portal.
 
+### Two checks before you trust it
+
+```sh
+docker compose exec nginx wget -qO- http://backend:8081/readyz
+```
+
+Empty output and no error means Postgres and Redis are both reachable. A 503
+naming one of them — `unreachable: postgres` — is the **only** signal that
+separates an outage from a policy that denies everybody, because with the
+database gone `/decide` refuses every request and that is indistinguishable
+from strictness ([ADR-0017](docs/adr/0017-fail-closed-availability.md)).
+
+Then sign in at the portal. An empty application list there is the correct
+answer until §6: the portal shows what you can reach, and so far that is
+nothing.
+
 ## 6. Adding an application
 
 Applications are defined through the admin API, not by editing configuration.
@@ -333,6 +351,103 @@ If a generated block is ever rejected by `nginx -t`, the previous configuration
 stays in effect and the reason is in
 `/etc/nginx/conf.d/generated/apps.status` inside the nginx container. Nothing
 goes down while you read it.
+
+### The two calls
+
+There is no admin screen yet, so these are the calls it will make. Both need a
+session whose groups include `ADMIN_GROUP`, and both need an `Origin` header
+naming the portal: the portal and the applications are same-site by design
+([ADR-0015](docs/adr/0015-single-parent-domain.md)), so `SameSite` cannot tell
+them apart and a compromised application's page would otherwise be a same-site
+caller. A state-changing call without it is a 403 and changes nothing.
+
+The session cookie is the one the browser already has — copy `_oauth2_proxy`
+out of the developer tools:
+
+```sh
+PORTAL=https://portal.apps.example.local
+COOKIE='_oauth2_proxy=…'
+```
+
+The application:
+
+```sh
+curl -sk -X POST "$PORTAL/api/admin/applications" \
+  -H "Cookie: $COOKIE" -H "Origin: $PORTAL" -H 'Content-Type: application/json' \
+  -d '{"slug":"wiki","name":"Wiki","icon":"W",
+       "upstream_url":"http://wiki:8080",
+       "external_hostname":"wiki.apps.example.local"}'
+```
+
+201, and the body is the row plus one field that is not in the table:
+
+```json
+{"application":{"id":"…","slug":"wiki","enabled":true,…},"nginx":"staged"}
+```
+
+`"nginx":"staged"` means the block was written for nginx to pick up. Anything
+else in that field is the reason it was not, and the previous configuration is
+still serving.
+
+`slug` is what appears in the generated configuration and in the audit record;
+lower-case, digits and dashes, because it is interpolated into nginx config
+(ADR-0011) and the database refuses anything else. `icon` is one short string
+rendered as text — an emoji or a letter — and defaults to the first letter of
+the name. `upstream_url` is `scheme://host:port` and nothing else: no path, no
+credentials, no query, and it is refused if it names an infrastructure service
+or port (`postgres`, `redis`, `keycloak`, `backend`, 5432, 6379, 389, 636 …), a
+loopback, link-local or otherwise reserved address, or the portal's own
+hostname. Those come back as 400 with the reason in `error`.
+
+Nobody can reach it yet — **no rule means deny** (`docs/05`). One entitlement,
+with the `id` from above:
+
+```sh
+curl -sk -X POST "$PORTAL/api/admin/entitlements" \
+  -H "Cookie: $COOKIE" -H "Origin: $PORTAL" -H 'Content-Type: application/json' \
+  -d '{"application_id":"…","subject_type":"ad_group",
+       "subject_id":"OpenBerat-Wiki","effect":"allow","path_pattern":""}'
+```
+
+| Field | Means |
+|---|---|
+| `subject_type` | `ad_group`. The only kind in v1 — entitlements *are* AD groups ([ADR-0008](docs/adr/0008-group-identity-name.md)) |
+| `subject_id` | the group name exactly as it arrives in the claim, `OpenBerat-` prefix included |
+| `effect` | `allow` or `deny`. A deny wins over an allow whatever the paths, so a narrow deny does not need a narrower allow beside it |
+| `path_pattern` | empty is the whole application. `/admin/*` binds one path to its own rule, matched on the normalised path and at segment boundaries |
+| `application_id` | leave it out and the rule covers **every** application — the wildcard of `docs/05`. Deliberate, rarely what you want |
+| `expires_at` | optional RFC 3339 timestamp; the row stops counting after it |
+
+Taking one out of service is a `PATCH` with `{"enabled": false}` — the row and
+its entitlements stay, the generated block stays, and every request is refused
+with `application_disabled`. `DELETE` removes it, and takes its entitlements
+with it; the audit rows stay, because they carry the slug rather than a foreign
+key and the record of who reached what is not something an admin can delete.
+Both answer 200 with the same `nginx` field as the create, and a `DELETE` of
+something already gone is a 404 rather than a silent success.
+
+### Checking it before a user does
+
+`/api/admin/explain` answers what the PEP would answer, from the same rules and
+the same function, and writes nothing — no cache entry, no audit row, so asking
+why cannot change the answer:
+
+```sh
+curl -sk -G "$PORTAL/api/admin/explain" -H "Cookie: $COOKIE" \
+  --data-urlencode 'user=<the Keycloak sub>' \
+  --data-urlencode 'groups=OpenBerat-Wiki' \
+  --data-urlencode 'host=wiki.apps.example.local' \
+  --data-urlencode 'path=/'
+```
+
+It returns the verdict and every entitlement row it walked, each marked matched
+or expired. Two things to get right: `groups` is **required** and takes the
+comma-joined list as the claim carries it — the backend holds no directory, so
+answering without them reports a denial that would not happen — and `user` is
+the Keycloak `sub`, not the username, the same value the audit record's
+`actor_sub` holds. It reads the entitlement table and not the decision cache, so
+for up to one cache TTL after a change it is already right while the PEP is
+still on the old answer.
 
 ## 7. How the application learns who the user is
 
@@ -558,8 +673,15 @@ refuses everybody:
 and 10 ms, which are N-01 and N-02 (`docs/06`), so the fraction of decisions
 meeting each target is read off the exposition rather than estimated from a
 quantile. `reason="no_matching_grant"` climbing is not an outage — it is usually
-an application whose entitlements were never mapped, and the `/api/admin/explain`
-screen answers why for one user.
+an application whose entitlements were never mapped, and `/api/admin/explain`
+(§6) answers why for one user.
+
+When it is genuinely down, the runbook is
+[docs/08-breakglass.md](docs/08-breakglass.md): what justifies serving the
+applications with no authorisation at all, the commands, and how to verify it
+went back on afterwards. It has been rehearsed and timed. Read it before you
+need it — the procedure lives inside the image precisely so that nobody has to
+build one at 3 a.m.
 
 ## 11. Installing without internet
 
@@ -606,8 +728,8 @@ Two things to know:
   taken first (§9). Migrations run forward only and the older binary will not
   start against the newer schema, so the dump is the only road back.
 
-> Phase 1 and the phases after it are done and this file follows them: the
-> certificate, the realm import, the AD federation, the first login, adding an
-> application and integrating one are all written above and were replayed on a
-> clean checkout. What is still missing belongs to Phase 6 — the release image
-> and the offline bundle (`TODO.md`).
+> This file is complete for v1: everything from an empty host to a protected
+> application, a backup, an upgrade and an installation with no internet. What
+> is deliberately **not** here is the load test that fixes N-01 and N-02 under
+> concurrency, and running the backend on more than one instance — both are
+> open in `TODO.md`, and neither changes an install that has one.

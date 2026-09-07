@@ -1963,6 +1963,33 @@ migrations, Keycloak re-imports the realm and drops every session, and
 oauth2-proxy exits and restarts until discovery answers — and waiting on the
 portal alone reports a broken login that is only an early one.
 
+### TEST — `INSTALL.md` §6, run as written
+
+The section told an operator that applications are defined "through the admin
+API" and then never showed a call, so an installation could be finished and
+still have nothing behind it. The calls are in the document now, and
+`verify-install6.sh` (on the lab host) runs the section literally — the cookie
+copied out of a jar the way the text says to copy it out of the browser, and a
+throwaway application removed at the end.
+
+| What the section claims | Result |
+|---|---|
+| A state-changing call without `Origin` is refused | **403**, nothing created |
+| `upstream_url` naming infrastructure is a 400 with a reason | `{"error":"upstream_url names an infrastructure port"}` for `http://postgres:5432` |
+| The create answers 201 with `"nginx":"staged"` | yes, and the block reaches nginx |
+| No rule means deny | the new host answers **302 to `/denied`** before any entitlement — a refusal is a redirect, not a 403 (`errors.inc`) |
+| One `ad_group` entitlement makes it reachable | 200 |
+| `explain` agrees with the PEP, and needs `groups` | `"decision":"allow"`; without `groups`, **400** rather than a guess |
+| `DELETE` cleans up | **200** with the same `nginx` field, and a second one is 404 |
+
+Two corrections came out of running it rather than reading it. `DELETE` answers
+**200 with a body**, not 204 — the body carries the nginx publish status, which
+is the thing an admin needs after removing an application, and the first draft
+of this harness asserted 204. And the guard that answers 403 without an `Origin`
+is worth stating in the install document rather than only in `docs/02`: a
+curl-driven admin session hits it immediately, and the failure looks like a
+permissions problem.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is
