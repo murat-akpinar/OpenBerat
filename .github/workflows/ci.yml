@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # The checks a human forgets: every commit is signed off (DCO, ADR-0018), the
-# documents' links still resolve, every file says what licence it is under,
+# documents' links still resolve and INSTALL.md still names every variable the
+# compose file gives Keycloak, every file says what licence it is under,
 # nginx and the frontend have not lost a security rule that neither `nginx -t`
 # nor a build step would notice, and the backend still compiles and its tests
 # pass.
@@ -36,7 +37,7 @@ jobs:
           fi
 
   docs:
-    name: docs links
+    name: docs consistency
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,6 +57,29 @@ jobs:
                   if str(rel) not in tracked and not (rel.is_dir() and any(str(f).startswith(str(rel)) for f in map(pathlib.Path, tracked))):
                       bad.append(f'{md}: {t}')
           print('\n'.join(bad) if bad else 'all links resolve inside the repository')
+          sys.exit(1 if bad else 0)
+          EOF
+      # INSTALL.md ships a replacement `environment:` block for Keycloak, and a
+      # variable it forgets to carry over is not a documentation nit: an
+      # unresolved ${APPS_DOMAIN} reaches URI validation and the realm import
+      # stops the server (docs/07). The document has to name every variable the
+      # service is actually given.
+      - run: |
+          python3 - <<'EOF'
+          import pathlib, re, sys
+
+          compose = pathlib.Path('docker-compose.yml').read_text()
+          kc = compose.split('\n  keycloak:\n')[1].split('\n  postgres:\n')[0]
+          needed = set(re.findall(r'^      ([A-Z][A-Z0-9_]*):', kc, re.M))
+          # The realm export resolves these at import; missing one fails the boot.
+          for realm in pathlib.Path('keycloak/realm').glob('*.json'):
+              needed |= set(re.findall(r'\$\{([A-Z][A-Z0-9_]*)\}', realm.read_text()))
+
+          section = pathlib.Path('INSTALL.md').read_text()
+          section = section.split('### Keycloak in production')[1].split('\n**Lab:')[0]
+          bad = sorted(v for v in needed if v not in section)
+          print('INSTALL.md "Keycloak in production" does not name: ' + ', '.join(bad)
+                if bad else 'the production section names every variable the service is given')
           sys.exit(1 if bad else 0)
           EOF
 

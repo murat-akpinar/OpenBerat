@@ -452,11 +452,18 @@ build-time option supplied at runtime makes `start --optimized` **exit 2** with
 one warning line and nothing that reads like an error. That is the trap this
 shape costs.
 
-**3. The command and the environment.**
+**3. The command and the environment.** These lines are **added to** the
+`keycloak` service, not put in place of it: everything the shipped compose
+already passes stays, or the import that runs on first boot has nothing to
+resolve its placeholders with.
 
 ```yaml
     command: ["start", "--optimized", "--import-realm"]
     environment:
+      # Everything already there stays: KC_BOOTSTRAP_ADMIN_USERNAME and
+      # KC_BOOTSTRAP_ADMIN_PASSWORD, and the four the realm export reads at
+      # import — APPS_DOMAIN, OPENBERAT_CLIENT_SECRET,
+      # OPENBERAT_BACKEND_SECRET, AD_BIND_PASSWORD.
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
       KC_DB_USERNAME: openberat
@@ -468,7 +475,11 @@ shape costs.
 
 `KC_HOSTNAME` is what the browser sees, not what the container is called: the
 issuer in the discovery document becomes exactly that, and oauth2-proxy
-validates the token's `iss` against it.
+validates the token's `iss` against it. And dropping `APPS_DOMAIN` while
+rewriting this block is not a quiet mistake either: the unresolved placeholder
+reaches Keycloak's URI validation and the import stops the server with
+`Invalid client openberat-proxy: A redirect URI is not a valid URI`
+(`docs/07`).
 
 **What changes once the database survives.** The realm is imported **once** —
 the second start logs `Realm 'openberat' already exists. Import skipped`, so
