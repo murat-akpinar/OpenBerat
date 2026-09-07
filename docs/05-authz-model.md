@@ -164,8 +164,13 @@ So:
 - On a hit, `policy.rs` runs against the normalised path and the cached
   `rules[]`. That is a pure function over data already in memory: one hash
   lookup, one normalisation, a handful of prefix comparisons.
-- TTL: **30 seconds** (configurable). Identity and rules go stale together — one
-  number.
+- TTL: **30 seconds**, a constant in `cache.rs` and not an environment
+  variable. Identity and rules go stale together — one number. It is deliberately
+  not a knob: it is half of what N-03 was measured against
+  ([ADR-0016](adr/0016-n03-revocation-targets.md), 330 s in `docs/07`), so a
+  site that turned it up would move a published guarantee without anything
+  saying so. The lever for revocation latency is `cookie_refresh`, which is
+  configuration and is where ADR-0006 puts it.
 - **Single-flight:** concurrent requests for the same key wait on one refresh. A
   page with 50 assets does not trigger 50 parallel refreshes when the TTL expires.
 - Bounded, and evicted in **insertion order** rather than by least-recent use.
