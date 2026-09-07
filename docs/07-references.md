@@ -2933,3 +2933,62 @@ is `breakglass.apps`, so none of it reaches the running configuration. Had it,
 every application would have had a second `server` block with no `auth_request`
 in it, and `nginx -t` would have said the configuration was fine.
 
+### Every fix from the two security commits, run rather than read
+
+The first commit was verified by probing a rebuilt nginx image for status codes,
+which covers what a *location* answers and nothing about what a *limit* or a
+*handler* does. This is the rest of it, on running containers.
+
+**The rate limits fire, and only where they should.** nginx alone, no upstreams;
+a `429` is answered from the preaccess phase without the limiter ever looking
+for a backend, so the absent upstreams do not affect the count.
+
+| Location | Requests | Result |
+|---|---|---|
+| `auth.…/realms/openberat/login-actions/authenticate` | 60, concurrent | **39 × 429**, 21 through — `burst=20` plus one refill, exactly the zone |
+| `auth.…/resources/…` on the same host | 60, concurrent | **0 × 429** — deliberately unlimited, so a login page's dozen assets never meet the limiter |
+| `portal.…/api/me` | 300, concurrent | **232 × 429**, 68 through |
+
+The `/api/*` figure took two attempts and the first one is the lesson: at 30
+concurrent requests each waiting 3 s on an absent backend, the offered load is
+about 10 r/s — under the zone's 50 r/s, so nothing was limited and the run
+looked like a missing directive. The limiter is a rate, so the test has to be
+one. `nginx -T` on the running container was the tie-breaker: the directive was
+there all along.
+
+**Keycloak's own database carries the brute-force settings**, not just the file.
+The export imported cleanly (`Realm 'openberat' imported`) and `kcadm.sh get
+realms/openberat` reads back:
+
+```
+"bruteForceProtected" : true,   "permanentLockout" : false,
+"failureFactor" : 10,           "waitIncrementSeconds" : 60,
+"maxFailureWaitSeconds" : 900,  "minimumQuickLoginWaitSeconds" : 60
+```
+
+`kcadm.sh get realms` on the same instance answers
+`[{"realm":"openberat"},{"realm":"master"}]` — the realm nginx used to publish is
+a real realm on every install, not a hypothetical one.
+
+**The admin API answers a sentence where it used to answer an outage.** Called
+on the `core` network the way nginx leaves a request — the `X-Auth-*` family
+rewritten from the verified identity, plus the session cookie `/api/*` forwards
+(ADR-0019) — against a running backend, Postgres and Redis:
+
+| Call | Before | Now |
+|---|---|---|
+| `slug: "evil; return 200"` | 503 | **400** `slug must be lower-case letters and digits, separated by single hyphens` |
+| `external_hostname: "bad host.example"` | 503 | **400** `external_hostname must be lower-case letters and digits, separated by single dots or hyphens` |
+| `path_pattern: "/reports"` | **201 — stored, granting the subtree** | **400** `path_pattern is a subtree and has no exact-path form: write /reports/*, which matches /reports and everything below it` |
+| `path_pattern: "/reports/*"` | 201 | **201** — the form that reads correctly is still accepted |
+| the same calls with `X-Auth-Groups: OpenBerat-Users` | 403 | **403** |
+| the same calls with no `Origin` | 403 | **403** |
+
+One thing this run found that was not being looked for: the first attempt sent
+no `Cookie` header and **every** call answered `503`, including the two that
+should have been `403`. That is the `indexed` middleware (`api.rs`) refusing an
+authenticated request whose session key it cannot derive — before any admin
+handler runs. Fail-closed, and it means the management plane cannot be reached
+by a caller holding identity headers but no session at all, which is a stronger
+statement than the `403`s above.
+

@@ -1494,7 +1494,14 @@ serving the person who has to run it.
          as a refusal. Three tests, red first: with the guards removed the
          generator really does render `return 200` into the file.*
       *Two more were questions rather than fixes when this box closed. Both are
-      now answered, in the box below.*
+      now answered, in the box below. And the verification was finished
+      afterwards rather than with the commit: the first pass probed a rebuilt
+      nginx image for status codes, which says what a location answers and
+      nothing about what a limit or a handler does. Both rate limits, the realm's
+      brute-force settings read back out of Keycloak's own database, and all six
+      admin-API answers are now run rather than read (`docs/07`). One of them
+      needed two attempts — a rate limit tested below its own rate looks exactly
+      like a missing directive.*
 
 - [x] **The two questions that first box left** — answered, and both turned out
       to need code
