@@ -20,9 +20,12 @@ use redis::aio::ConnectionManager;
 use std::collections::HashMap;
 use std::time::Duration;
 
-/// Must be at least oauth2-proxy's `cookie_expire` (168h in
-/// `oauth2-proxy.cfg`). Too long only means the kill switch deletes a key that
-/// has already gone; too short means it cannot find a live session.
+/// Must be at least oauth2-proxy's `cookie_expire` — `10h` in
+/// `oauth2-proxy.cfg` since it was cut to the realm's own `ssoSessionMaxLifespan`
+/// (`docs/04`). This stays far above it deliberately, because the two failures
+/// are not symmetric: too long only means the kill switch deletes a key that
+/// has already gone, too short means it cannot find a live session, and an
+/// operator who raises `cookie_expire` does not read this file.
 const INDEX_TTL: Duration = Duration::from_secs(8 * 24 * 60 * 60);
 
 const INDEX_PREFIX: &str = "openberat:sessions:";
@@ -171,6 +174,50 @@ impl Index {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The kill switch reaches a live session only through this index, so its
+    /// TTL has to outlast the cookie whose keys it holds. That number lives in
+    /// another file and has moved once already (168 h to 10 h): a comment
+    /// naming it goes stale in silence, and a TTL that is short means a
+    /// revoked user keeps what the index could no longer find.
+    #[test]
+    fn the_index_outlasts_the_cookie_it_indexes() {
+        let cfg = include_str!("../../oauth2-proxy/oauth2-proxy.cfg");
+        let value = cfg
+            .lines()
+            .map(str::trim)
+            .find(|l| l.starts_with("cookie_expire"))
+            .and_then(|l| l.split('"').nth(1))
+            .expect("oauth2-proxy.cfg sets cookie_expire");
+
+        let mut expire = Duration::ZERO;
+        let mut n = 0u64;
+        for c in value.chars() {
+            match c {
+                '0'..='9' => n = n * 10 + u64::from(c.to_digit(10).unwrap()),
+                'h' | 'm' | 's' => {
+                    let unit = match c {
+                        'h' => 3600,
+                        'm' => 60,
+                        _ => 1,
+                    };
+                    expire += Duration::from_secs(n * unit);
+                    n = 0;
+                }
+                _ => panic!("cookie_expire is not a duration this test reads: {value}"),
+            }
+        }
+
+        assert!(
+            expire > Duration::ZERO,
+            "cookie_expire read as zero: {value}"
+        );
+        assert!(
+            INDEX_TTL >= expire,
+            "INDEX_TTL {INDEX_TTL:?} is shorter than cookie_expire {expire:?}: \
+             the kill switch would miss sessions that still authenticate"
+        );
+    }
 
     /// Builds a cookie the way oauth2-proxy does (docs/07, VERIFY (4)), so the
     /// test exercises the documented format rather than a convenient one.
