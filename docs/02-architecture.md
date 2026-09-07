@@ -519,7 +519,7 @@ is the rehearsed break-glass below, not a promise of uptime.
 | At least 2 instances + an upstream health check | Not in v1 — and **nginx OSS cannot be the thing that checks**: `health_check` is not a directive it has (measured, `docs/07`), only passive `max_fails`/`fail_timeout`, which ejects an instance after users have already met the failure. `/readyz` ships in v1 all the same: an operator, an orchestrator and the break-glass runbook all ask it |
 | Decision cache is instance-local; moves to Redis with multiple instances | Noted |
 | Postgres unreachable → DENY; cached decisions survive for their TTL | **Yes** |
-| **Break-glass:** a second nginx config in the same image, via `docker compose --profile breakglass` — written down and **rehearsed** | **Yes**, Phase 3 exit criterion |
+| **Break-glass:** a second nginx config in the same image, via `docker compose --profile breakglass` — written down and **rehearsed**. Its application blocks are generated from the `application` table like the running proxy's, and it mounts that shared volume **read-only** ([ADR-0030](adr/0030-breakglass-generated-blocks.md)); the `edge`-only network rule is untouched, since a file is not a network path | **Yes**, Phase 3 exit criterion |
 | Timeout budget decreasing outward-in (`/decide` 2s → oauth2-proxy 1s → sqlx 500ms) | **Yes**, a design constraint |
 | `error_page 500 502 503 504` → local static maintenance page (no bare nginx 500) | **Yes** |
 | Monitoring: decision latency, error rate, cache hit rate, audit loss | **Yes**, `GET /metrics` — the four counters the fail-closed rule otherwise hides |

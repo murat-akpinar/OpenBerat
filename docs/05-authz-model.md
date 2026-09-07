@@ -48,9 +48,15 @@ Output:
 
 1. **Default deny.** No matching allow means deny.
 2. **Deny > allow.** A single deny overrides every allow.
-3. **Path granularity is optional.** An empty `path_pattern` means the whole
-   application. A non-empty one (`/admin/*`) means only that path. **Matching
-   happens on the normalised path and at a segment boundary** — see below.
+3. **Path granularity is optional, and a pattern is always a subtree.** An
+   empty `path_pattern` means the whole application; so does `/*`. A non-empty
+   one is `…/*` and means that prefix **and everything below it**, cut at a
+   segment boundary — `/admin/*` covers `/admin`, `/admin/` and `/admin/users`,
+   and does not cover `/adminx`. There is **no exact-path form**: `matches`
+   strips the trailing `*` before comparing, so `/reports` would be the same
+   rule as `/reports/*` while reading like a single page, and the management
+   plane refuses that spelling rather than serving it
+   ([ADR-0029](adr/0029-path-pattern-is-a-subtree.md)).
 4. **Wildcard (`*`) applications** for groups such as IT-Admin. Dangerous, and
    logged separately.
 5. **Expiry.** An entitlement whose `expires_at` has passed is ignored.
@@ -351,6 +357,8 @@ without a test is visible as a gap rather than an omission.
 | Guessing a user's password at the login form, which nothing bounded | `limit_req` per address on `login-actions`, and the realm's own per-user brute-force lockout, which Keycloak leaves off (`keycloak/README.md`). Neither layer sees what the other does | Phase 7 |
 | A `slug` or `external_hostname` carrying `;` becoming a directive in a generated `server` block | Three copies of one shape rule: the schema's CHECK, the admin API, and `render_apps_conf` — which is the last point before the value *is* configuration and had no slug check at all | Phase 7 test |
 | Flooding `/api/*` to exhaust the one backend every application's authorisation depends on | `limit_req`, the `decisions` zone. The decision cache does not cover this path — the portal never goes through `/decide` (`nginx/conf.d/README.md` rule 23) | Phase 7 |
+| An `allow /reports` granting the whole `/reports/**` subtree while the admin reads back one path | A non-empty `path_pattern` must be written `…/*`; the spelling that reads as an exact path is refused rather than served ([ADR-0029](adr/0029-path-pattern-is-a-subtree.md)) | Phase 7 test |
+| Break-glass being pulled and answering 404 for every real application, because its host list was hand-written | The blocks are generated from the same `application` table and the same validators ([ADR-0030](adr/0030-breakglass-generated-blocks.md)) | Measured, Phase 7 |
 | Reaching an upstream while bypassing nginx entirely | v1: two networks — upstreams on `edge` with nginx only, never on `core` (`docs/02`); no published `ports`. **Not fully closed** — the signed identity JWT is the answer that survives an audit | Open question, `docs/06` |
 | A deleted AD group recreated with the same name inheriting its entitlements | **Not closed.** Accepted debt, mitigated by the `OpenBerat-` prefix and change control (ADR-0008) | — |
 | An AD group *named* `Payroll,OpenBerat-Admins` — one group that arrives as two, the second being `ADMIN_GROUP` | **Not closed here, and cannot be.** oauth2-proxy flattens the claim array into one comma-joined header, so the boundary is gone before the request arrives. The control is the Keycloak group filter, which never lets the name into the claim (ADR-0008) | Measured, `docs/07` |

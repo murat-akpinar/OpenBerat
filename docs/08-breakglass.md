@@ -53,7 +53,25 @@ configuration ships **inside the same image** as the normal one, so nothing has
 to be built or copied at three in the morning; `--profile` is the only reason it
 is not already running.
 
+**Which applications come back.** The same ones the running proxy served: the
+blocks are generated from the `application` table by the backend, into the
+shared volume that `nginx-breakglass` mounts read-only
+([ADR-0030](adr/0030-breakglass-generated-blocks.md)). Nothing has to be edited
+here and no list has to be kept in step by hand — which is the whole reason this
+is generated, because a hand-written list is stale exactly when it is read. It
+was: until this ADR the file named two lab hostnames, so the procedure restored
+the lab and answered 404 to every real application.
+
+The corollary is worth knowing before the incident, not during it: break-glass
+serves what the **last successful publish** put in the volume. The backend
+writes it at startup and after every application change, so it is current unless
+the backend has been dead since before an application was added. If nothing has
+ever published — a first install where no application exists yet — break-glass
+starts and serves nothing, which is correct and is not a failure to start.
+
 ## Check it worked
+
+Substitute a hostname from your own `application` table; `sample.` is the lab's.
 
 ```sh
 curl -sI https://sample.apps.example.local/ | head -1
@@ -114,6 +132,7 @@ rehearsal goes in this table.
 | Date | Where | Off → on | On → off | Notes |
 |---|---|---|---|---|
 | 2026-09-06 | local `docker compose` stack, backend stopped | **2.4 s** | **4.4 s** | Both from typing the first command to the verification passing. Going back is the slower half and always will be: the normal nginx has more to load. See the note below. |
+| 2026-09-07 | local `docker compose` stack, after [ADR-0030](adr/0030-breakglass-generated-blocks.md) | — | — | Not a timing run: this one tested whether the right *applications* come back, which the first rehearsal could not have caught. A row inserted straight into Postgres became a break-glass host with nobody editing a file; deleting the row took the host away again; a hostname not in the table answers 404 from the default server; and `nginx -T` on the running nginx shows **zero** break-glass includes, which is the property the file extension protects (`docs/07`). |
 
 What the first rehearsal found, which is not in the procedure above by accident:
 
@@ -125,6 +144,11 @@ What the first rehearsal found, which is not in the procedure above by accident:
   break-glass configuration is in the image it is running, and there is nothing
   separate to have forgotten to build. If you are ever unsure, `docker compose
   exec nginx nginx -T | grep breakglass` before you need it, not during.
+- **The first rehearsal proved the mechanism and not the content.** It curled
+  `sample.apps.example.local`, which was in the hand-written file either way —
+  so a procedure that would have answered 404 for every real application passed
+  it. That is the failure ADR-0030 fixes, and the reason the second rehearsal
+  above adds and removes a row rather than timing a swap.
 - The verification after going back has to be "not 200", not "302" — with the
   chain still broken, a correctly restored nginx answers with the unavailable
   page, and a check that insists on a redirect would read that as failure.

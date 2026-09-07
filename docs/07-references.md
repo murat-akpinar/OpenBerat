@@ -2885,3 +2885,51 @@ sees, because the portal does not go through `/decide`. Each call is an
 oauth2-proxy hop, a Redis write (the ADR-0019 index) and, on `/api/apps`, an
 uncached join across `application` and `entitlement`.
 
+### The two questions the read left, and what answering them measured
+
+**A `path_pattern` with no trailing `*`.** `matches` strips the star before
+comparing, so `/reports` and `/reports/*` are one rule — and the starless
+spelling reads as a single page. The correction could only run at write time:
+narrowing it in `matches` would shrink every starless **deny** row already
+stored, and no reading of a row recovers its author's intent
+([ADR-0029](adr/0029-path-pattern-is-a-subtree.md)). Nothing in `policy.rs`
+moved, so nothing already decided decides differently; the test pins the
+sentence the admin now reads, because the sentence is the fix:
+
+```
+path_pattern is a subtree and has no exact-path form: write /reports/*,
+which matches /reports and everything below it
+```
+
+**Break-glass, measured on the real stack rather than asserted.** The first
+rehearsal (`docs/08`, 2026-09-06) curled `sample.apps.example.local` — which was
+in the hand-written `breakglass/apps.conf` either way, so a procedure that would
+have answered 404 for every real application passed it. The second one adds and
+removes a row instead. Postgres, Redis, the backend, nginx and one sample
+upstream, brought up from the committed compose file:
+
+| Step | Result |
+|---|---|
+| `insert into application … 'sample'`, restart backend | `apps.conf`, `apps.status`, `breakglass.apps`, `breakglass.status` in the volume; both status files `ok` |
+| `sample.apps.example.local` through the running proxy | **302** into the login flow, no break-glass header |
+| stop nginx, start `nginx-breakglass` | **200**, `x-openberat-breakglass: active` |
+| a hostname not in the table | **404** from the default server |
+| `insert … 'wiki'`, restart backend, swap again | **200** — a row became a break-glass host with nobody editing a file |
+| `delete from application where slug='wiki'`, restart, swap | **404** — it left with the row; `sample` still 200 |
+| back to nginx | **302**, no break-glass header |
+
+And the property the file extension exists for, checked directly rather than
+reasoned about:
+
+```
+$ docker compose exec nginx nginx -T | grep -c "breakglass/upstream.inc"
+0
+$ docker compose logs nginx | grep -ci "conflicting server name"
+0
+```
+
+`nginx.conf` globs `conf.d/generated/*.conf` and the generated break-glass file
+is `breakglass.apps`, so none of it reaches the running configuration. Had it,
+every application would have had a second `server` block with no `auth_request`
+in it, and `nginx -t` would have said the configuration was fine.
+

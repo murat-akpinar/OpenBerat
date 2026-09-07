@@ -106,6 +106,12 @@ services:
       - "443:443"
     volumes:
       - ./certs:/etc/nginx/certs:ro
+      # The generated application blocks, **read-only** (ADR-0030). Without them
+      # break-glass serves the two hostnames somebody once wrote into
+      # `nginx/breakglass/apps.conf` and 404s the rest — which is the procedure
+      # failing at the one moment it is used. This is a file, not a network
+      # path, and it was written before the incident: the rule below stands.
+      - apps_conf:/etc/nginx/conf.d/generated:ro
     # `edge` only. It has no business reaching the backend, Redis or Postgres —
     # it is not making decisions, and an incident is the wrong moment to widen
     # what a container can talk to.

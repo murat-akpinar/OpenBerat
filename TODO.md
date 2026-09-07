@@ -69,6 +69,19 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       stored and no session payload is decrypted; the screen stays read-only,
       so revocation is still `POST /api/admin/kill/{sub}`. Amends ADR-0026's
       "no new endpoint"
+- [x] ADR-0029 A `path_pattern` is a subtree and the management plane refuses
+      any other shape — `matches` strips the trailing `*` before comparing, so
+      `/reports` was the same rule as `/reports/*` while reading as a single
+      page. Fixed at write time and not in the matcher: narrowing it there would
+      silently shrink every starless *deny* row already stored, which is the one
+      direction a correction may never run. Exact-path matching does not exist,
+      and now says so
+- [x] ADR-0030 Break-glass serves the application blocks generated from the same
+      `application` table, by the same validators — the hand-written list named
+      two lab hostnames, so ADR-0017's rehearsed way back restored the lab and
+      404'd every real deployment. The generated file deliberately does not end
+      in `.conf`: one of these blocks reaching the *running* configuration is an
+      application served with no authorisation at all
 
 **Phase 0 is closed.** Everything decidable from the design has been decided;
 what remains needs facts about the target environment and is tracked in
@@ -1480,11 +1493,32 @@ serving the person who has to run it.
          came back to the admin as a **503**, reading as an outage rather than
          as a refusal. Three tests, red first: with the guards removed the
          generator really does render `return 200` into the file.*
-      *Two more are questions, not fixes, and are in `docs/06`: a `path_pattern`
-      with no trailing `*` is silently a prefix, so `allow /reports` grants the
-      subtree — and it cannot be narrowed without weakening every deny rule; and
-      break-glass serves the two hand-written lab hostnames, so `docs/08`
-      restores the lab and 404s a real deployment.*
+      *Two more were questions rather than fixes when this box closed. Both are
+      now answered, in the box below.*
+
+- [x] **The two questions that first box left** — answered, and both turned out
+      to need code
+      *[ADR-0029](docs/adr/0029-path-pattern-is-a-subtree.md): a `path_pattern`
+      with no trailing `*` was silently a prefix, so `allow /reports` granted the
+      whole subtree while the admin read back one path. The fix could not go in
+      the matcher — narrowing it there would shrink every starless **deny** row
+      already stored, which is the one direction a correction may never run — so
+      the spelling that reads like an exact path is refused at the management
+      plane instead, with a sentence naming the form to use. Nothing in
+      `policy.rs` moved, so no existing decision changed. And the thing that was
+      really missing is now stated rather than half-served: **there is no
+      exact-path form.**
+      [ADR-0030](docs/adr/0030-breakglass-generated-blocks.md): break-glass
+      served two hand-written lab hostnames, so ADR-0017's rehearsed way back
+      restored the lab and answered 404 to every real application — found at the
+      one moment nobody has time to look. The blocks are generated from the same
+      `application` table by the same validators now. Proved on the real stack
+      rather than asserted (`docs/07`): a row inserted into Postgres became a
+      break-glass host with nobody editing a file, deleting the row took the host
+      with it, and `nginx -T` shows zero break-glass includes inside the running
+      configuration — the generated name does not end in `.conf`, because a block
+      of these landing there is an application served with no authorisation at
+      all.*
 
 - [ ] **ADR: the decision cache with more than one instance** — the HA box's
       prerequisite

@@ -214,15 +214,39 @@ pub async fn publish_conf(
     .await
     .map_err(|e| format!("reading applications: {e}"))?;
 
-    let rendered = render_apps_conf(&applications, portal_origin);
-    // Written under a different name and renamed, so the reloader can never see
-    // half a file: rename within a filesystem is atomic, a write is not.
-    let staging = FsPath::new(dir).join("apps.conf.writing");
-    let staged = FsPath::new(dir).join("apps.conf.staged");
-    tokio::fs::write(&staging, rendered)
+    stage(
+        dir,
+        "apps.conf",
+        render_apps_conf(&applications, portal_origin),
+    )
+    .await?;
+    // --- Feature Start ---
+    // The same table, rendered a second time without the authorisation
+    // (ADR-0030). Break-glass used to serve two hand-written lab hostnames, so
+    // `docs/08` restored the lab and answered 404 to every real application —
+    // at the one moment nobody has time to find that out. The name does not end
+    // in `.conf` on purpose: `nginx.conf` globs `conf.d/generated/*.conf`, and a
+    // break-glass block reaching the *normal* configuration is an application
+    // served with no authorisation at all, on a running system, with `nginx -t`
+    // reporting success.
+    // --- Feature End ---
+    stage(
+        dir,
+        "breakglass.apps",
+        render_breakglass_conf(&applications, portal_origin),
+    )
+    .await
+}
+
+/// Written under a different name and renamed, so the reloader can never see
+/// half a file: rename within a filesystem is atomic, a write is not.
+async fn stage(dir: &str, name: &str, body: String) -> Result<(), String> {
+    let writing = FsPath::new(dir).join(format!("{name}.writing"));
+    let staged = FsPath::new(dir).join(format!("{name}.staged"));
+    tokio::fs::write(&writing, body)
         .await
-        .map_err(|e| format!("writing {}: {e}", staging.display()))?;
-    tokio::fs::rename(&staging, &staged)
+        .map_err(|e| format!("writing {}: {e}", writing.display()))?;
+    tokio::fs::rename(&writing, &staged)
         .await
         .map_err(|e| format!("staging {}: {e}", staged.display()))
 }
@@ -851,9 +875,31 @@ async fn explain(State(ctx): State<Arc<Ctx>>, Query(q): Query<ExplainQuery>) -> 
 // fires, the admin reads back what they typed and believes the path is closed.
 // Refused rather than stored, for the reason the comma guard above gives.
 // --- Feature End ---
+// --- Feature Start ---
+// ADR-0029, and the same judgement pointed the other way. `matches` strips the
+// trailing `*` before comparing, so `/reports` and `/reports/*` are one rule —
+// which makes `allow /reports` a grant over the whole subtree, read back by the
+// admin as a single path. There is no exact-path form to mean instead, so the
+// fix is to refuse the spelling that pretends to be one rather than to invent a
+// meaning for it: narrowing it in `matches` would silently shrink every
+// starless *deny* row already stored, which is the one direction a correction
+// may never run.
+// --- Feature End ---
 pub fn validate_path_pattern(raw: &str) -> Result<(), String> {
     if raw.is_empty() {
         return Ok(());
+    }
+    // `/*` satisfies this too: it is the whole application spelled the long way.
+    if !raw.ends_with("/*") {
+        let base = raw.trim_end_matches(['*', '/']);
+        return Err(if base.is_empty() {
+            "path_pattern for the whole application is empty, or /*".to_string()
+        } else {
+            format!(
+                "path_pattern is a subtree and has no exact-path form: write {base}/*, \
+                 which matches {base} and everything below it"
+            )
+        });
     }
     let probe = raw.strip_suffix('*').unwrap_or(raw);
     if probe.contains('*') {
@@ -998,30 +1044,42 @@ pub fn validate_hostname(hostname: &str, portal_origin: &str) -> Result<(), Stri
 /// The certificate is not written here: it is set once at http level in
 /// `nginx/conf.d/tls.inc`, so this template cannot drift from the hand-written
 /// blocks over where the operator's certificate lives.
+/// The rows that may become a `server` block, with the upstream already split
+/// into host, port and scheme. **One list for both templates** (ADR-0030): a
+/// row the normal file refuses to render must not be able to appear, with no
+/// authorisation in front of it, in the break-glass one.
+///
+/// Belt and braces over the schema's CHECK constraints and the API's
+/// validation: this is the last point before the value becomes nginx
+/// configuration, and the only one that is not on a happy path.
+fn renderable<'a>(
+    applications: &'a [Application],
+    portal_origin: &str,
+) -> Vec<(&'a Application, String, u16, String)> {
+    applications
+        .iter()
+        .filter(|app| app.enabled)
+        .filter_map(|app| {
+            if let Err(why) = validate_slug(&app.slug)
+                .and_then(|()| validate_upstream(&app.upstream_url))
+                .and_then(|()| validate_hostname(&app.external_hostname, portal_origin))
+            {
+                tracing::error!(slug = %app.slug, "skipping application in generated config: {why}");
+                return None;
+            }
+            let url = Url::parse(&app.upstream_url).ok()?;
+            let host = url.host_str()?.to_string();
+            let port = url.port_or_known_default()?;
+            Some((app, host, port, url.scheme().to_string()))
+        })
+        .collect()
+}
+
 pub fn render_apps_conf(applications: &[Application], portal_origin: &str) -> String {
     let mut out = String::from(
         "# Generated from the `application` table by the backend (ADR-0011).\n         # Do not edit: the next admin change overwrites it. The hand-written\n         # half of the configuration is in the image; only this file is not.\n",
     );
-    for app in applications {
-        if !app.enabled {
-            continue;
-        }
-        // Belt and braces over the schema's CHECK constraints and the API's
-        // validation: this is the last point before the value becomes nginx
-        // configuration, and it is the only one that is not on a happy path.
-        if let Err(why) = validate_slug(&app.slug)
-            .and_then(|()| validate_upstream(&app.upstream_url))
-            .and_then(|()| validate_hostname(&app.external_hostname, portal_origin))
-        {
-            tracing::error!(slug = %app.slug, "skipping application in generated config: {why}");
-            continue;
-        }
-        let Ok(url) = Url::parse(&app.upstream_url) else {
-            continue;
-        };
-        let (Some(host), Some(port)) = (url.host_str(), url.port_or_known_default()) else {
-            continue;
-        };
+    for (app, host, port, scheme) in renderable(applications, portal_origin) {
         out.push_str(&format!(
             "\nserver {{\n\
              \x20   listen 443 ssl;\n\
@@ -1042,7 +1100,41 @@ pub fn render_apps_conf(applications: &[Application], portal_origin: &str) -> St
             slug = app.slug,
             host = host,
             port = port,
-            scheme = url.scheme(),
+            scheme = scheme,
+        ));
+    }
+    out
+}
+
+// --- Feature Start ---
+// The same rows, with the authorisation taken out and nothing else (ADR-0030).
+// What must survive is the strip in `breakglass/upstream.inc`: an upstream that
+// learns the user from `X-Auth-*` (ADR-0021) cannot tell the PEP was bypassed,
+// so a break-glass block that forgot it would turn "no authorisation" into
+// "authorisation the client writes for itself" — worse than the outage it is
+// there to fix. `errors.inc` and `decide.inc` are absent because there is
+// nothing to sign in to and nothing to ask.
+// --- Feature End ---
+pub fn render_breakglass_conf(applications: &[Application], portal_origin: &str) -> String {
+    let mut out = String::from(
+        "# Generated from the `application` table by the backend (ADR-0030).\n         # BREAK-GLASS: these blocks serve the applications with NO authorisation.\n         # Read only by breakglass.conf, which nothing starts by itself.\n",
+    );
+    for (app, host, port, scheme) in renderable(applications, portal_origin) {
+        out.push_str(&format!(
+            "\nserver {{\n\
+             \x20   listen 443 ssl;\n\
+             \x20   http2 on;\n\
+             \x20   server_name {hostname};\n\n\
+             \x20   location / {{\n\
+             \x20       include /etc/nginx/breakglass/upstream.inc;\n\
+             \x20       set $upstream {host};\n\
+             \x20       proxy_pass {scheme}://$upstream:{port};\n\
+             \x20   }}\n\
+             }}\n",
+            hostname = app.external_hostname,
+            host = host,
+            port = port,
+            scheme = scheme,
         ));
     }
     out
@@ -1067,7 +1159,7 @@ mod tests {
             "/x\\admin/*", // a Windows upstream serves this as /x/admin/
             "/admin/%2e%2e/*",
             "/ADMIN/*", // the matcher lower-cases; stored as typed it reads as case-sensitive
-            "/a//b",
+            "/a//b/*",
             "/x/../admin/*",
         ] {
             assert!(
@@ -1077,9 +1169,39 @@ mod tests {
         }
     }
 
+    // ADR-0029. `matches` strips the trailing `*` and prefix-matches either way,
+    // so every one of these is the same rule as its `/*` form — and reads as a
+    // narrower one. The dangerous half is the allow: `/reports` grants the whole
+    // subtree while the admin reads back one path.
+    #[test]
+    fn a_pattern_that_is_not_a_subtree_is_refused() {
+        for bad in ["/admin", "/reports", "/a/b", "/"] {
+            assert!(
+                validate_path_pattern(bad).is_err(),
+                "{bad} is a subtree rule wearing an exact path's spelling"
+            );
+        }
+        // Reads as a glob, behaves as a segment-bounded prefix: `/admin*` does
+        // not match `/adminx`, whatever the star suggests.
+        for bad in ["/admin*", "/a/b*"] {
+            assert!(
+                validate_path_pattern(bad).is_err(),
+                "{bad} reads as a glob and is not one"
+            );
+        }
+        // The sentence is the point of the whole change: the admin has to be
+        // told what the rule they meant is spelled like, and that the spelling
+        // they chose covers more than it looks like it does.
+        assert_eq!(
+            validate_path_pattern("/reports").unwrap_err(),
+            "path_pattern is a subtree and has no exact-path form: \
+             write /reports/*, which matches /reports and everything below it"
+        );
+    }
+
     #[test]
     fn an_ordinary_pattern_is_accepted() {
-        for good in ["", "/", "/*", "/admin", "/admin/*", "/a/b/c/*"] {
+        for good in ["", "/*", "/admin/*", "/a/b/c/*"] {
             assert!(
                 validate_path_pattern(good).is_ok(),
                 "{good}: {:?}",
@@ -1209,6 +1331,79 @@ mod tests {
         // Never a `return`: that would run before auth_request and leave the
         // location open (nginx/conf.d/README.md rule 14).
         assert!(!rendered.contains("return "));
+    }
+
+    // --- ADR-0030 ---------------------------------------------------------
+    // The property that matters runs in both directions, so it is asserted in
+    // both: a generated *normal* block that lost `protected.inc` is an
+    // application with no authorisation on a running system, and a generated
+    // *break-glass* block that kept it is a break-glass that cannot serve
+    // anything — it would ask a backend that is, by hypothesis, down.
+    #[test]
+    fn the_two_templates_never_swap_their_includes() {
+        let rows = [app(
+            "wiki",
+            "http://wiki-app:8080",
+            "wiki.apps.example.local",
+            true,
+        )];
+        let normal = render_apps_conf(&rows, PORTAL);
+        let breakglass = render_breakglass_conf(&rows, PORTAL);
+
+        assert!(normal.contains("include /etc/nginx/conf.d/protected.inc;"));
+        assert!(normal.contains("include /etc/nginx/conf.d/decide.inc;"));
+
+        assert!(
+            !breakglass.contains("protected.inc"),
+            "break-glass must not carry the authorisation include"
+        );
+        assert!(
+            !breakglass.contains("decide.inc"),
+            "break-glass must not ask a backend that is down"
+        );
+        assert!(!breakglass.contains("auth_request"));
+        // It still has to strip the X-Auth-* family: an upstream that trusts
+        // those headers cannot tell the PEP was bypassed, so leaving them alone
+        // turns "no authorisation" into "authorisation the client writes".
+        assert!(breakglass.contains("include /etc/nginx/breakglass/upstream.inc;"));
+        // Same hostname, same upstream, same slug-free block — nothing on the
+        // client side changes while break-glass is active.
+        assert!(breakglass.contains("server_name wiki.apps.example.local;"));
+        assert!(
+            breakglass
+                .contains("set $upstream wiki-app;\n        proxy_pass http://$upstream:8080;")
+        );
+        assert!(!breakglass.contains("return "));
+    }
+
+    #[test]
+    fn break_glass_skips_exactly_what_the_normal_file_skips() {
+        // One list, one set of validators (ADR-0030). A row the normal file
+        // refuses to render must not appear unauthenticated in the other.
+        let rows = [
+            app(
+                "good",
+                "http://good-app:80",
+                "good.apps.example.local",
+                true,
+            ),
+            app("pg", "http://postgres:5432", "pg.apps.example.local", true),
+            app("shadow", "http://x:80", "portal.apps.example.local", true),
+            app(
+                "evil; return 200",
+                "http://x:80",
+                "evil.apps.example.local",
+                true,
+            ),
+            app("off", "http://off-app:80", "off.apps.example.local", false),
+        ];
+        let breakglass = render_breakglass_conf(&rows, PORTAL);
+        assert_eq!(breakglass.matches("server {").count(), 1);
+        assert!(breakglass.contains("good.apps.example.local"));
+        assert!(!breakglass.contains("postgres"));
+        assert!(!breakglass.contains("portal.apps.example.local"));
+        assert!(!breakglass.contains("return 200"));
+        assert!(!breakglass.contains("off-app"));
     }
 
     #[test]

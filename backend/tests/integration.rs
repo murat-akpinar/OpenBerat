@@ -461,6 +461,7 @@ async fn publish_section(pool: &PgPool) {
     let dir = std::env::temp_dir().join(format!("openberat-publish-{}", Uuid::new_v4()));
     std::fs::create_dir(&dir).expect("staging directory");
     let staged = dir.join("apps.conf.staged");
+    let breakglass = dir.join("breakglass.apps.staged");
     let dir = dir.to_str().expect("utf-8 path").to_string();
     const PORTAL: &str = "https://portal.apps.example.local";
 
@@ -478,6 +479,22 @@ async fn publish_section(pool: &PgPool) {
     assert!(rendered.contains("server_name wiki.apps.example.local;"));
     assert!(rendered.contains("server_name crm.apps.example.local;"));
 
+    // ADR-0030: the same table, rendered twice. Break-glass used to be two
+    // hand-written lab hostnames, so the procedure in docs/08 restored the lab
+    // and 404'd a real deployment.
+    let bg = std::fs::read_to_string(&breakglass).expect("staged break-glass file");
+    assert!(bg.contains("server_name wiki.apps.example.local;"));
+    assert!(bg.contains("server_name crm.apps.example.local;"));
+    assert!(
+        !bg.contains("protected.inc") && !bg.contains("decide.inc"),
+        "break-glass would be asking a backend that is, by hypothesis, down"
+    );
+    assert!(
+        bg.contains("include /etc/nginx/breakglass/upstream.inc;"),
+        "without the X-Auth-* strip this is not `no authorisation` but \
+         `authorisation the client writes for itself`"
+    );
+
     // A whole file every time, not an append: an application the dump does not
     // have must not come back from what the volume happened to keep.
     sqlx::query("delete from application where id = $1")
@@ -491,6 +508,11 @@ async fn publish_section(pool: &PgPool) {
     let rendered = std::fs::read_to_string(&staged).expect("staged file");
     assert!(rendered.contains("wiki.apps.example.local"));
     assert!(!rendered.contains("crm.apps.example.local"));
+    // Both files, or break-glass restores an application the table no longer
+    // has — with no authorisation in front of it.
+    let bg = std::fs::read_to_string(&breakglass).expect("staged break-glass file");
+    assert!(bg.contains("wiki.apps.example.local"));
+    assert!(!bg.contains("crm.apps.example.local"));
 
     std::fs::remove_dir_all(&dir).ok();
 }

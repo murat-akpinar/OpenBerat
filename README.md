@@ -165,7 +165,7 @@ identity is Keycloak — all three are off the shelf and configured, not written
 | [docs/05-authz-model.md](docs/05-authz-model.md) | The authorisation model and decision rules |
 | [docs/06-requirements.md](docs/06-requirements.md) | Requirements and **open questions** |
 | [docs/07-references.md](docs/07-references.md) | **Sources** — the basis for the technical claims, verified defaults |
-| [docs/adr/](docs/adr/) | **Decisions taken** — 28 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity, audit retention, versioning, one read-only admin screen, no frontend framework, live sessions |
+| [docs/adr/](docs/adr/) | **Decisions taken** — 30 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity, audit retention, versioning, one read-only admin screen, no frontend framework, live sessions, what a path pattern means, break-glass from the same table |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability — channels, response times, scope, accepted limitations |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — DCO sign-off, conventions, what gets rejected |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |

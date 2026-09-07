@@ -88,6 +88,8 @@ answered and write the decision to `docs/adr/`.
 | Admin screens | Writes are `/api/admin/*`, driven the way `INSTALL.md` §6 shows; reading is one screen — the audit list and `explain` | [0024](adr/0024-no-admin-ui-in-v1.md), [0026](adr/0026-audit-explain-screen-in-v1.md) |
 | Frontend framework | None. Plain DOM, and the vendored Alpine build is deleted | [0027](adr/0027-frontend-no-framework.md) |
 | Seeing who is signed in | A read-only `GET /api/admin/sessions` over the kill-switch index; nothing more is stored and no session payload is decrypted | [0028](adr/0028-live-sessions-endpoint.md) |
+| What a non-empty `path_pattern` means | A subtree, written `…/*`; there is no exact-path form and the spelling that reads like one is refused | [0029](adr/0029-path-pattern-is-a-subtree.md) |
+| Which applications break-glass serves | The same ones, generated from the `application` table by the same validators — not a hand-written list | [0030](adr/0030-breakglass-generated-blocks.md) |
 | `worker_shutdown_timeout` | Set to 300 s — `proxy_read_timeout`'s value — in both main configurations, to bound the worker a reload leaves behind. No periodic reload; the N-03 exclusion for upgraded connections stands | [0025](adr/0025-worker-shutdown-timeout.md) |
 | AD group strategy | `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` | `docs/03`, `docs/07` |
 
@@ -184,31 +186,4 @@ network and policy. Phase 1 exists partly to establish them.
       down?** [ADR-0017](adr/0017-fail-closed-availability.md) requires that host
       access does not depend on this product; the concrete mechanism (out-of-band
       admin path, its own credentials, how it is audited) is not designed yet.
-- [ ] **Is a `path_pattern` without a trailing `*` a prefix or an exact path?**
-      Today it is a prefix: `matches` strips trailing `*` and then compares at a
-      segment boundary either way, so `allow /reports` grants the whole
-      `/reports/**` subtree, and `validate_path_pattern` accepts the starless
-      form without a word. Rule 3 above says "a non-empty one (`/admin/*`) means
-      only that path" and never addresses the form without the star, so the
-      admin's reading is not the code's. **It cannot be fixed in the obvious
-      direction**: making a starless pattern exact would narrow every existing
-      *deny* rule — `deny /admin` would stop covering `/admin/users` — which is
-      a regression, not a fix. The three candidates are to document prefix
-      semantics, to refuse a non-empty pattern that does not end in `*` (the
-      same judgement `validate_path_pattern` already makes about patterns that
-      can never fire), or to make the star meaningful for `allow` only. Whichever
-      is chosen is an ADR, because it changes what a stored row means.
-- [ ] **Break-glass serves the two lab hostnames and nothing else.**
-      `nginx/breakglass/apps.conf` is hand-written and lists `sample.` and
-      `ws.apps.example.local`; the real applications live in the `application`
-      table and reach nginx through `conf.d/generated/apps.conf` (ADR-0011),
-      which `breakglass.conf` does not include — and cannot, since every
-      generated block pulls in `protected.inc` and `decide.inc`, the two things
-      break-glass exists to do without. So the procedure in `docs/08` restores
-      the lab and 404s a real deployment, at the one moment nobody has time to
-      find that out. The candidates: the backend renders a second, unauthorised
-      twin into the shared volume and `nginx-breakglass` mounts it read-only
-      (no network access added, so ADR-0017's `edge`-only rule survives), or
-      `docs/08` says plainly that the operator maintains that file by hand and
-      the rehearsal covers it. The first is the one that is actually rehearsable.
 

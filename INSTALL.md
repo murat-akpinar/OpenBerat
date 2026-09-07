@@ -358,6 +358,13 @@ stays in effect and the reason is in
 `/etc/nginx/conf.d/generated/apps.status` inside the nginx container. Nothing
 goes down while you read it.
 
+Two files are generated, not one. `apps.conf` is what the running proxy serves;
+`breakglass.apps` is the same applications with no authorisation, read only by
+the break-glass configuration ([ADR-0030](docs/adr/0030-breakglass-generated-blocks.md)),
+tested the same way and reported in `breakglass.status` beside it. **Check that
+one too after adding an application** — it is what `docs/08` will serve, and the
+moment it is read is the moment nobody has time to debug it.
+
 ### The two calls
 
 There is no admin screen yet, so these are the calls it will make. Both need a

@@ -10,6 +10,7 @@ authorisation decision. Reference pattern and verified details:
 | `00-auth.conf` | http-level only: the `map` that strips the session cookie, and the WebSocket upgrade map | now |
 | `10-portal.conf` | Portal and admin: frontend static files, `/api/*` → backend — **and the two anonymous hosts**, `/oauth2/*` and Keycloak's `/realms/openberat/` + `/resources/` | now, minus `/api/*` |
 | `generated/apps.conf` | Protected applications (`*.apps.<domain>`) → upstream. **Not in this repository**: the backend renders it from the `application` table into a shared volume, and the loop in `docker-entrypoint.d/40-generated-reload.sh` installs it (ADR-0011) | now |
+| `generated/breakglass.apps` | The same applications with no authorisation, from the same table and the same validators, read only by `breakglass.conf` (ADR-0030). **The extension is load-bearing**: `nginx.conf` globs `generated/*.conf`, and one of these blocks reaching the running configuration is an application served with no authorisation at all, with `nginx -t` reporting success | now |
 | `errors.inc` | `@signin`, `@denied`, and the `/unavailable.html` location — included at **server** level | now |
 | `decide.inc` | `location = /decide` — included at **server** level | now |
 | `protected.inc` | `auth_request` and the whole header rewrite — included inside a **location** | now |
