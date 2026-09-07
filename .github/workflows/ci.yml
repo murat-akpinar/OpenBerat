@@ -59,27 +59,39 @@ jobs:
           print('\n'.join(bad) if bad else 'all links resolve inside the repository')
           sys.exit(1 if bad else 0)
           EOF
-      # INSTALL.md ships a replacement `environment:` block for Keycloak, and a
-      # variable it forgets to carry over is not a documentation nit: an
+      # INSTALL.md hands the operator a yaml block for Keycloak in production,
+      # and a variable it forgets to carry over is not a documentation nit: an
       # unresolved ${APPS_DOMAIN} reaches URI validation and the realm import
-      # stops the server (docs/07). The document has to name every variable the
-      # service is actually given.
+      # stops the server (docs/07). The block an operator copies has to name
+      # every variable the service is given. It is found by what is inside it
+      # rather than by the heading above it, because a section this cannot find
+      # is a check that passes on nothing.
       - run: |
           python3 - <<'EOF'
           import pathlib, re, sys
 
+          # Split at every two-space key, so the service block is bounded by the
+          # file's structure rather than by which service happens to follow it.
           compose = pathlib.Path('docker-compose.yml').read_text()
-          kc = compose.split('\n  keycloak:\n')[1].split('\n  postgres:\n')[0]
-          needed = set(re.findall(r'^      ([A-Z][A-Z0-9_]*):', kc, re.M))
+          kc = [s for s in re.split(r'^  (?=\S)', compose, flags=re.M) if s.startswith('keycloak:')]
+          if len(kc) != 1:
+              sys.exit(f'docker-compose.yml gave {len(kc)} keycloak services, not 1')
+          needed = set(re.findall(r'^\s{4,}([A-Z][A-Z0-9_]{2,}):', kc[0], re.M))
+          if not needed:
+              sys.exit('the keycloak service block yielded no variables at all')
           # The realm export resolves these at import; missing one fails the boot.
           for realm in pathlib.Path('keycloak/realm').glob('*.json'):
               needed |= set(re.findall(r'\$\{([A-Z][A-Z0-9_]*)\}', realm.read_text()))
 
-          section = pathlib.Path('INSTALL.md').read_text()
-          section = section.split('### Keycloak in production')[1].split('\n**Lab:')[0]
-          bad = sorted(v for v in needed if v not in section)
-          print('INSTALL.md "Keycloak in production" does not name: ' + ', '.join(bad)
-                if bad else 'the production section names every variable the service is given')
+          fences = re.findall(r'```yaml\n(.*?)```', pathlib.Path('INSTALL.md').read_text(), re.S)
+          block = [f for f in fences if '--optimized' in f]
+          if len(block) != 1:
+              sys.exit(f'INSTALL.md has {len(block)} production Keycloak blocks, not 1: '
+                       'this check cannot find what an operator would copy')
+
+          bad = sorted(v for v in needed if v not in block[0])
+          print('the production Keycloak block in INSTALL.md does not name: ' + ', '.join(bad)
+                if bad else f'that block names all {len(needed)} variables the service is given')
           sys.exit(1 if bad else 0)
           EOF
 
