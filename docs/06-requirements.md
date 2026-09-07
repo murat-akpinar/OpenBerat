@@ -45,8 +45,8 @@
 
 | ID | Requirement | Target |
 |---|---|---|
-| N-01 | Authorisation decision latency (cache hit) | **< 2 ms** *(drafted from measurement; fixed under load in Phase 6)*. Measured overhead of the hop itself: **+74 µs** (`docs/07`). End to end on the finished chain, read off the `/metrics` histogram: every cache hit **under 0.25 ms** — one user, no concurrency (`docs/07`). The cache entry must carry the identity too, otherwise this is unreachable — `docs/05`. |
-| N-02 | Authorisation decision latency (cache miss) | **< 10 ms** *(drafted from measurement; fixed under load in Phase 6)*. Measured in Phase 1: **+571 µs** for the double hop alone. With the entitlement query and the ADR-0019 index write in the path, a warm miss is **2 ms or under in four of five samples** and the first request after a restart — cold connection pool — is the only one that approaches the target (`docs/07`). |
+| N-01 | Authorisation decision latency (cache hit) | **< 2 ms** — **fixed**, measured under load in Phase 6. Measured overhead of the hop itself: **+74 µs** (`docs/07`). End to end on the finished chain, read off the `/metrics` histogram: **11–29 µs** mean from 1 to 64 concurrent connections, 100% under the target to 32 and 99.8% at 64; 99.9% of 16 540 decisions in a sustained run. The decision is about **1% of what serving the request costs** — at 32 connections nginx uses 138% of two cores and the backend 11% (`docs/07`). The cache entry must carry the identity too, otherwise this is unreachable — `docs/05`. |
+| N-02 | Authorisation decision latency (cache miss) | **< 10 ms** — **fixed**, measured under load in Phase 6. Measured in Phase 1: **+571 µs** for the double hop alone. With the entitlement query and the ADR-0019 index write in the path, **31 of 31 concurrent first visits were under 10 ms** at 1, 2, 4, 8 and 16 at once, mean 2.7–4.7 ms; the mean does not climb with concurrency because a miss waits on the oauth2-proxy hop, the Redis write and the query rather than on CPU. The only sample that ever approached the target was the first request after a restart, on a cold connection pool (`docs/07`). |
 | N-03 | Revocation delay | **≤ 6 min** for an AD change, **≤ 5 s** for the kill switch ([ADR-0016](adr/0016-n03-revocation-targets.md)). Measured for the AD change: **330 s**, a reachable ceiling rather than a tail — `cookie_refresh` + cache TTL, with 30 s of margin left. Re-measured in Phase 6 against the finished chain and unchanged; the ceiling is the only figure that is a property of the system, because the cut lands at a fixed session age and the delay from the AD change moves with how late the change fell after the session was minted (`docs/07`). Measured for the kill switch: **0.085 s** end to end (`docs/07`), on the session index of [ADR-0019](adr/0019-kill-switch-session-index.md). WebSocket/SSE connections already upgraded are excluded from the guarantee, idle or active — measured, `docs/07`. |
 | N-04 | Audit log retention period | **The operator's, defaulting to 12 months** ([ADR-0022](adr/0022-audit-retention.md)). `AUDIT_RETENTION_MONTHS`; a month leaves the database as a dropped partition, so the figure is a floor — the oldest surviving row can be a little over 13 months old. |
 | N-05 | Must come up with `docker compose up` on a single machine | v1 |
@@ -127,14 +127,27 @@ network and policy. Phase 1 exists partly to establish them.
 - [ ] Is Kerberos/SPNEGO (passwordless domain SSO) wanted?
 - [ ] Is there more than one AD domain / forest?
 - [ ] Target concurrent user count (N-07), and how many applications, users and
-      AD groups. Without N-07 the Phase 6 load test has no target. **How many
-      groups a single user is in is now a sizing input, not only a load-test
-      one:** the whole list travels in one header on every decision, and the
-      nginx buffer that reads it is set from this number (`docs/07`).
-      **The rate limits are set from it too** — `00-auth.conf` currently guesses
-      50 r/s per address for decisions and 5 r/s for the login flow, and the
-      case that breaks them first is a site behind NAT, where one address is an
-      entire office.
+      AD groups. **It is no longer what the load test was waiting for.** N-01
+      and N-02 were the targets, they are measured under concurrency and they
+      hold with room to spare, and the run also showed that the decision is
+      about 1% of what serving a request costs — so a user count would not have
+      changed a line of the backend (`docs/07`). What it still sets is narrower
+      and sharper than "how fast is it":
+      - **The rate limits, which are what a real user meets first.**
+        `00-auth.conf` guesses 50 r/s per address with a burst of 100 for
+        decisions and 5 r/s for the login flow. Measured: from one address, 400
+        requests at four connections get 32 answers and **368 × 429**, refused
+        by nginx before `/decide` is consulted. Fifty people behind one NAT
+        address at one request a second are already at the limit. The two
+        options the measurement leaves are raising the numbers, or adding a
+        second zone keyed on the session so the limit is per user — with the
+        address zone kept, because a client that sends no cookie has no session
+        to be limited by.
+      - **The nginx buffer that reads the group header**, set by how many groups
+        one user is in: the whole list travels in one header on every decision
+        (`docs/07`).
+      - **How many instances**, which is the HA item in `TODO.md` and the first
+        thing to add is nginx, not the backend.
 
 ### 🔴 Security, still open
 

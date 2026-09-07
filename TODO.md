@@ -1307,7 +1307,33 @@ So the portal's data does not have to be filled in by hand with SQL.
       answers 200 with a body rather than 204, and the `Origin` guard is the
       first thing a curl-driven admin hits (`docs/07`).
       The draft banner is gone: the file is complete for v1.*
-- [ ] Load test → fix N-01/N-02 (answer N-07 first, otherwise the test has no target)
+- [x] Load test → fix N-01/N-02 (answer N-07 first, otherwise the test has no target)
+      ***The parenthetical turned out to be wrong, and that is the first
+      result.** N-01 and N-02 *are* the targets; N-07 would only have said
+      whether the capacity is enough, and it never gated the measurement.
+      Both hold, with room. A cache hit is **11–29 µs** from 1 to 64 concurrent
+      connections — 100% under N-01's 2 ms to 32, 99.8% at 64, and 99.9% of
+      16 540 decisions in a sustained run of 19 200 requests that returned 200
+      to every one of them. A cache miss is **2.7–4.7 ms** and **31 of 31 were
+      under N-02's 10 ms** at 1, 2, 4, 8 and 16 first visits at once; the mean
+      does not climb with concurrency, because a miss waits on the oauth2-proxy
+      hop, the Redis write and the query rather than on CPU.
+      **What the run actually found is where the cost is.** At 32 connections
+      nginx uses 138% of two cores and the backend 11% — the decision is about
+      **one per cent** of what serving the request costs, so tuning it further
+      buys nothing and the first instance to add under load is nginx.
+      **And what a real user meets first is neither.** As shipped, from one
+      address, 400 requests at four connections get 32 answers and 368 × 429:
+      `00-auth.conf` allows 50 r/s with a burst of 100 per address and refuses
+      the rest before `/decide` is consulted. Fifty people behind one NAT
+      address at a request a second are already at it. That number is what N-07
+      is really for, and it stays open with the two options the measurement
+      leaves written down (`docs/06`).
+      Two numbers were thrown away for the same reason — the load generator and
+      `docker stats` share the two cores under test. A sampled run read 383 r/s
+      with 14% failures where a clean one read 750 r/s with none, and the miss
+      path read 17.6 ms taken straight after a saturation run against 2.7 ms on
+      a quiet host (`docs/07`).*
 - [ ] Backend on 2 instances + nginx health check (HA — after the first deployment)
 
 ---

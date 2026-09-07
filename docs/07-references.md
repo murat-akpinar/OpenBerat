@@ -1990,6 +1990,80 @@ is worth stating in the install document rather than only in `docs/02`: a
 curl-driven admin session hits it immediately, and the failure looks like a
 permissions problem.
 
+### MEASURE — the decision under load, and the thing that runs out first
+
+The Phase 6 load test (`verify-load.sh` and `verify-load2.sh`, on the lab host).
+The load goes at a throwaway application in front of the `whoami` container on
+the compose network rather than at Jenkins across the LAN — with a slow upstream
+the run measures the upstream. Each worker is one `curl` process holding one
+HTTP/1.1 connection, so *c* processes are *c* concurrent decisions; HTTP/2 would
+multiplex and that would stop being true. Every latency below is the backend's
+own histogram read before and after the run, so it is the decision and not the
+TLS handshake in front of it.
+
+**The host is the caveat and it is a large one.** Two vCPU and 2 GB, with
+Postgres, Redis, Keycloak, oauth2-proxy, nginx, the backend, the sample
+application *and* the load generator all on it. Nothing here is a capacity
+figure for a real deployment.
+
+**N-01, the cache hit, holds — and not narrowly.** The decision is tens of
+microseconds at every concurrency the host could produce:
+
+| Concurrent connections | 1 | 4 | 8 | 16 | 32 | 64 |
+|---|---|---|---|---|---|---|
+| Mean decision | 11 µs | 14 µs | 18 µs | 19 µs | 21 µs | 29 µs |
+| Under N-01's 2 ms | 100% | 100% | 100% | 100% | 100% | 99.8% |
+
+Sustained, the same shape: 19 200 requests at 32 connections, **750 r/s, every
+one a 200**, 16 540 decisions at a 25 µs mean and 99.9% under 2 ms.
+
+**N-02, the cache miss, holds too.** A cache key is `(cookie, slug)`, so sixteen
+sessions on one application are sixteen misses; the entry lives 30 s, so the same
+sessions are a fresh set every 32 s:
+
+| Concurrent first visits | 1 | 2 | 4 | 8 | 16 |
+|---|---|---|---|---|---|
+| Mean | 2.66 ms | 4.33 ms | 4.67 ms | 3.73 ms | 3.08 ms |
+| Under N-02's 10 ms | 1/1 | 2/2 | 4/4 | 8/8 | 16/16 |
+
+**Thirty-one out of thirty-one.** The mean does not climb with concurrency
+because what a miss waits on — the oauth2-proxy round trip, the Redis index
+write, the entitlement query — is not CPU the decision is competing for.
+
+**What runs out is nginx, not the decision.** At 32 connections, sampled mid-run:
+
+| Container | CPU | Memory |
+|---|---|---|
+| nginx | **138%** | 14 MB |
+| sample-app (the upstream) | 17% | 12 MB |
+| **backend** | **11%** | **2 MB** |
+| oauth2-proxy, Postgres, Redis | ≈0% | 19 / 32 / 5 MB |
+| Keycloak | 0.13% | **563 MB** |
+
+Of two cores, TLS and proxying take one and a third and the authorisation
+decision takes a tenth of one. The right conclusion is not "the backend is
+fast"; it is that **on this shape of host the decision is roughly one per cent
+of what serving the request costs**, so tuning it further buys nothing and the
+first instance to add under load is nginx, not the backend.
+
+**The first ceiling a real user meets is neither.** Run against the stack as it
+ships, from one address, 400 requests at 4 connections produced **32 answers and
+368 × 429**: `00-auth.conf` allows 50 r/s per address with a burst of 100, and
+nginx refuses the rest before `/decide` is ever consulted — the backend recorded
+32 decisions for 400 requests. The limiter does its job perfectly. Whether 50 is
+the right number is N-07's question and is still open (`docs/06`); the case that
+decides it is a site behind NAT, where one address is an entire office and fifty
+people at one request a second are already at the limit.
+
+Two measurements had to be thrown away, both for the same reason — **the load
+generator and the instrumentation are on the two cores under test**. A 50 s run
+sampled with `docker stats` reported 383 r/s and 2 660 responses that were
+neither 200 nor 429; repeated without the sampler it was 750 r/s and 19 200 ×
+200. And the miss path first read a 17.6 ms mean, measured immediately after
+that saturation run: repeated on a quiet host it is 2.7–4.7 ms, and the load
+average falling from 2.47 to 0.59 across the sweep is visible in the means.
+Neither figure was a property of the product.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is
