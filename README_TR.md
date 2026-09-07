@@ -133,7 +133,7 @@ login ekranı. Birini `auth_request` arkasına koyarsan, kimlik doğrulamak içi
 kimlik doğrulanmış olman gerekir.
 
 Yazdığımız iki bileşen: **backend** (yetki kararı, `/api`, audit) ve
-**frontend** (portal + admin). Proxy'leme nginx'te, OIDC oauth2-proxy'de,
+**frontend** (portal). Proxy'leme nginx'te, OIDC oauth2-proxy'de,
 kimlik Keycloak'ta — üçü de hazır, yapılandırma işi.
 
 **Stack:** Rust (axum + sqlx) · Postgres · Redis · nginx · oauth2-proxy · Keycloak · Docker
@@ -143,7 +143,7 @@ kimlik Keycloak'ta — üçü de hazır, yapılandırma işi.
 | Dizin | İçerik |
 |---|---|
 | `backend/` | Rust: `/decide`, `/api`, yetki kararı, audit |
-| `frontend/` | Portal (AD `memberOf` yetkilerine göre butonlar) + admin. Derleme adımı yok. |
+| `frontend/` | Portal (AD `memberOf` yetkilerine göre butonlar). Derleme adımı yok, v1'de admin ekranı da yok — yönetim `/api/admin/*` üzerinden ([INSTALL.md](INSTALL.md) §6). |
 | `nginx/` | PEP yapılandırması + statik servis |
 | `keycloak/` | Realm dışa aktarımı (LDAP federation, grup mapper) + kendi giriş temamız |
 | `samba-ad/` | Laboratuvar dizin fixture'ı — Dockerfile yok, hazır imaj |

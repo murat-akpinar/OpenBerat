@@ -133,7 +133,7 @@ Keycloak's login UI. Put either behind `auth_request` and you would have to be
 authenticated in order to authenticate.
 
 We write two components: the **backend** (authorisation decision, `/api`, audit)
-and the **frontend** (portal + admin). Proxying is nginx, OIDC is oauth2-proxy,
+and the **frontend** (the portal). Proxying is nginx, OIDC is oauth2-proxy,
 identity is Keycloak — all three are off the shelf and configured, not written.
 
 **Stack:** Rust (axum + sqlx) · Postgres · Redis · nginx · oauth2-proxy · Keycloak · Docker
@@ -143,7 +143,7 @@ identity is Keycloak — all three are off the shelf and configured, not written
 | Directory | Contents |
 |---|---|
 | `backend/` | Rust: `/decide`, `/api`, the authorisation decision, audit |
-| `frontend/` | Portal (buttons driven by AD `memberOf` entitlements) + admin. No build step. |
+| `frontend/` | Portal (buttons driven by AD `memberOf` entitlements). No build step, and no admin screens in v1 — administration is `/api/admin/*` ([INSTALL.md](INSTALL.md) §6). |
 | `nginx/` | PEP configuration + static serving |
 | `keycloak/` | Realm export (LDAP federation, group mapper) + our login theme |
 | `samba-ad/` | Lab directory fixture — no Dockerfile, a stock image |

@@ -1335,6 +1335,24 @@ So the portal's data does not have to be filled in by hand with SQL.
       with 14% failures where a clean one read 750 r/s with none, and the miss
       path read 17.6 ms taken straight after a saturation run against 2.7 ms on
       a quiet host (`docs/07`).*
+- [ ] **Admin screens, or a decision that there will not be any.** Deferred
+      once, for a reason that has since run out. "Audit log viewing +
+      filtering" above closed on the API half, and its note gives the argument:
+      the two boxes after it added endpoints the same screen would have to
+      grow, so building it then meant building it twice. Those boxes are
+      closed, every endpoint exists, and the screen was never picked back up —
+      `frontend/src/` holds the portal and nothing else, and `index.html`
+      reserves the header space with a comment saying so.
+      Meanwhile `docs/02` listed "Portal + admin UI" as **Written** and both
+      READMEs said the frontend was "portal + admin". Those now say what is
+      actually there, which is why this is an open box and not a silent move to
+      *Later* — the scope call is the maintainer's.
+      What v1 has is enough to install and run: `INSTALL.md` §6 drives
+      `/api/admin/*` with curl. What it is not enough for is reading — the
+      audit endpoint has a keyset cursor, filters on six fields and no page to
+      use them from, and `explain` answers the question an admin asks most
+      often into a terminal. If only one screen is ever built, it is that one.
+
 - [ ] Backend on 2 instances + nginx health check (HA — after the first deployment)
       *Not started: N-06 puts HA outside v1 and the box waits on a first real
       deployment. Two things are known before it opens, both from measurement.

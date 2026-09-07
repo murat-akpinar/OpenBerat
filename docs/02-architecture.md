@@ -28,7 +28,7 @@ Sources for the technical claims: [`docs/07-references.md`](07-references.md).
 | **nginx** | PEP. TLS, carries traffic, `auth_request`, serves static files | Configured |
 | **oauth2-proxy** | Authentication: the OIDC dance, session (Redis) | Configured |
 | **backend** | **Authorisation decision + `/api` + audit** | **Written** |
-| **frontend** | **Portal + admin UI** (buildless static, ADR-0007) | **Written** |
+| **frontend** | **Portal** (buildless static, ADR-0007). No admin screens in v1 — administration is `/api/admin/*`, driven the way `INSTALL.md` §6 shows | **Written** |
 | **Postgres** | application / entitlement / audit_event | Deployed |
 | **Redis** | oauth2-proxy session store — mandatory for the kill switch **and** for the 4 KB cookie limit. Also holds the backend's `sub → session` index (ADR-0019) | Deployed |
 
