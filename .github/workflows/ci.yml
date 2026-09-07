@@ -78,7 +78,7 @@ jobs:
           # Images carry no comments, and the documents are covered by LICENSE
           # at the root rather than one notice per paragraph.
           CODE = {'.rs', '.js', '.html', '.css', '.sql', '.sh', '.conf', '.inc',
-                  '.yml', '.yaml', '.properties'}
+                  '.yml', '.yaml', '.properties', '.template'}
           NAMED = {'Dockerfile', 'nginx.conf'}
           # Applied migrations are content-addressed: sqlx stores a checksum of
           # each file and refuses to start when one changes. A licence header in
@@ -147,7 +147,7 @@ jobs:
               return found or [(path.name, text)]
 
           bad = []
-          for path in sorted([*conf.glob('*.conf'), *conf.glob('*.inc')]):
+          for path in sorted([*conf.glob('*.conf*'), *conf.glob('*.inc')]):
               for header, body in bodies(path):
                   body = re.sub(r'#.*', '', body)
                   # nginx inherits add_header by *replacement*: one add_header in a
@@ -209,7 +209,11 @@ jobs:
           CLEARED = ('X-Forwarded-Prefix', 'X-Original-URL', 'X-Rewrite-URL')
 
           bad = set()
-          files = sorted([*conf.glob('*.conf'), *conf.glob('*.inc'),
+          # `*.conf*` and not `*.conf`: two of these files are `.conf.template`
+          # (the domain is substituted at container start), and a glob that
+          # missed them would drop every rule in them out of this check without
+          # failing anything.
+          files = sorted([*conf.glob('*.conf*'), *conf.glob('*.inc'),
                           *pathlib.Path('nginx/breakglass').glob('*.inc')])
           for path in files:
               # Comments off first: this file explains why the appending form is wrong,

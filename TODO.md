@@ -3,10 +3,11 @@
 Status: **Phases 0–6 are closed; nothing is tagged.** Phase 6 leaves HA open,
 which N-06 puts outside v1. Phase 7 is the work reading the finished code found
 — an admin screen the endpoints already answer for, four security fixes a read
-of the configuration turned up, one ADR, and three smaller things. Two more came
-from reading an enterprise Keycloak rollout plan against this one: the
-management plane has no second factor, and a new application has no acceptance
-list.
+of the configuration turned up, one ADR, and three smaller things. Four more
+came from asking what a deployment that is not the lab would need: the
+management plane has no second factor, a new application has no acceptance
+list, Keycloak still runs in dev mode — and the domain, which is one variable
+now.
 Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
 
 ---
@@ -1758,6 +1759,42 @@ serving the person who has to run it.
       `start --optimized` with `KC_DB` and `KC_HOSTNAME` is the shape; where it
       belongs is `INSTALL.md` §5, beside the start sequence, and the numbers it
       needs are the operator's Postgres rather than ours.*
+
+- [x] **The domain became one variable** — `APPS_DOMAIN`, and the note that
+      deferred it was the only thing holding it
+      *`example.local` was written out in five files, two of them baked into the
+      nginx image and one imported into Keycloak, so every installation that was
+      not the lab began by patching source. `oauth2-proxy.cfg` had carried the
+      upgrade path as a comment since it was written — the nginx image's own
+      envsubst pass plus `OAUTH2_PROXY_*` overrides — and both were already in
+      the images, so this cost no code and no dependency.
+      Measured rather than reasoned, because it is the login path:
+      `nginx -t` passes on the rendered configuration for an arbitrary domain
+      and both `server_name`s carry it; oauth2-proxy takes all four settings
+      from the environment, shown by the discovery it then attempts against the
+      substituted issuer; Keycloak's import resolves `${APPS_DOMAIN}` into the
+      client's `redirectUris` and `webOrigins`, read back through `kcadm`; and
+      compose interpolates all nine sites. Unset, compose refuses to start
+      anything — `:?` on one occurrence, because an unset password fails loudly
+      where an unset domain would render `server_name portal.;` and serve
+      nobody.
+      Two things this had to not break, and CI now holds them: the security
+      checks glob `conf.d/*.conf*` so a `.template` suffix cannot drop a file
+      out of them silently, and `NGINX_ENVSUBST_FILTER` pins the substitution to
+      the one name — unfiltered, envsubst rewrites nginx's own `$host` and
+      `$scheme`.*
+
+- [ ] **VERIFY:** one login end to end on the lab with `APPS_DOMAIN` set
+      *Each component is measured on its own and the chain between them is not.
+      The lab's `.env` gains `APPS_DOMAIN=apps.example.local` — the value it
+      already had written out — then `docker compose build nginx keycloak`,
+      `up -d`, and `ob-login.sh`, which is green on the same lab immediately
+      before the change. Identical behaviour is the whole result: this was a
+      refactor, and anything that moves is a bug in it.
+      Two things the run has to allow for, both already known: rebuilding
+      Keycloak drops every session and re-creates the federated users with fresh
+      `sub`s, so `lab-prune-sessions.sh` follows it, and the stack needs about
+      88 s before the portal answers three times running.*
 
 ---
 

@@ -7,8 +7,8 @@ authorisation decision. Reference pattern and verified details:
 | File | Contents | |
 |---|---|---|
 | `openberat.conf` | The `:80` → `:443` redirect and the default `server`, which answers 404 | now |
-| `00-auth.conf` | http-level only: the `map` that strips the session cookie, and the WebSocket upgrade map | now |
-| `10-portal.conf` | Portal and admin: frontend static files, `/api/*` → backend — **and the two anonymous hosts**, `/oauth2/*` and Keycloak's `/realms/openberat/` + `/resources/` | now, minus `/api/*` |
+| `00-auth.conf.template` | http-level only: the `map` that strips the session cookie, and the WebSocket upgrade map | now |
+| `10-portal.conf.template` | Portal and admin: frontend static files, `/api/*` → backend — **and the two anonymous hosts**, `/oauth2/*` and Keycloak's `/realms/openberat/` + `/resources/` | now, minus `/api/*` |
 | `generated/apps.conf` | Protected applications (`*.apps.<domain>`) → upstream. **Not in this repository**: the backend renders it from the `application` table into a shared volume, and the loop in `docker-entrypoint.d/40-generated-reload.sh` installs it (ADR-0011) | now |
 | `generated/breakglass.apps` | The same applications with no authorisation, from the same table and the same validators, read only by `breakglass.conf` (ADR-0030). **The extension is load-bearing**: `nginx.conf` globs `generated/*.conf`, and one of these blocks reaching the running configuration is an application served with no authorisation at all, with `nginx -t` reporting success | now |
 | `errors.inc` | `@signin`, `@denied`, and the `/unavailable.html` location — included at **server** level | now |
@@ -17,6 +17,16 @@ authorisation decision. Reference pattern and verified details:
 | `tls.inc` | The certificate and the TLS floor, at **http** level — one wildcard serves every host, so no `server` block carries a copy | now |
 | `security.inc` | The response headers every host serves, at **http** level and re-included in each location that writes an `add_header` of its own | now |
 | `keycloak.inc` | The Keycloak upstream and its `X-Forwarded-*` set — included inside a **location**, by the three that serve that host, so the values Keycloak builds every issuer URL from cannot drift between them | now |
+
+Two of them end in `.template` because they carry the deployment's hostname and
+`server_name` takes no nginx variable. The base image's entrypoint substitutes
+`${APPS_DOMAIN}` into them at container start — `NGINX_ENVSUBST_TEMPLATE_DIR`
+points at this directory and `NGINX_ENVSUBST_FILTER` pins the pass to that one
+name, because these files are full of `$host` and `$scheme` and an unfiltered
+envsubst would rewrite nginx's own variables. Inside the container the rendered
+files are `00-auth.conf` and `10-portal.conf`, which is why everything else here
+still refers to them by those names. CI globs `*.conf*` so the suffix does not
+drop them out of the checks below.
 
 The shared pieces are `.inc` and not `.conf` for a mechanical reason:
 `nginx.conf` includes `conf.d/*.conf` into the `http` block, and a bare

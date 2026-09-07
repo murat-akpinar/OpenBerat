@@ -123,15 +123,13 @@ and `/readyz`, but both are on the `core` network and nginx proxies neither
 request without a session answers 302 towards Keycloak, which is the whole chain
 answering rather than one process.
 
-**The domain is not a variable.** `example.local` is written out in five files:
-`oauth2-proxy/oauth2-proxy.cfg`, `nginx/conf.d/10-portal.conf` (two
-`server_name`s), `nginx/conf.d/00-auth.conf` (the `$portal_origin` map),
-`keycloak/realm/openberat-realm.json`, and `docker-compose.yml` (`PORTAL_ORIGIN`
-and the `auth.` alias on the `core` network). Two of them are baked into the
-nginx image and one is imported into Keycloak at boot, so a real domain is five
-edits and two image builds — `docker compose build nginx keycloak` — and not an
-environment variable. `oauth2-proxy.cfg`'s own header carries that list, which
-is where it gets corrected when it moves.
+**The domain is `APPS_DOMAIN` in `.env`** (§3) — one variable, and everything
+that carries a hostname reads it: the two `server_name`s, the `$portal_origin`
+map, oauth2-proxy's issuer, redirect, cookie and whitelist domains, the realm's
+redirect URI and web origin, the backend's `PORTAL_ORIGIN`, and the `auth.`
+alias on the `core` network. Two of those are read at build or import time
+rather than at start, so changing it is `docker compose build nginx keycloak`
+followed by `up -d`, not a restart.
 
 ### Renewing it
 
@@ -182,6 +180,13 @@ passwords — e.g. `openssl rand -base64 24` — do not reuse them anywhere. Two
 the values are not free-form passwords and carry their own command:
 
 ```
+# The parent every host of this installation lives under: the portal is
+# `portal.$APPS_DOMAIN`, Keycloak `auth.$APPS_DOMAIN`, an application
+# `<name>.$APPS_DOMAIN`, and the session cookie is scoped to `.$APPS_DOMAIN`
+# (ADR-0015). The whole parent, not just the organisation's domain — an install
+# that prefers `iap.` to `apps.` says so here and changes nothing else. It has
+# to match the wildcard certificate of §1 and the DNS of §2.
+APPS_DOMAIN=apps.example.local
 # Goes into DATABASE_URL, so it has to survive URL parsing. A base64 password
 # containing `/` ends the authority component and the client reports
 # `invalid integer value "…" for connection option "port"` — nothing points at

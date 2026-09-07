@@ -56,7 +56,7 @@ auth_request_set $deny_reason   $upstream_http_x_deny_reason;
 # server or location context — and `$host` is a source variable, not an input:
 # every key maps to the same answer.
 map $host $portal_origin {
-    default https://portal.apps.example.local;
+    default https://portal.${APPS_DOMAIN};
 }
 # --- Feature End ---
 

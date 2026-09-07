@@ -29,10 +29,10 @@
       "serviceAccountsEnabled": false,
       "secret": "${OPENBERAT_CLIENT_SECRET}",
       "redirectUris": [
-        "https://portal.apps.example.local/oauth2/callback"
+        "https://portal.${APPS_DOMAIN}/oauth2/callback"
       ],
       "webOrigins": [
-        "https://portal.apps.example.local"
+        "https://portal.${APPS_DOMAIN}"
       ],
       "protocolMappers": [
         {

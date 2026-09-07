@@ -5,23 +5,30 @@
 # (docs/02, "Anonymous endpoints"). Protected application hosts are generated
 # from the DB into 20-apps.conf (ADR-0011) and are not here.
 #
-# ponytail: the lab domain `example.local` is written out in five files and
-# this list is all of them: this one (two `server_name`s), `00-auth.conf` (the
-# `$portal_origin` map), `oauth2-proxy/oauth2-proxy.cfg`,
-# `keycloak/realm/openberat-realm.json` and `docker-compose.yml`
-# (`PORTAL_ORIGIN`, and the `auth.` alias on the core network). The note here
-# used to say three; `errors.inc` was a sixth and is a variable now.
-# Upgrade path when a second deployment exists: the nginx image's own
-# /etc/nginx/templates envsubst pass.
+# --- Feature Start ---
+# This file is a **template**, and that is why `server_name` can carry a
+# deployment's domain at all: nginx has no variables in `server_name`, so the
+# name has to be substituted before nginx reads it. The base image's own
+# entrypoint does the pass (`20-envsubst-on-templates.sh`, which runs before
+# our `40-generated-reload.sh`), driven from `docker-compose.yml`:
+# NGINX_ENVSUBST_TEMPLATE_DIR points it at this directory and
+# NGINX_ENVSUBST_FILTER pins it to `APPS_DOMAIN` alone. Without that filter
+# envsubst substitutes *every* name in the environment, and this file is full
+# of `$host`, `$scheme` and `$request_uri` — the filter is what keeps a
+# rendering pass from quietly rewriting nginx's own variables.
+# `.conf.template` also keeps the file inside CI's nginx checks, which glob
+# `conf.d/*.conf*`: a suffix they did not match would have dropped every
+# auth_request rule in here out of the checks, silently.
+# --- Feature End ---
 
 # --- The OIDC dance lives on one host --------------------------------------
-# The session cookie is shared across .apps.example.local (ADR-0015), so a
+# The session cookie is shared across `.${APPS_DOMAIN}` (ADR-0015), so a
 # login completed here counts everywhere. One host means one redirect URI to
 # register in Keycloak instead of one per application.
 server {
     listen 443 ssl;
     http2 on;
-    server_name portal.apps.example.local;
+    server_name portal.${APPS_DOMAIN};
 
     root /usr/share/nginx/html;
 
@@ -240,7 +247,7 @@ server {
 server {
     listen 443 ssl;
     http2 on;
-    server_name auth.apps.example.local;
+    server_name auth.${APPS_DOMAIN};
 
     # --- Feature Start ---
     # The password form's own POST target, and the only location on this host

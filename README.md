@@ -39,7 +39,7 @@ not the whole job. These are the operator's, and none of them can be skipped:
 
 | Prerequisite | Why |
 |---|---|
-| **A common parent domain** for every protected application (`*.apps.<domain>`) | The session cookie is shared across them; applications on unrelated domains are not supported ([ADR-0015](docs/adr/0015-single-parent-domain.md)) |
+| **A common parent domain** for every protected application, set as `APPS_DOMAIN` | The session cookie is shared across them; applications on unrelated domains are not supported ([ADR-0015](docs/adr/0015-single-parent-domain.md)). One variable names it and everything else reads it — the portal is `portal.$APPS_DOMAIN`, Keycloak `auth.$APPS_DOMAIN` |
 | **A wildcard DNS record** and a **wildcard TLS certificate** covering it | An admin can add an application but cannot create name resolution ([ADR-0011](docs/adr/0011-nginx-config-generation.md)). When the certificate lapses, everything goes down at once |
 | **TLS terminating at nginx**, including behind a load balancer | The certificate, the `Secure` cookie and the issuer URL Keycloak builds are all downstream of it. A balancer that terminates TLS and speaks plain HTTP to the stack finds a redirect loop on :80 and a refused connection on :443 ([INSTALL.md](INSTALL.md) §1) |
 | **Write access to Active Directory** for the `OpenBerat-` groups | Entitlements are AD groups. Somebody has to create them ([ADR-0008](docs/adr/0008-group-identity-name.md)) |

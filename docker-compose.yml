@@ -42,6 +42,23 @@ services:
     # INSTALL.md §1, "Behind a load balancer".
     ports:
       - "443:443"
+    environment:
+      # --- Feature Start ---
+      # `server_name` takes no nginx variable, so the deployment's domain has to
+      # be substituted before nginx reads the file. The base image's own
+      # entrypoint does it — `conf.d/*.conf.template` in, `conf.d/*.conf` out —
+      # and FILTER is what makes it safe: without it envsubst replaces every
+      # name in the environment, and those files are full of `$host`, `$scheme`
+      # and `$request_uri`. Pinned to the one variable that is ours.
+      # `:?` and not a bare reference, on this one occurrence out of nine: an
+      # unset password fails loudly because Postgres refuses it, while an unset
+      # domain renders `server_name portal.;` and starts — a system that passes
+      # `nginx -t`, serves nobody and explains nothing. Interpolation happens
+      # when the file is parsed, so one guard aborts every compose command.
+      APPS_DOMAIN: "${APPS_DOMAIN:?set APPS_DOMAIN in .env — see INSTALL.md §3}"
+      NGINX_ENVSUBST_TEMPLATE_DIR: /etc/nginx/conf.d
+      NGINX_ENVSUBST_FILTER: ^APPS_DOMAIN$$
+      # --- Feature End ---
     volumes:
       # The wildcard certificate is the operator's (TODO.md Phase 1, first
       # item). Secrets are never baked into an image, so this is the one mount.
@@ -57,7 +74,7 @@ services:
         # used, so it has to reach Keycloak by that same name — through nginx,
         # not at keycloak:8080. This alias is what makes the name resolve
         # inside `core`.
-        aliases: [auth.apps.example.local]
+        aliases: ["auth.${APPS_DOMAIN}"]
 
   backend:
     restart: unless-stopped
@@ -83,7 +100,7 @@ services:
       # PORTAL_ORIGIN deliberately does not — a default would be an Origin
       # check that passes for somebody else's portal.
       ADMIN_GROUP: ${ADMIN_GROUP:-OpenBerat-Admins}
-      PORTAL_ORIGIN: https://portal.apps.example.local
+      PORTAL_ORIGIN: https://portal.${APPS_DOMAIN}
       # How long the audit log is kept (ADR-0022). Deliberately passed through
       # with no default of its own: the backend holds the 12, and a second copy
       # here is a number that would go stale. Empty means unset; anything that
@@ -134,6 +151,14 @@ services:
       # the file. cookie_secret must be 16, 24 or 32 bytes (INSTALL.md §3).
       OAUTH2_PROXY_CLIENT_SECRET: ${OPENBERAT_CLIENT_SECRET}
       OAUTH2_PROXY_COOKIE_SECRET: ${OAUTH2_PROXY_COOKIE_SECRET}
+      # The four settings that carry the domain. They are here rather than in
+      # the config file so one variable drives them and the nginx `server_name`s
+      # together; oauth2-proxy's environment overrides the file, so a value left
+      # in both would be a copy that loses silently.
+      OAUTH2_PROXY_OIDC_ISSUER_URL: https://auth.${APPS_DOMAIN}/realms/openberat
+      OAUTH2_PROXY_REDIRECT_URL: https://portal.${APPS_DOMAIN}/oauth2/callback
+      OAUTH2_PROXY_COOKIE_DOMAINS: .${APPS_DOMAIN}
+      OAUTH2_PROXY_WHITELIST_DOMAINS: .${APPS_DOMAIN}
     volumes:
       - ./oauth2-proxy/oauth2-proxy.cfg:/etc/oauth2-proxy/oauth2-proxy.cfg:ro
       # The public half of the wildcard certificate only — the lab CA is
@@ -169,6 +194,9 @@ services:
       OPENBERAT_CLIENT_SECRET: ${OPENBERAT_CLIENT_SECRET}
       OPENBERAT_BACKEND_SECRET: ${OPENBERAT_BACKEND_SECRET}
       AD_BIND_PASSWORD: ${AD_BIND_PASSWORD}
+      # The client's redirect URI and web origin, same placeholder mechanism as
+      # the two secrets above — resolved once, at import.
+      APPS_DOMAIN: ${APPS_DOMAIN}
     volumes:
       # Realm export lands here in Phase 1 (keycloak/README.md); an empty dir
       # is skipped by --import-realm, so first boot works either way.

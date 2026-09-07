@@ -39,7 +39,7 @@ ibaret değil. Aşağıdakiler operatörün sorumluluğunda ve hiçbiri atlanama
 
 | Ön koşul | Neden |
 |---|---|
-| Korunan tüm uygulamalar için **ortak bir üst alan adı** (`*.apps.<domain>`) | Oturum çerezi bunlar arasında paylaşılıyor; ilgisiz alan adlarındaki uygulamalar desteklenmiyor ([ADR-0015](docs/adr/0015-single-parent-domain.md)) |
+| Korunan tüm uygulamalar için **ortak bir üst alan adı**, `APPS_DOMAIN` olarak verilir | Oturum çerezi bunlar arasında paylaşılıyor; ilgisiz alan adlarındaki uygulamalar desteklenmiyor ([ADR-0015](docs/adr/0015-single-parent-domain.md)). Adı tek bir değişken koyuyor, kalan her şey onu okuyor — portal `portal.$APPS_DOMAIN`, Keycloak `auth.$APPS_DOMAIN` |
 | **Wildcard DNS kaydı** ve onu kapsayan **wildcard TLS sertifikası** | Admin uygulama ekleyebilir ama ad çözümlemesi yaratamaz ([ADR-0011](docs/adr/0011-nginx-config-generation.md)). Sertifika dolduğunda her şey aynı anda düşer |
 | Yük dengeleyici arkasında da **TLS'in nginx'te sonlanması** | Sertifika, `Secure` çerezi ve Keycloak'ın ürettiği issuer adresi bunun ardından geliyor. TLS'i sonlandırıp yığına düz HTTP konuşan bir dengeleyici :80'de yönlendirme döngüsüne, :443'te reddedilen bağlantıya çarpar ([INSTALL.md](INSTALL.md) §1) |
 | `OpenBerat-` gruplarını açmak için **Active Directory'de yazma yetkisi** | Yetkiler AD gruplarıdır; birinin onları oluşturması gerekir ([ADR-0008](docs/adr/0008-group-identity-name.md)) |
