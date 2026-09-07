@@ -2207,8 +2207,29 @@ Phase 1 lab:
       / `X-Forwarded-Host` reaches the PDP unless the include overwrites that
       exact name (this is why `docs/02` fixes `X-App-Slug` in the nginx config —
       and why the same include now clears `X-Auth-*`). Measured above.
-- [ ] Does nginx OSS have active upstream health checks, or only passive ones
-      (`max_fails`/`fail_timeout`)? The HA item in Phase 6 depends on this.
+- [x] **Answered: only passive.** Does nginx OSS have active upstream health
+      checks? Asked of the binary rather than of the documentation, because a
+      directive nginx does not have is a configuration that will not load —
+      `nginx -t -c` on a throwaway config, nginx 1.29.8, the image this project
+      ships (`verify-healthcheck.sh` on the lab host):
+
+      | Directive | |
+      |---|---|
+      | `server … max_fails=3 fail_timeout=10s` | accepted |
+      | `server … backup` | accepted |
+      | `upstream { zone probe 64k; }` | accepted — shared memory is OSS, it is the *checking* that is not |
+      | `health_check` | **`[emerg] unknown directive "health_check"`** |
+
+      So **nothing in nginx OSS polls `/readyz`.** Passive checking ejects an
+      instance only after real requests have already failed against it, which
+      for this product means users seeing errors first — and `auth_request`
+      turns an unreachable backend into a 500, not a denial. The HA item
+      therefore has three roads and none of them is the one `docs/02` assumed:
+      NGINX Plus, a patched build with `nginx_upstream_check_module`, or
+      something outside nginx that polls `/readyz` and rewrites the upstream
+      list — which is the shape ADR-0011 already uses for application blocks.
+      `/readyz` is not wasted either way: it is what an operator, a container
+      orchestrator and the break-glass runbook ask.
 - [x] **Answered: no, only at `NO_CACHE`.** The effect of the LDAP provider's
       **Cache Policy** on group freshness. Measured above: at `DEFAULT` a group
       removed in AD survives a brand-new login, so the "Keycloak reads live"

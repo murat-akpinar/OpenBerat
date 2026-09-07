@@ -1335,6 +1335,19 @@ So the portal's data does not have to be filled in by hand with SQL.
       path read 17.6 ms taken straight after a saturation run against 2.7 ms on
       a quiet host (`docs/07`).*
 - [ ] Backend on 2 instances + nginx health check (HA — after the first deployment)
+      *Not started: N-06 puts HA outside v1 and the box waits on a first real
+      deployment. Two things are known before it opens, both from measurement.
+      **nginx OSS has no `health_check` directive** — only passive
+      `max_fails`/`fail_timeout`, which ejects an instance after users have
+      already met the failure — so the check has to be NGINX Plus, a patched
+      build, or something outside nginx that polls `/readyz` and rewrites the
+      upstream list, the shape ADR-0011 already uses (`docs/07`). And the load
+      test says **the first instance to add is nginx, not the backend**: at 32
+      connections nginx used 138% of two cores and the backend 11%.
+      The open design question is the decision cache. It is instance-local, and
+      a kill switch that clears one instance's cache leaves the other serving
+      the old answer for up to a TTL — which is ADR-0016's 5 s target, broken.
+      That needs an ADR before any second instance runs.*
 
 ---
 

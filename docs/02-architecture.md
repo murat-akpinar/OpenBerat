@@ -504,7 +504,7 @@ is the rehearsed break-glass below, not a promise of uptime.
 | Measure | In v1? |
 |---|---|
 | `backend` stateless, horizontally scalable | **Yes**, a design constraint |
-| At least 2 instances + nginx upstream health check | Not in v1, but `/readyz` ships in v1 so the check has something to poll |
+| At least 2 instances + an upstream health check | Not in v1 — and **nginx OSS cannot be the thing that checks**: `health_check` is not a directive it has (measured, `docs/07`), only passive `max_fails`/`fail_timeout`, which ejects an instance after users have already met the failure. `/readyz` ships in v1 all the same: an operator, an orchestrator and the break-glass runbook all ask it |
 | Decision cache is instance-local; moves to Redis with multiple instances | Noted |
 | Postgres unreachable → DENY; cached decisions survive for their TTL | **Yes** |
 | **Break-glass:** a second nginx config in the same image, via `docker compose --profile breakglass` — written down and **rehearsed** | **Yes**, Phase 3 exit criterion |
