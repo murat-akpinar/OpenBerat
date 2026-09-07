@@ -3,7 +3,10 @@
 Status: **Phases 0–6 are closed; nothing is tagged.** Phase 6 leaves HA open,
 which N-06 puts outside v1. Phase 7 is the work reading the finished code found
 — an admin screen the endpoints already answer for, four security fixes a read
-of the configuration turned up, one ADR, and three smaller things.
+of the configuration turned up, one ADR, and three smaller things. Two more came
+from reading an enterprise Keycloak rollout plan against this one: the
+management plane has no second factor, and a new application has no acceptance
+list.
 Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
 
 ---
@@ -1702,7 +1705,45 @@ serving the person who has to run it.
       different bugs (`docs/07`, "Unverified"). Measured on the lab first; then
       either the ADR's number is corrected, or the endpoint stops calling a
       surviving key a session that would authenticate. Nothing in the shipped
-      realm changes until it is known which.*
+      realm changes until it is known which.
+      Whichever it is, the four numbers that together decide how long a session
+      lasts — `cookie_expire`, `cookie_refresh`, `ssoSessionIdleTimeout`,
+      `ssoSessionMaxLifespan` — end in one table in `docs/04`. Today each is
+      written where only one of them can be read, which is how a document came
+      to state the session length from a quarter of it.*
+
+- [ ] **The management plane is one password deep** — admin MFA, and the open
+      question is asked in the wrong shape
+      *`ADMIN_GROUP` membership plus a password is the whole of it. The realm
+      ships `bruteForceProtected` with a lockout, which bounds guessing and does
+      nothing about a password already known — and the account it stands in
+      front of defines applications, maps groups and kills sessions.
+      `docs/06` keeps MFA open as "for everyone at login, or per application".
+      Both are decisions about the whole deployment; the third answer is
+      narrower than either and needs nobody's environment to settle it —
+      **required for `ADMIN_GROUP`, left alone for everyone else.**
+      Per-application MFA is a different question, reads `acr` and is F-21/v2.
+      No code: Conditional OTP is realm configuration (`docs/03`, "MFA"), so the
+      work is an ADR, the realm export and one `INSTALL.md` §4 line. What the
+      ADR has to establish on the lab is the shape of the condition — Keycloak's
+      conditional step keys on a role, and `ADMIN_GROUP` arrives as a group, so
+      the two are bridged or the condition is written differently. The question
+      leaves `docs/06` when the ADR lands.*
+
+- [ ] **A new application has no acceptance list** — the checks exist, spread
+      over four sections
+      *`INSTALL.md` §6 "Checking it before a user does" proves one thing, and it
+      is the right one: that the rule says what its author meant, through
+      `explain`. Everything else an operator should watch work before telling
+      users the application exists is somewhere else and has to be assembled —
+      the identity headers arriving as §7 describes, a user outside the group
+      being refused, the kill switch cutting a session on *this* application,
+      whether §8's WebSocket limitation applies to it, and §9's rollback having
+      been walked once. Each is written down. None of it is a list anyone
+      follows in order, and the order is the part that catches the step nobody
+      thought to do.
+      One numbered list under §6 pointing at the sections that already hold the
+      detail. No new mechanism, no new document.*
 
 ---
 
@@ -1718,5 +1759,7 @@ serving the person who has to run it.
 - Audit hash chain (`prev_hash`) — stays here: ADR-0014 chose differentiators
   that are not audit-led, so it does not enter `0001_init.sql`
 - SIEM integration, access reports
+- One subject, two source addresses inside one window — a query over
+  `audit_event.src_ip`, which already holds it; beside the access reports
 - Group name ↔ SID drift auditing
 - HA / multiple instances → the decision cache moves to Redis
