@@ -1853,20 +1853,18 @@ serving the person who has to run it.
       consequence the ADR names: a password-only scripted admin login stops at
       the page now.*
 
-- [ ] **A new application has no acceptance list** — the checks exist, spread
+- [x] **A new application has no acceptance list** — the checks exist, spread
       over four sections
-      *`INSTALL.md` §6 "Checking it before a user does" proves one thing, and it
-      is the right one: that the rule says what its author meant, through
-      `explain`. Everything else an operator should watch work before telling
-      users the application exists is somewhere else and has to be assembled —
-      the identity headers arriving as §7 describes, a user outside the group
-      being refused, the kill switch cutting a session on *this* application,
-      whether §8's WebSocket limitation applies to it, and §9's rollback having
-      been walked once. Each is written down. None of it is a list anyone
-      follows in order, and the order is the part that catches the step nobody
-      thought to do.
-      One numbered list under §6 pointing at the sections that already hold the
-      detail. No new mechanism, no new document.*
+      *One numbered list at the end of `INSTALL.md` §6, "Before you tell anyone
+      it exists": seven steps, each pointing at the section that already holds
+      the detail — `explain`, the cache TTL the PEP and `explain` are allowed to
+      disagree across, a refused user and how to tell a denial from a login, the
+      identity headers of §7, §8's long-lived connections, the kill switch on
+      *this* application, and §9's restore walked once. No new mechanism and no
+      new document.
+      It also fixed a reference that pointed at nothing: `audit.js` and the
+      screen both say "run the kill switch (INSTALL.md §6)", and §6 did not
+      document the call. It does now, with the `Origin` header the POST needs.*
 
 - [ ] **Keycloak runs in dev mode and only a comment says so** — the production
       form is unwritten

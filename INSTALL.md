@@ -589,6 +589,47 @@ the Keycloak `sub`, not the username, the same value the audit record's
 for up to one cache TTL after a change it is already right while the PEP is
 still on the old answer.
 
+### Before you tell anyone it exists
+
+Everything below is written up elsewhere; the order is the part that catches the
+step nobody thought to do. Seven, and the last two are the ones people skip.
+
+1. **The rule says what you meant.** `/api/admin/explain` or the `/audit`
+   screen, above — for the group you granted, and again for a group you did not.
+2. **The PEP agrees.** Wait one cache TTL (30 s) and fetch the application as
+   that user. `explain` reads the table and the PEP reads its cache, so for up
+   to a TTL after a change they are allowed to disagree.
+3. **A user outside the group is refused, and you can tell a refusal from a
+   login.** Both look like a 302 in a browser: a denial goes to the portal's
+   `/denied`, a missing session goes to Keycloak. What separates them is
+   `deny="…"` in the nginx access log — `docker compose logs nginx` — which
+   names the rule that refused, and the same reason is in the audit record the
+   `/audit` screen draws.
+4. **The application sees the user.** Whatever it reads —
+   `X-Auth-Request-User`, `X-Auth-User`, the JWT — check the value that arrives,
+   not that a header exists (§7). The `X-Auth-*` names the browser could send
+   are stripped at the edge; §7 says which ones an application may believe.
+5. **Long-lived connections are decided, not discovered.** If the application
+   uses WebSocket or SSE, §8 applies to it: an open connection is authorised
+   once and never again. Decide that before users depend on it.
+6. **The kill switch cuts a session on *this* application.** Sign in as a test
+   user, take their `sub` from the `/audit` screen, and:
+
+   ```sh
+   curl -sk -X POST "$PORTAL/api/admin/kill/$SUB" \
+     -H "Cookie: $COOKIE" -H "Origin: $PORTAL"
+   ```
+
+   The application should refuse that browser within seconds
+   ([ADR-0016](docs/adr/0016-n03-revocation-targets.md) — 0.085 s from the POST
+   to the first refusal when it was measured on the lab, `docs/07`). A `sub` no user has is a 404, and a failed step answers
+   503 naming which step, rather than reporting a kill that did not happen.
+7. **A restore has been walked once, before you need it.** §9, on a scratch
+   host: the dump, the drop-schema step, the restore, and the application
+   answering again. A backup nobody has restored is a hope, and the one thing
+   the procedure needs — emptying the schema first — is the step people leave
+   out.
+
 ## 7. How the application learns who the user is
 
 The proxy decides *whether* a request may pass. These headers tell the
