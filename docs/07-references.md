@@ -2182,15 +2182,43 @@ rather than merely look wrong.
 
 ## Unverified, to be tested
 
-These claims have not been confirmed against a source; they will be tried in the
-Phase 1 lab:
+**The list is empty: every claim here has been tried.** It is kept as a record
+of what was assumed and what the lab said, because four of the answers were the
+opposite of the assumption and one of those (`Set-Cookie` on `/oauth2/auth`) is
+load-bearing for ADR-0006. A new claim goes in unticked and leaves ticked.
 
 - [x] **Answered: no.** Can an nginx subrequest (the `auth_request` target)
       itself trigger an `auth_request`? The whole access phase is skipped for a
       subrequest — measured above. The chain stays in the backend and the
       internal HTTP call does not disappear.
-- [ ] Can Keycloak carry an AD group's `objectSid` into a token claim? If it can,
-      ADR-0008 (name vs SID) becomes easy to resolve.
+- [x] **Answered: no, twice over.** Can Keycloak carry an AD group's `objectSid`
+      into a token claim? Tried on the lab against Keycloak 26.3.5
+      (`verify-sid.sh`, `verify-sid2.sh`), and it fails at both steps:
+
+      1. **The import destroys the value.** Setting
+         `mapped.group.attributes=["objectSid"]` on the group mapper and running
+         a `fedToKeycloak` sync does put an `objectSid` on the Keycloak group —
+         and what it puts there is the binary SID read as text. A domain group's
+         SID is **28 raw bytes**; what is stored is a 13-character string whose
+         UTF-8 encoding is **21 bytes and contains four U+FFFD replacement
+         characters**. Every byte that was not valid UTF-8 became the same
+         character, so the value cannot be turned back into `S-1-5-21-…` and two
+         different SIDs can collapse onto the same string. It is not an
+         identifier; it is a hash with unknown collisions.
+      2. **No stock mapper would carry it anyway.** The build offers exactly one
+         OIDC group mapper, `oidc-group-membership-mapper` — *"Map user group
+         membership"*, whose only options are the claim name and whether to use
+         the full path. `oidc-usermodel-attribute-mapper` reads **user**
+         attributes. Nothing in the list emits a *group* attribute, so even a
+         correctly imported SID would need a custom or script mapper deployed
+         into Keycloak.
+
+      **[ADR-0008](adr/0008-group-identity-name.md) stands, and now for a
+      measured reason** rather than "B and C are not available without
+      reopening ADR-0006". They are not available at all on this path: it is not
+      that reading the SID costs an LDAP connection, it is that the SID does not
+      survive the trip. The mapper config was rolled back by re-importing the
+      realm, which is what a Keycloak rebuild does anyway.
 - [x] **Answered: 330 s, and that is the only figure worth publishing.** The
       real deprovisioning delay as measured with `cookie_refresh`. Measured
       above, through the committed chain and with the directory contributing

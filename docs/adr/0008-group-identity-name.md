@@ -76,7 +76,14 @@ carries no SID column. A nullable column that nothing ever writes is exactly the
   dependency — but mitigation 1 is no longer optional, and `INSTALL.md` has to
   say so where it configures the mapper.
 - If ADR-0006's path B is ever triggered, SID matching comes for free and this
-  ADR is superseded rather than patched.
+  ADR is superseded rather than patched. **Measured since (2026-09-07,
+  `docs/07`): not on the current path.** Keycloak will import a group's
+  `objectSid` if asked, but it reads the binary attribute as text — 28 raw bytes
+  arrive as a 13-character string with four U+FFFD replacement characters in it,
+  which is not an identifier — and no stock protocol mapper emits a group
+  attribute into a token in the first place. So the alternative this ADR
+  described as "available if we reopen ADR-0006" needs a custom Keycloak mapper
+  as well.
 - The `ZTNA-` prefix used in earlier drafts is replaced by `OpenBerat-`: the
   prefix names the product that reads the group, and `ZTNA` names a category
   that a customer may already be using for something else.
