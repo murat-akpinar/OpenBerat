@@ -2532,9 +2532,9 @@ the portal, `portal.css` and the Jenkins vhost all answer 200.
 
 ## Unverified, to be tested
 
-**One open, and every other claim here has been tried.** The list is kept as a
-record of what was assumed and what the lab said, because four of the answers
-were the opposite of the assumption and one of those (`Set-Cookie` on
+**None open: every claim here has been tried.** The list is kept as a record
+of what was assumed and what the lab said, because four of the answers were
+the opposite of the assumption and one of those (`Set-Cookie` on
 `/oauth2/auth`) is load-bearing for ADR-0006. A new claim goes in unticked and
 leaves ticked.
 
