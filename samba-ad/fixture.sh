@@ -91,6 +91,19 @@ sAMAccountName: payroll-escalation
 groupType: -2147483646
 LDIF
 member payroll-escalation labuser
+# And the same attack wearing the prefix, which is the one the prefix clause
+# does not see: a fixture holding only the name above teaches the wrong test,
+# because `(cn=OpenBerat-*)` refuses it for the wrong reason. labnested is the
+# member — labuser is in OpenBerat-Admins for real, so it cannot tell an
+# escalation from its own membership.
+try ldbadd -H /var/lib/samba/private/sam.ldb <<LDIF
+dn: CN=OpenBerat-Payroll\\,OpenBerat-Admins,OU=Groups,DC=${DOMAIN//./,DC=}
+objectClass: group
+cn: OpenBerat-Payroll,OpenBerat-Admins
+sAMAccountName: payroll-escalation2
+groupType: -2147483646
+LDIF
+member payroll-escalation2 labnested
 # --- Feature End ---
 
 echo "fixture applied"

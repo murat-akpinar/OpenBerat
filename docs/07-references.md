@@ -3120,10 +3120,31 @@ Keycloak accepts the two-clause filter: the realm export imports clean
 verbatim as `['(&(cn=OpenBerat-*)(!(cn=*,*)))']` with `mode: READ_ONLY`
 unchanged.
 
-**Not measured here, and it is a VERIFY:** the end-to-end run on the lab —
-prefixed comma group in AD, `labuser` a member, the claim, `/api/me` and
-`/api/admin/applications` — the way the original was measured. Two layers are
-proved off-lab; the chain between them is not.
+**Run end to end on the lab** (2026-09-07, `verify-commafilter2.sh`). AD holds
+`cn=OpenBerat-Payroll,OpenBerat-Admins` (`sAMAccountName` `payroll-escalation2`,
+which is how it goes in at all — samba-tool builds the DN by concatenation and
+the comma ends the RDN) with **`labnested`** in it. Not `labuser`: it is in
+`OpenBerat-Admins` for real now, so it could not tell an escalation from its own
+membership.
+
+| Group mapper filter | `groups` claim | `/api/me` | `/api/admin/applications` |
+|---|---|---|---|
+| `(&(cn=OpenBerat-*)(!(cn=*,*)))` — shipped | `null` | `admin: false` | **403** |
+| `(cn=OpenBerat-*)` — the old one | `["OpenBerat-Payroll,OpenBerat-Admins"]` | `groups: [… "OpenBerat-Payroll", "OpenBerat-Admins" …]`, `admin: true` | **200** |
+
+The middle column is the whole mechanism in one line: one group in the claim,
+**two** in `/api/me`, and the second is `ADMIN_GROUP`. Nothing between AD and the
+backend attacked anything — oauth2-proxy joins the array with commas and the
+backend splits it back, and a name carrying a comma comes apart at a boundary
+the directory never had.
+
+Restoring the filter is not the end of it, which the run also shows: Keycloak
+**imports** the group while the filter is wide and narrowing it again leaves the
+group behind (`OpenBerat-Payroll,OpenBerat-Admins` still listed in step 3). The
+harness deletes it and re-reads the chain — claim `null`, `admin: false`, 403 —
+because a restoration asserted rather than proved is how a lab keeps a hole
+nobody meant to leave. The fixture ships both spellings now: one that the prefix
+clause refuses and one that only the comma clause does.
 
 ## What a second backend instance would cost the decision cache
 

@@ -1759,14 +1759,23 @@ serving the person who has to run it.
       out only to name its prefix job now say "the group filter" and point at
       §4, so the string lives in two places instead of six.*
 
-- [ ] **VERIFY:** the corrected group filter, end to end on the lab
-      *Two layers are measured off-lab (LDAP filter semantics, and that Keycloak
-      accepts and stores the two-clause form). The chain between them is not:
-      create `OpenBerat-Payroll,OpenBerat-Admins` in the lab AD, put `labuser` in
-      it, and read the claim, `/api/me` and `/api/admin/applications` — with the
-      shipped filter and with the corrected one, the way the original ADR-0008
-      measurement was run (`docs/07`). Until then the fix is right in the two
-      places it was tested and asserted in the one it was not.*
+- [x] **VERIFY:** the corrected group filter, end to end on the lab
+      *Run, and the control case escalated exactly as the ADR said it would.
+      With the old `(cn=OpenBerat-*)` a **non-admin** in one AD group named
+      `OpenBerat-Payroll,OpenBerat-Admins` reads `admin: true` and gets **200**
+      from `/api/admin/applications`; with the shipped two-clause filter the
+      claim does not carry the name and the same account is 403
+      (`verify-commafilter2.sh`, `docs/07`).
+      Two things the run needed that the box did not know. **The subject cannot
+      be `labuser`** — it is in `OpenBerat-Admins` for real since the Live tab
+      review, so it cannot tell an escalation from its own membership; the run
+      uses `labnested`. And **restoring the filter does not undo the control**:
+      Keycloak imports the group while the filter is wide and keeps it after,
+      so the harness deletes it and re-reads the whole chain rather than
+      asserting the restore.
+      The fixture shipped only the spelling both clauses refuse, which is how
+      the original measurement came to test the wrong name — it ships both now,
+      with `labnested` in the prefixed one.*
 
 - [x] **The audit page and the endpoint each held the page size** — one number,
       two files

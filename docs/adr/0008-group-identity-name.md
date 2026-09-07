@@ -64,7 +64,10 @@ carries no SID column. A nullable column that nothing ever writes is exactly the
    the prefix in front of it and the same attack passes the same filter:
    `OpenBerat-Payroll,OpenBerat-Admins` is selected by `(cn=OpenBerat-*)`, enters
    the claim, and splits into a group nobody granted and `ADMIN_GROUP`. Measured
-   against a directory holding all three names (`docs/07`). The filter is
+   against a directory holding all three names, and then end to end on the lab:
+   with the old filter a non-admin in that one group reads `admin: true` and
+   gets **200** from `/api/admin/applications`; with the two-clause one the claim
+   does not carry the name at all (`docs/07`). The filter is
    `(&(cn=OpenBerat-*)(!(cn=*,*)))` now: the prefix bounds what the claim may
    name and the second clause is what actually closes the comma. A prefix is a
    naming convention; the comma is the injection, and only the second clause
