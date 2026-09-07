@@ -426,4 +426,39 @@ td:not(.path) { white-space: nowrap; }
 tr.is-matched td { background: rgba(217, 168, 66, 0.08); }
 tr.is-expired td { background: rgba(239, 138, 132, 0.08); }
 
-#paging { display: flex; align-items: center; gap: 0.875rem; margin: 1.25rem 0 0; }
+.controls { display: flex; align-items: center; gap: 0.875rem; margin: 1.25rem 0 0; }
+
+/* The tab is in the URL fragment, so these are buttons that look like a rail
+   rather than links that navigate — the underline is the selected state and
+   `aria-selected` is what a screen reader reads. */
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0 0 1.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.tabs button {
+  padding: 0.625rem 1rem;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0.5rem 0.5rem 0 0;
+  background: none;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: -1px;
+}
+
+.tabs button:hover { color: var(--ink); background: rgba(255, 255, 255, 0.04); }
+.tabs button[aria-selected="true"] { color: var(--gold-ink); border-bottom-color: var(--gold); }
+
+/* A subject is a UUID that gets compared against another UUID by eye. */
+.mono { font-family: ui-monospace, monospace; font-size: 0.8125rem; }
+
+.tiny {
+  padding: 0.1rem 0.45rem;
+  margin-left: 0.5rem;
+  font-size: 0.8125rem;
+  line-height: 1.3;
+  vertical-align: middle;
+}

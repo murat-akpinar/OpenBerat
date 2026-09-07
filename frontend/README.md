@@ -11,7 +11,7 @@ way `INSTALL.md` §6 shows ([ADR-0024](../docs/adr/0024-no-admin-ui-in-v1.md),
 | Screen | Contents |
 |---|---|
 | Portal | The applications the user can reach per their AD `memberOf` entitlements — buttons with icons |
-| Audit and explain | `/audit`. The audit record with its six filters and keyset paging, and the decision the proxy would reach for a given user, host and path with every rule it walked. Read-only; linked from the header only when `/api/me` answers `admin`, which is a convenience — the endpoints authorise themselves |
+| Sessions and access | `/audit`, three tabs behind a URL fragment. **Live** — everyone with a session that still exists, read out of the kill-switch index ([ADR-0028](../docs/adr/0028-live-sessions-endpoint.md)), which is the only thing that sees a user who signed in and opened nothing. **History** — the audit record with its six filters and keyset paging, opening on today because the table is kept for a year. **Explain** — the decision the proxy would reach for a given user, host and path, with every rule it walked. Read-only throughout; linked from the header only when `/api/me` answers `admin`, which is a convenience — the endpoints authorise themselves |
 | No access | The page shown when an unauthorised application is requested |
 | Unavailable | Served from `error_page` when the decision path does not answer |
 

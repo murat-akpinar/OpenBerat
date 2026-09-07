@@ -5,7 +5,7 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Audit — OpenBerat</title>
+<title>Sessions — OpenBerat</title>
 <link rel="icon" href="/logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/portal.css">
 <body>
@@ -22,51 +22,51 @@
   </div>
 </header>
 <main>
-  <h1>Audit and <span class="accent">explain</span></h1>
+  <h1><span class="accent">Sessions</span> and access</h1>
   <p id="notice" class="prose notice" role="status" hidden></p>
 
-  <!-- Explain first: it is the question an admin asks most often, and unlike
-       the list below it answers about a request that has not happened yet. -->
-  <section class="panel" aria-labelledby="explain-title">
-    <h2 id="explain-title">Why would this be allowed?</h2>
+  <!-- The tab is in the URL fragment, so a tab is a link somebody can send. -->
+  <div class="tabs" role="tablist" aria-label="Views">
+    <button role="tab" id="tab-live" aria-controls="view-live" aria-selected="true">Live</button>
+    <button role="tab" id="tab-history" aria-controls="view-history" aria-selected="false">History</button>
+    <button role="tab" id="tab-explain" aria-controls="view-explain" aria-selected="false">Explain</button>
+  </div>
+
+  <section id="view-live" role="tabpanel" aria-labelledby="tab-live">
     <p class="prose">
-      The verdict below is <code>policy::decide</code>'s own — the same function
-      the proxy runs — over the entitlement rows it would walk. It reads the
-      table, while the proxy may still be answering from a cached decision, so
-      for up to 30 seconds after a rule change this page is right and the live
-      URL is stale.
+      Everyone with at least one session that still exists. This is read out of
+      the index the kill switch uses, so it sees a user who signed in and opened
+      nothing — the audit record below never would. What it cannot tell you is
+      when a session started or where from: the index holds a subject and its
+      session keys, and nothing else.
     </p>
-    <form id="explain-form">
-      <div class="fields">
-        <p class="field">
-          <label for="ex-user">User <span class="hint">the Keycloak <code>sub</code>, not the username</span></label>
-          <input id="ex-user" name="user" required autocomplete="off" spellcheck="false">
-        </p>
-        <p class="field">
-          <label for="ex-groups">Groups <span class="hint">comma-separated, as the token carries them; empty for none</span></label>
-          <input id="ex-groups" name="groups" autocomplete="off" spellcheck="false">
-        </p>
-        <p class="field">
-          <label for="ex-host">Host <span class="hint">the application's external hostname</span></label>
-          <input id="ex-host" name="host" required autocomplete="off" spellcheck="false">
-        </p>
-        <p class="field">
-          <label for="ex-path">Path <span class="hint">as the client would send it, query string and all</span></label>
-          <input id="ex-path" name="path" required value="/" autocomplete="off" spellcheck="false">
-        </p>
-      </div>
-      <button type="submit">Explain</button>
-    </form>
-    <div id="explain-out"></div>
+    <p class="controls">
+      <button id="live-refresh" type="button">Refresh</button>
+      <span id="live-count" class="hint"></span>
+    </p>
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Subject</th>
+            <th scope="col">Last seen as</th>
+            <th scope="col">Sessions</th>
+            <th scope="col">Last activity</th>
+            <th scope="col"></th>
+          </tr>
+        </thead>
+        <tbody id="live-rows"></tbody>
+      </table>
+    </div>
   </section>
 
-  <section class="panel" aria-labelledby="audit-title">
-    <h2 id="audit-title">The record</h2>
+  <section id="view-history" role="tabpanel" aria-labelledby="tab-history" hidden>
     <p class="prose">
       One row is a summary, not a request: a user hitting the same application
       with the same outcome inside one cache entry arrives here as a single row
       with a count. A filter this endpoint cannot honour answers 400 rather than
       being ignored, so a list is never quietly wider than what was asked for.
+      <strong>Today is filled in below</strong> — clear it to search further back.
     </p>
     <form id="filter-form">
       <div class="fields">
@@ -100,11 +100,12 @@
         </p>
       </div>
       <button type="submit">Apply</button>
-      <button type="reset" class="quiet">Clear</button>
+      <button type="button" id="filter-today" class="quiet">Today</button>
+      <button type="button" id="filter-clear" class="quiet">All time</button>
     </form>
 
     <div class="scroller">
-      <table id="audit">
+      <table>
         <thead>
           <tr>
             <th scope="col">When</th>
@@ -118,10 +119,42 @@
         <tbody id="rows"></tbody>
       </table>
     </div>
-    <p id="paging">
+    <p class="controls">
       <button id="more" type="button" hidden>Load more</button>
       <span id="count" class="hint"></span>
     </p>
+  </section>
+
+  <section id="view-explain" role="tabpanel" aria-labelledby="tab-explain" hidden>
+    <p class="prose">
+      The verdict below is <code>policy::decide</code>'s own — the same function
+      the proxy runs — over the entitlement rows it would walk. It reads the
+      table, while the proxy may still be answering from a cached decision, so
+      for up to 30 seconds after a rule change this page is right and the live
+      URL is stale.
+    </p>
+    <form id="explain-form">
+      <div class="fields">
+        <p class="field">
+          <label for="ex-user">User <span class="hint">the Keycloak <code>sub</code>, not the username — the ↗ on the other two tabs fills this in</span></label>
+          <input id="ex-user" name="user" required autocomplete="off" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="ex-groups">Groups <span class="hint">comma-separated, as the token carries them; empty for none</span></label>
+          <input id="ex-groups" name="groups" autocomplete="off" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="ex-host">Host <span class="hint">the application's external hostname</span></label>
+          <input id="ex-host" name="host" required autocomplete="off" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="ex-path">Path <span class="hint">as the client would send it, query string and all</span></label>
+          <input id="ex-path" name="path" required value="/" autocomplete="off" spellcheck="false">
+        </p>
+      </div>
+      <button type="submit">Explain</button>
+    </form>
+    <div id="explain-out"></div>
   </section>
 </main>
 <script src="/audit.js"></script>

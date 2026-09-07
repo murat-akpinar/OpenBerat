@@ -1725,6 +1725,19 @@ async fn decide_section(pool: &PgPool) {
             "/api/admin/audit".to_string(),
             serde_json::json!(null),
         ),
+        // Both of these were missing from this list until ADR-0028 was written,
+        // which is the failure the list exists to prevent: `explain` names every
+        // rule that applies to a user, and `sessions` names everyone signed in.
+        (
+            "GET",
+            "/api/admin/explain?user=x&groups=&host=finance.apps.example.local&path=/".to_string(),
+            serde_json::json!(null),
+        ),
+        (
+            "GET",
+            "/api/admin/sessions".to_string(),
+            serde_json::json!(null),
+        ),
         (
             "POST",
             format!("/api/admin/kill/{LABUSER_SUB}"),
@@ -1739,6 +1752,107 @@ async fn decide_section(pool: &PgPool) {
             "a portal user reached {method} {path}"
         );
     }
+    // --- who is signed in (ADR-0028) ---
+    // Two subjects of this test's own, because the `indexed` middleware records
+    // a session for every /api call the block above made: asserting an exact
+    // count on LABUSER_SUB would be asserting how many admin calls ran.
+    let named = "00000000-0000-4000-8000-0000000000aa";
+    let stranger = "00000000-0000-4000-8000-0000000000bb";
+    let ghost = "_oauth2_proxy-ghost";
+    let alive = "_oauth2_proxy-alive";
+    let mut raw = redis.clone();
+    redis::cmd("SET")
+        .arg(alive)
+        .arg("x")
+        .exec_async(&mut raw)
+        .await
+        .unwrap();
+    redis::cmd("DEL")
+        .arg(ghost)
+        .exec_async(&mut raw)
+        .await
+        .unwrap();
+    // The one answer this endpoint must not give is a session that has ended.
+    // `forget_session` removes a key on logout, but a key that merely expired
+    // stays in the set until the set's own TTL, so a count taken from the set's
+    // cardinality would report `ghost` as somebody who is signed in.
+    index.record(named, ghost).await.unwrap();
+    index.record(named, alive).await.unwrap();
+    index.record(stranger, alive).await.unwrap();
+    assert_eq!(
+        index.sessions(named).await.unwrap().len(),
+        2,
+        "both are in the set; only one of them is a session"
+    );
+    sqlx::query(
+        "insert into audit_event
+           (application_id, application_slug, actor_sub, actor_name, decision, reason,
+            count, first_seen, last_seen, distinct_path, first_path)
+         values ($1, 'finance', $2, 'labadmin', 'allow', 'allowed', 1, now(), now(), 1, '/')",
+    )
+    .bind(finance)
+    .bind(named)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let response = call("GET", "/api/admin/sessions", identity("OpenBerat-Admins")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
+    let listed: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+
+    let mine = listed
+        .iter()
+        .find(|row| row["sub"] == named)
+        .unwrap_or_else(|| panic!("the subject with a live session is missing from {listed:?}"));
+    assert_eq!(
+        mine["sessions"], 1,
+        "an expired session key was counted as somebody signed in: {mine}"
+    );
+    // The name is the audit record's, not the session's: the index holds a sub
+    // and nothing else, and what is inside the session is behind the cookie
+    // secret this backend deliberately never holds.
+    assert_eq!(
+        mine["last_seen_as"], "labadmin",
+        "the name did not come from the audit record: {mine}"
+    );
+    assert!(
+        mine["last_activity"].is_string(),
+        "no last_activity for a subject with an audit row: {mine}"
+    );
+
+    // A subject the audit record has never seen is still listed. That is the
+    // portal-only session ADR-0019 exists for — signed in, opened nothing —
+    // and dropping it would hide the one session nothing else knows about.
+    let unknown = listed
+        .iter()
+        .find(|row| row["sub"] == stranger)
+        .unwrap_or_else(|| panic!("a subject with no audit row was dropped: {listed:?}"));
+    assert_eq!(unknown["sessions"], 1);
+    assert!(
+        unknown["last_seen_as"].is_null(),
+        "invented a name for a subject the audit record has never seen: {unknown}"
+    );
+
+    // Read-only in both directions: the dead member is reported away, not
+    // pruned, because a read endpoint that wrote would be a write endpoint.
+    assert_eq!(index.sessions(named).await.unwrap().len(), 2);
+
+    index.forget(named).await.unwrap();
+    index.forget(stranger).await.unwrap();
+    redis::cmd("DEL")
+        .arg(alive)
+        .exec_async(&mut raw)
+        .await
+        .unwrap();
+    sqlx::query("delete from audit_event where actor_sub = $1")
+        .bind(named)
+        .execute(pool)
+        .await
+        .unwrap();
+
     assert_eq!(
         rows().await,
         before,

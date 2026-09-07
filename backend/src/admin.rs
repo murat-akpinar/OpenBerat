@@ -45,6 +45,7 @@ pub fn routes(ctx: Arc<Ctx>) -> Router<Arc<Ctx>> {
             axum::routing::delete(delete_entitlement),
         )
         .route("/api/admin/audit", get(list_audit))
+        .route("/api/admin/sessions", get(list_sessions))
         .route("/api/admin/explain", get(explain))
         .route("/api/admin/kill/{sub}", axum::routing::post(kill))
         .route_layer(middleware::from_fn_with_state(ctx, guard))
@@ -630,6 +631,79 @@ async fn list_audit(State(ctx): State<Arc<Ctx>>, Query(q): Query<AuditQuery>) ->
     }
 }
 // --- Feature End ---
+
+/// One signed-in subject, as `GET /api/admin/sessions` reports it (ADR-0028).
+/// `sessions` counts session keys that still exist, not set members.
+#[derive(Serialize)]
+struct LiveSession {
+    sub: String,
+    sessions: usize,
+    /// From the audit record, and null for a subject it has never seen — which
+    /// is the portal-only session ADR-0019 exists for. The index holds a `sub`
+    /// and nothing else, and the name inside the session is behind the cookie
+    /// secret this backend deliberately never holds (`session.rs`).
+    last_seen_as: Option<String>,
+    last_activity: Option<DateTime<Utc>>,
+}
+
+// --- Feature Start ---
+// Who is signed in (ADR-0028), read out of the kill-switch index. Read-only in
+// both directions: nothing is written to Redis, not even to prune a dead member,
+// and no route on this screen revokes anything — revocation stays
+// `POST /api/admin/kill/{sub}`, which an operator runs deliberately.
+// --- Feature End ---
+async fn list_sessions(State(ctx): State<Arc<Ctx>>) -> Response {
+    let live = match ctx.index.live().await {
+        Ok(live) => live,
+        Err(e) => {
+            tracing::error!(actor = "-", action = "list_sessions", outcome = "error", error = %e, "admin");
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
+    };
+
+    let subs: Vec<String> = live.iter().map(|(sub, _)| sub.clone()).collect();
+    // The most recent audit row per subject. `distinct on` needs the same
+    // leading column in the ordering, which is also what audit_event_actor_idx
+    // leads on.
+    let seen: Vec<(String, Option<String>, DateTime<Utc>)> = match sqlx::query_as(
+        "select distinct on (actor_sub) actor_sub, actor_name, ts
+           from audit_event where actor_sub = any($1)
+          order by actor_sub, ts desc",
+    )
+    .bind(&subs)
+    .fetch_all(&ctx.pool)
+    .await
+    {
+        Ok(seen) => seen,
+        // The list is still worth answering without names: a subject with a
+        // session and no name is the one case this endpoint exists for.
+        Err(e) => {
+            tracing::warn!(error = %e, "sessions: the audit record could not be read for names");
+            Vec::new()
+        }
+    };
+
+    let mut rows: Vec<LiveSession> = live
+        .into_iter()
+        .map(|(sub, sessions)| {
+            let seen = seen.iter().find(|(actor, _, _)| *actor == sub);
+            LiveSession {
+                sub,
+                sessions,
+                last_seen_as: seen.and_then(|(_, name, _)| name.clone()),
+                last_activity: seen.map(|(_, _, ts)| *ts),
+            }
+        })
+        .collect();
+    // Most recently active first; a subject the audit record has never seen
+    // sorts last rather than being dropped.
+    rows.sort_by(|a, b| {
+        b.last_activity
+            .cmp(&a.last_activity)
+            .then_with(|| a.sub.cmp(&b.sub))
+    });
+    Json(rows).into_response()
+}
 
 /// `GET /api/admin/explain?user&groups&host&path` — the decision the PEP would
 /// reach for that request, and the rules it walked to get there.

@@ -17,6 +17,7 @@ use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE_NO_PAD};
 use redis::AsyncCommands;
 use redis::aio::ConnectionManager;
+use std::collections::HashMap;
 use std::time::Duration;
 
 /// Must be at least oauth2-proxy's `cookie_expire` (168h in
@@ -24,8 +25,10 @@ use std::time::Duration;
 /// has already gone; too short means it cannot find a live session.
 const INDEX_TTL: Duration = Duration::from_secs(8 * 24 * 60 * 60);
 
+const INDEX_PREFIX: &str = "openberat:sessions:";
+
 fn index_key(sub: &str) -> String {
-    format!("openberat:sessions:{sub}")
+    format!("{INDEX_PREFIX}{sub}")
 }
 
 // --- Feature Start ---
@@ -78,6 +81,60 @@ impl Index {
     /// The kill switch's second step: which sessions belong to this user.
     pub async fn sessions(&self, sub: &str) -> Result<Vec<String>, redis::RedisError> {
         self.0.clone().smembers(index_key(sub)).await
+    }
+
+    // --- Feature Start ---
+    // Every subject with at least one live session, for `GET /api/admin/sessions`
+    // (ADR-0028). It counts members that still EXIST rather than the set's
+    // cardinality, and that is the whole of the method: `forget_session` removes
+    // a key on logout, but a session that merely expired leaves its key in the
+    // set until the set's own TTL, so cardinality would report sessions that
+    // ended — the one wrong answer a "who is connected" list must not give.
+    // Reading only; nothing is written back, not even to prune.
+    // --- Feature End ---
+    // ponytail: SCAN walks the whole keyspace, which is mostly oauth2-proxy's own
+    // sessions, and it runs on an admin request. If a site ever measures that
+    // hurting, the upgrade is a set naming the subjects that have sessions —
+    // which is a write on the decision path, so it is a decision and not a patch.
+    pub async fn live(&self) -> Result<Vec<(String, usize)>, redis::RedisError> {
+        let mut redis = self.0.clone();
+        let mut cursor: u64 = 0;
+        // SCAN may return the same key in two passes, so the sub is the key here
+        // and not the position in a list.
+        let mut found: HashMap<String, usize> = HashMap::new();
+        loop {
+            let (next, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(format!("{INDEX_PREFIX}*"))
+                .arg("COUNT")
+                .arg(200)
+                .query_async(&mut redis)
+                .await?;
+            for key in keys {
+                let Some(sub) = key.strip_prefix(INDEX_PREFIX) else {
+                    continue;
+                };
+                let members: Vec<String> = redis.smembers(&key).await?;
+                if members.is_empty() {
+                    continue;
+                }
+                // One EXISTS for the whole set: it answers how many of the keys
+                // named are present, and a set has no duplicates to inflate it.
+                let alive: usize = redis::cmd("EXISTS")
+                    .arg(&members)
+                    .query_async(&mut redis)
+                    .await?;
+                if alive > 0 {
+                    found.insert(sub.to_string(), alive);
+                }
+            }
+            cursor = next;
+            if cursor == 0 {
+                break;
+            }
+        }
+        Ok(found.into_iter().collect())
     }
 
     /// For /readyz. The index is the backend's only Redis use, so this is the

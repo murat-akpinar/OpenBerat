@@ -87,6 +87,7 @@ answered and write the decision to `docs/adr/`.
 | Versioning and what a release is | One semver for the whole product, from `backend/Cargo.toml`; the release is one tarball holding the tagged source and every image | [0023](adr/0023-versioning-and-release.md) |
 | Admin screens | Writes are `/api/admin/*`, driven the way `INSTALL.md` §6 shows; reading is one screen — the audit list and `explain` | [0024](adr/0024-no-admin-ui-in-v1.md), [0026](adr/0026-audit-explain-screen-in-v1.md) |
 | Frontend framework | None. Plain DOM, and the vendored Alpine build is deleted | [0027](adr/0027-frontend-no-framework.md) |
+| Seeing who is signed in | A read-only `GET /api/admin/sessions` over the kill-switch index; nothing more is stored and no session payload is decrypted | [0028](adr/0028-live-sessions-endpoint.md) |
 | `worker_shutdown_timeout` | Set to 300 s — `proxy_read_timeout`'s value — in both main configurations, to bound the worker a reload leaves behind. No periodic reload; the N-03 exclusion for upgraded connections stands | [0025](adr/0025-worker-shutdown-timeout.md) |
 | AD group strategy | `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` | `docs/03`, `docs/07` |
 

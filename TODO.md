@@ -63,6 +63,12 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       (ADR-0007 bought no build step), and that grep is exact against plain DOM
       calls and blind to `x-html`. Supersedes ADR-0007's framework half; its
       buildless, no-npm, no-CDN half stands
+- [x] ADR-0028 `GET /api/admin/sessions` reads the ADR-0019 kill-switch index —
+      the audit record is 35 s behind and never sees a session that reached no
+      application, which is the session that index exists for. Nothing more is
+      stored and no session payload is decrypted; the screen stays read-only,
+      so revocation is still `POST /api/admin/kill/{sub}`. Amends ADR-0026's
+      "no new endpoint"
 
 **Phase 0 is closed.** Everything decidable from the design has been decided;
 what remains needs facts about the target environment and is tracked in

@@ -41,6 +41,18 @@
 //                     filter widens the list, and a list that is silently not
 //                     the one asked for is the failure this table exists to
 //                     prevent.
+//   GET /api/admin/sessions
+//                     who is signed in (ADR-0028): every subject with at least
+//                     one session key that still EXISTS, and how many. Read out
+//                     of the kill-switch index, which is the only thing that
+//                     knows about a session that has reached no application —
+//                     the audit record is 35 s behind and never sees that one at
+//                     all. It counts keys that exist rather than set members: a
+//                     session that merely expired leaves its key in the set, and
+//                     cardinality would report it as somebody signed in. The
+//                     name is the audit record's (`last_seen_as`), null for a
+//                     subject it has never seen. Read-only; nothing is written
+//                     back, not even to prune.
 //   GET /api/admin/explain
 //                     the decision the PEP would reach for
 //                     ?user&groups&host&path, and every entitlement row it

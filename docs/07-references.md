@@ -2729,6 +2729,37 @@ under the portal host falls through to the portal page. That is pre-existing
 behaviour and not a 404 — worth writing down, because "is it gone" cannot be
 asked of this host with a status code.
 
+### Who is signed in
+
+Added to the same harness when the screen grew a **Live** tab
+([ADR-0028](adr/0028-live-sessions-endpoint.md)). `GET /api/admin/sessions`
+answers **403** to `labuser` and **200** to `labadmin`, and the caller is in its
+own list.
+
+The one property the endpoint exists for is that it counts session keys that
+still **exist** rather than the index set's cardinality — a session that merely
+expired leaves its key in the set until the set's own TTL, and cardinality would
+report it as somebody signed in. The lab could not produce that case on its own:
+every key in `labadmin`'s set was still live, because a lab session lasts
+`cookie_expire` (168 h) and no harness run had been going long enough to strand
+one. So it is forced, by adding a key that names no session rather than deleting
+one that does — deleting a real key would sign a live browser out:
+
+| Step | Set (`SCARD`) | Endpoint |
+|---|---|---|
+| before | 6 | 6 |
+| `SADD _oauth2_proxy-neverexisted` | **7** | **6** |
+| after reading it | 7 | — the read did not prune |
+| `SREM` | 6 | 6 |
+
+The third row is the second half of the decision: a read endpoint that pruned
+would be a write endpoint, so dead members are reported away and left alone.
+
+The tab bar itself is checked as six ids in the served HTML (`view-live`,
+`view-history`, `view-explain` and their tabs), because the fragment routing is
+the only thing standing between three views and one page that shows all of them
+at once.
+
 **Not measured: what the page looks like.** Every assertion above is a status
 code, a header or a JSON field. The layout reuses the panel, table and contrast
 tokens `portal.css` already carries, and no ratio in that file's table changed —
