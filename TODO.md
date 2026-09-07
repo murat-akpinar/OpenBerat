@@ -1675,6 +1675,17 @@ serving the person who has to run it.
       measurement was run (`docs/07`). Until then the fix is right in the two
       places it was tested and asserted in the one it was not.*
 
+- [x] **The audit page and the endpoint each held the page size** — one number,
+      two files
+      *`audit.js` sent no `limit` and tested `list.length < 100` against the
+      endpoint's own default, which `admin.rs` writes as `unwrap_or(100)`. The
+      day one of them moves, the "load more" button hides itself with rows still
+      behind it, or offers a page that comes back empty — and neither file is
+      wrong on its own, which is the failure mode the change-propagation rule
+      exists for. The page now sends the size it will test against, so the
+      backend's default is what an operator gets from `curl` and nothing the
+      screen depends on.*
+
 ---
 
 ## Later

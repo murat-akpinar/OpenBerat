@@ -198,6 +198,15 @@ const rows = document.getElementById('rows');
 const more = document.getElementById('more');
 const count = document.getElementById('count');
 
+// --- Feature Start ---
+// Sent on every request rather than left to the endpoint's default, because
+// the number is also the end-of-record test below: a short page means there is
+// nothing more. Reading it off a default the backend owns puts the same number
+// in two files, and the day one of them moves this button hides itself with
+// rows still behind it — or offers a page that comes back empty.
+// --- Feature End ---
+const PAGE = 100;
+
 /// The keyset cursor: (ts, id) of the last row drawn, or null on the first
 /// page. Not an OFFSET — rows arrive at the head of this ordering while an
 /// admin pages through it, and the retention job deletes from the tail.
@@ -260,6 +269,7 @@ function auditRow(event) {
 
 function page() {
   const query = filters();
+  query.set('limit', String(PAGE));
   if (cursor) {
     query.set('before_ts', cursor.ts);
     query.set('before_id', cursor.id);
@@ -273,9 +283,9 @@ function page() {
         const last = list[list.length - 1];
         cursor = { ts: last.ts, id: last.id };
       }
-      // The endpoint's own default page size. A short page is the end of the
-      // record, not an error.
-      more.hidden = list.length < 100;
+      // A short page is the end of the record, not an error — and it is the
+      // page size this request asked for, not one the endpoint chose.
+      more.hidden = list.length < PAGE;
       more.disabled = false;
       count.textContent = drawn === 0
         ? 'No rows match those filters.'
