@@ -1,13 +1,15 @@
 # TODO
 
-Status: **Phases 0–6 are closed; nothing is tagged.** Phase 6 leaves HA open,
-which N-06 puts outside v1. Phase 7 is the work reading the finished code found
-— an admin screen the endpoints already answer for, four security fixes a read
-of the configuration turned up, one ADR, and three smaller things. Four more
-came from asking what a deployment that is not the lab would need: the
-management plane has no second factor, a new application has no acceptance
-list, Keycloak still runs in dev mode — and the domain, which is one variable
-now.
+Status: **Phases 0–7 are closed; nothing is tagged.** The one box left anywhere
+is HA — two backend instances behind a health check — and N-06 puts it outside
+v1; [ADR-0031](docs/adr/0031-decision-cache-multi-instance.md) is its
+prerequisite and is decided, so what remains is a deployment, not a decision.
+Phase 7 was what reading the finished code found, and what asking "what would a
+deployment that is not the lab need" found after it: an admin screen, nine
+security fixes across two reads, the management plane's second factor
+([ADR-0032](docs/adr/0032-admin-mfa.md)), an acceptance list for a new
+application, Keycloak's production form, the domain as one variable, and
+`DATABASE_URL` as an override. **The next thing is a tag**, not a box.
 Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
 
 ---
@@ -1916,17 +1918,23 @@ serving the person who has to run it.
       the one name — unfiltered, envsubst rewrites nginx's own `$host` and
       `$scheme`.*
 
-- [ ] **VERIFY:** one login end to end on the lab with `APPS_DOMAIN` set
-      *Each component is measured on its own and the chain between them is not.
-      The lab's `.env` gains `APPS_DOMAIN=apps.example.local` — the value it
-      already had written out — then `docker compose build nginx keycloak`,
-      `up -d`, and `ob-login.sh`, which is green on the same lab immediately
-      before the change. Identical behaviour is the whole result: this was a
-      refactor, and anything that moves is a bug in it.
-      Two things the run has to allow for, both already known: rebuilding
-      Keycloak drops every session and re-creates the federated users with fresh
-      `sub`s, so `lab-prune-sessions.sh` follows it, and the stack needs about
-      88 s before the portal answers three times running.*
+- [x] **VERIFY:** one login end to end on the lab with `APPS_DOMAIN` set
+      *Run, and nothing moved — which is the whole result for a refactor.
+      `verify-install6.sh` **ALL OK**, `verify-pattern.sh` **PASS**,
+      `verify-kill.sh` access gone **0.070 s** after the button, portal 302
+      anonymous, `/api/me` 200, `jenkins` 200 authorised and 302 anonymous. The
+      four places the value now comes from the variable were read out of what is
+      running: nginx's two rendered `server_name`s, oauth2-proxy's four
+      settings, and Keycloak's `redirectUris`/`webOrigins` after the import
+      resolved the placeholder (`docs/07`).
+      Two things the run found. The lab's Keycloak **had no `APPS_DOMAIN` at
+      all**, so the first attempt stopped it dead with `Invalid client
+      openberat-proxy: A redirect URI is not a valid URI` — an unresolved
+      placeholder reaching URI validation, which is the right direction for that
+      to fail in. And because the lab is a copy rather than a checkout,
+      unpacking left `00-auth.conf` beside `00-auth.conf.template`; the image
+      would have baked in both. A real install rebuilds from a checkout and
+      never sees it.*
 
 ---
 

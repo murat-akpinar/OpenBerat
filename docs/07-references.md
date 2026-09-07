@@ -3389,3 +3389,52 @@ still answers 302.
 **Not measured:** a browser login against the optimized container. It was never
 put behind nginx — the running stack kept serving throughout — so what is proved
 is that it starts, imports, persists identities and reports the right issuer.
+
+## TEST — one login end to end with `APPS_DOMAIN` set
+
+Each part of the domain variable was measured on its own when it was written;
+the chain between them was not. The lab was still serving the pre-variable
+build, with `apps.example.local` written into its files, so the run is also the
+migration: `APPS_DOMAIN=apps.example.local` into `.env` — the value it already
+had — the changed files copied in, `docker compose build nginx keycloak
+backend`, `up -d`.
+
+**Identical behaviour is the whole result**, and it is what came back:
+
+| | |
+|---|---|
+| `verify-install6.sh` (INSTALL §6 run literally) | **ALL OK** |
+| `verify-pattern.sh` | **PASS** |
+| `verify-kill.sh` | POST 0.049 s, access gone **0.070 s** after the button |
+| portal, anonymous | 302 |
+| `/api/me` with a session | 200 |
+| `jenkins.apps.example.local`, authorised / anonymous | 200 / 302 |
+
+And the four places the value now comes from a variable, read out of what is
+running rather than out of the file that was edited:
+
+- nginx: `server_name portal.apps.example.local` and `auth.apps.example.local`
+  in `/etc/nginx/conf.d/*.conf`, rendered by the image's own entrypoint from
+  `*.conf.template`.
+- oauth2-proxy: `OAUTH2_PROXY_OIDC_ISSUER_URL`, `_REDIRECT_URL`,
+  `_COOKIE_DOMAINS`, `_WHITELIST_DOMAINS` — all four carrying the domain, read
+  from the container's own environment.
+- Keycloak: `redirectUris: ["https://portal.apps.example.local/oauth2/callback"]`
+  and the matching `webOrigins`, read back through `kcadm` after the import
+  resolved `${APPS_DOMAIN}`.
+- The session cookie's TTL is 36000 s, which is the other change in the same
+  deployment (`cookie_expire`, above) and not part of this one.
+
+**One thing the migration cost, and it is a lab-only trap.** The lab is a
+*copy* of the repository rather than a checkout, so unpacking the new files left
+both `00-auth.conf` and `00-auth.conf.template` in `nginx/conf.d/` — the old
+file and the template that replaced it, which the image would have baked in
+together. A real installation rebuilds from a checkout and never sees it; a copy
+has to delete what the rename left behind.
+
+**Also found by doing it:** the lab's Keycloak had no `APPS_DOMAIN` in its
+environment at all, which is why the first attempt at the new realm export
+stopped it dead — `Invalid client openberat-proxy: A redirect URI is not a valid
+URI`, the unresolved `${APPS_DOMAIN}` reaching Keycloak's URI validation. A
+placeholder with nothing behind it fails loudly at import, which is the right
+direction for it to fail in.
