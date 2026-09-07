@@ -1686,6 +1686,24 @@ serving the person who has to run it.
       backend's default is what an operator gets from `curl` and nothing the
       screen depends on.*
 
+- [ ] **VERIFY:** how long a session lasts in the shipped configuration, and
+      whether the Live tab counts credentials that still work
+      *Found by reading the realm export against ADR-0028 rather than by a
+      failure. The ADR reasons from `cookie_expire = 168h` and says a session
+      "stays a working credential for a week". The realm ships
+      `ssoSessionIdleTimeout: 1800` and `ssoSessionMaxLifespan: 36000` — 30
+      minutes idle, 10 hours absolute — and **neither number is written in any
+      document here**, so the one sentence the screen was told to carry was
+      derived from half the configuration. `cookie_refresh` runs only on a
+      request, so an abandoned session should idle out at Keycloak while its
+      oauth2-proxy key sits in Redis until `cookie_expire` — and that key is
+      what `/api/admin/sessions` counts.
+      Not fixed, because three different things could be true and they are three
+      different bugs (`docs/07`, "Unverified"). Measured on the lab first; then
+      either the ADR's number is corrected, or the endpoint stops calling a
+      surviving key a session that would authenticate. Nothing in the shipped
+      realm changes until it is known which.*
+
 ---
 
 ## Later

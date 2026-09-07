@@ -2532,10 +2532,35 @@ the portal, `portal.css` and the Jenkins vhost all answer 200.
 
 ## Unverified, to be tested
 
-**The list is empty: every claim here has been tried.** It is kept as a record
-of what was assumed and what the lab said, because four of the answers were the
-opposite of the assumption and one of those (`Set-Cookie` on `/oauth2/auth`) is
-load-bearing for ADR-0006. A new claim goes in unticked and leaves ticked.
+**One open, and every other claim here has been tried.** The list is kept as a
+record of what was assumed and what the lab said, because four of the answers
+were the opposite of the assumption and one of those (`Set-Cookie` on
+`/oauth2/auth`) is load-bearing for ADR-0006. A new claim goes in unticked and
+leaves ticked.
+
+- [ ] **Open.** How long is a session in the *shipped* configuration, and does
+      `GET /api/admin/sessions` count sessions that would still authenticate?
+      ADR-0028 rests on one number: "a session exists in Redis until it is
+      signed out or `cookie_expire` passes — **168 h** in the shipped
+      configuration", and "it stays a working credential for a week". That reads
+      `oauth2-proxy.cfg` and stops there. The realm export ships
+      `ssoSessionIdleTimeout: 1800` and `ssoSessionMaxLifespan: 36000` — **30
+      minutes idle, 10 hours absolute** — and neither number appears in any
+      document in this repository. `cookie_refresh` is 5 m and only runs when a
+      request arrives, so an abandoned session gets no refresh, its Keycloak SSO
+      session idles out, and the next presentation of that cookie should fail
+      the refresh and be refused. Its oauth2-proxy key, whose TTL is
+      `cookie_expire`, would still be in Redis and would still be counted.
+      If that is what happens, the Live tab reports as "would still
+      authenticate" a credential that would not — the one wrong answer ADR-0028
+      says the screen exists to avoid — and the 60 sessions across 8 subjects it
+      records as evidence of correct counting are evidence of the opposite.
+      **To measure:** sign in on the lab, note the session key, leave it
+      untouched past 30 minutes, then read `/api/admin/sessions` and present the
+      cookie. Three outcomes are possible and they are different bugs: the key
+      is gone (ADR-0028's number is merely wrong), the key exists and the cookie
+      works (the realm's timeouts are not reaching oauth2-proxy at all), or the
+      key exists and the cookie is refused (the screen over-reports).
 
 - [x] **Answered: no.** Can an nginx subrequest (the `auth_request` target)
       itself trigger an `auth_request`? The whole access phase is skipped for a
