@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 OpenBerat contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Multi-stage build: the compiler image is ~1.5GB, the runtime image ~25MB.
 # 1.94 is the floor set by sqlx-postgres 0.9; bump deliberately, not to :latest.
 FROM rust:1.94-alpine AS build

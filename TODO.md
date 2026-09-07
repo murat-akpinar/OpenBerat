@@ -1263,7 +1263,28 @@ So the portal's data does not have to be filled in by hand with SQL.
       redirecting, not a container being up (`docs/07`).
       The tag itself is not cut here: a release a script can make by itself is
       one that can be made by accident (ADR-0023).*
-- [ ] SPDX identifier in `Cargo.toml`, licence headers, Alpine.js MIT notice preserved (ADR-0013)
+- [x] SPDX identifier in `Cargo.toml`, licence headers, Alpine.js MIT notice preserved (ADR-0013)
+      *`Cargo.toml` already carried `license = "GPL-3.0-or-later"`; what was
+      missing was the per-file notice — two SPDX lines on 40 files, after a
+      shebang or a doctype and before anything else — and the MIT notice, which
+      turned out not to be *preserved* at all: the published `@alpinejs/csp`
+      minified build ships **no** banner, so one is prepended. It has to be in
+      the file rather than only in the vendor README because that file is served
+      to every browser that opens the portal, and a README is not attached to
+      the copy they receive. Both checksums are recorded now, published and
+      vendored, so an upgrade stays verifiable.
+      **The sweep broke the lab, and only the lab could have shown it.**
+      `sqlx::migrate!` checksums every file in `backend/migrations/`, so two
+      comment lines in `0001_init.sql` made it a different migration and the
+      backend refused to start — correctly: the alternative is serving decisions
+      against a schema it was not built for. Locally every test passed, because
+      they all begin by dropping the schema and re-applying migration 1 to an
+      empty database. Migrations are out of the sweep, CI now fails a migration
+      that *gains* a header, and the rule is in `CONTRIBUTING.md`.
+      Verified live afterwards: `nginx -t` accepts every `.conf` and `.inc`, the
+      login theme still pulls `css/openberat.css` — a comment in
+      `theme.properties` would have failed silently by falling back to stock —
+      and both notices reach a browser (`docs/07`).*
 - [ ] Finish `INSTALL.md` (drafted in Phase 1): DNS, wildcard certificate,
       `ADMIN_GROUP`, first login, and the prerequisites an operator cannot skip —
       write access to AD for the `OpenBerat-` groups, a common parent domain

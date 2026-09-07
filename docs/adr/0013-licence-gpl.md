@@ -64,5 +64,12 @@ installing this are exactly the organisations that run such policies.
 - A company installing OpenBerat for its own staff, modified or not, takes on no
   obligation at all as long as it does not pass copies outside the company.
 - Vendored third-party code has to be licence-compatible. Alpine.js (ADR-0007)
-  is MIT, which is compatible; its licence header is preserved in the vendored
-  file.
+  is MIT, which is compatible. The published minified build carries **no**
+  notice, so one is prepended in the vendored file rather than kept only in a
+  README: that file is served to every browser that opens the portal, and MIT
+  asks for the notice to travel with the copy
+  (`frontend/src/vendor/README.md`).
+- Every file we wrote carries an SPDX identifier, checked in CI. The exception
+  is `backend/migrations/`: sqlx checksums an applied migration and refuses to
+  start when one changes, so a licence header there is an upgrade that breaks
+  every existing installation (`docs/07`).

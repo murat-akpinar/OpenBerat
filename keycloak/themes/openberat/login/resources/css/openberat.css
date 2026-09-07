@@ -1,3 +1,7 @@
+/* SPDX-FileCopyrightText: 2026 OpenBerat contributors
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 /* The login screen is the first page every user meets, and until now it was
    stock Keycloak on a second hostname — a different product to anyone looking.
    The tokens below are copied from `frontend/src/portal.css` on purpose: that

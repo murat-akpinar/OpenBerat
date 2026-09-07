@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 OpenBerat contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Everything that needs a real Postgres and a real Redis: the migration an
 // operator's first install runs unattended, the entitlement query, the audit
 // writer, /decide, the cache and the management plane. CI provides both

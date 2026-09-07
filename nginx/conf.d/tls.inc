@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 OpenBerat contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # TLS, set once at http level. One wildcard certificate serves every host
 # (ADR-0015), so a copy in each server block is four places to forget — and the
 # blocks ADR-0011 generates are written by the backend, which would have to

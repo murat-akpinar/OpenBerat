@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 OpenBerat contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Everything a protected location needs. Included *inside* a location, and the
 # reason it is one file: forget any line of it in one location and it is not
 # that application that falls but the security claim of the whole product

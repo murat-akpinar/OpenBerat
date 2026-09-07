@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 OpenBerat contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The portal grants nothing. This list is whatever /api/apps returned, and
 // /api/apps is policy::decide run over the rules the PEP itself applies
 // (docs/02) — so a button here is not a second opinion about access.

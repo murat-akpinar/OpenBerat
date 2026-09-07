@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 OpenBerat contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # --- Feature Start ---
 # There is no identity to forward, and that is exactly why the X-Auth-* family
 # still has to be cleared. An upstream that trusts those headers does not know

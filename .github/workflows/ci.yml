@@ -1,7 +1,11 @@
+# SPDX-FileCopyrightText: 2026 OpenBerat contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # The checks a human forgets: every commit is signed off (DCO, ADR-0018), the
-# documents' links still resolve, nginx and the frontend have not lost a
-# security rule that neither `nginx -t` nor a build step would notice, and the
-# backend still compiles and its tests pass.
+# documents' links still resolve, every file says what licence it is under,
+# nginx and the frontend have not lost a security rule that neither `nginx -t`
+# nor a build step would notice, and the backend still compiles and its tests
+# pass.
 name: ci
 
 on:
@@ -52,6 +56,54 @@ jobs:
                   if str(rel) not in tracked and not (rel.is_dir() and any(str(f).startswith(str(rel)) for f in map(pathlib.Path, tracked))):
                       bad.append(f'{md}: {t}')
           print('\n'.join(bad) if bad else 'all links resolve inside the repository')
+          sys.exit(1 if bad else 0)
+          EOF
+
+  licence:
+    name: licence headers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # A file with no notice is a file somebody can copy out of here without
+      # knowing what it is under (ADR-0013). Nothing enforces this at build
+      # time, and the file most easily forgotten is the vendored one, whose
+      # licence is not ours to change.
+      - run: |
+          python3 - <<'EOF'
+          import pathlib, subprocess, sys
+
+          OURS = 'SPDX-License-Identifier: GPL-3.0-or-later'
+          VENDOR = {'frontend/src/vendor/alpine.js': 'SPDX-License-Identifier: MIT'}
+          # Images carry no comments, and the documents are covered by LICENSE
+          # at the root rather than one notice per paragraph.
+          CODE = {'.rs', '.js', '.html', '.css', '.sql', '.sh', '.conf', '.inc',
+                  '.yml', '.yaml', '.properties'}
+          NAMED = {'Dockerfile', 'nginx.conf'}
+          # Applied migrations are content-addressed: sqlx stores a checksum of
+          # each file and refuses to start when one changes. A licence header in
+          # `backend/migrations/` is therefore not a comment, it is an upgrade
+          # that bricks every existing installation — measured, docs/07.
+          IMMUTABLE = 'backend/migrations/'
+
+          bad = []
+          for name in subprocess.run(['git', 'ls-files'], capture_output=True, text=True).stdout.split():
+              path = pathlib.Path(name)
+              if name.startswith(IMMUTABLE):
+                  if OURS in path.read_text(errors='replace'):
+                      bad.append(f'{name}: an applied migration must not gain a header')
+                  continue
+              if path.suffix not in CODE and path.name not in NAMED:
+                  continue
+              text = path.read_text(errors='replace')
+              want = VENDOR.get(name, OURS)
+              if want not in text:
+                  bad.append(f'{name}: no `{want}`')
+          # The vendored build is served to every browser that opens the portal,
+          # so the MIT notice has to be in the file and not only in a README.
+          alpine = pathlib.Path('frontend/src/vendor/alpine.js')
+          if alpine.exists() and not alpine.read_text(errors='replace').startswith('/*! Alpine.js'):
+              bad.append('frontend/src/vendor/alpine.js: the MIT banner is gone')
+          print('\n'.join(bad) if bad else 'every file says what licence it is under')
           sys.exit(1 if bad else 0)
           EOF
 

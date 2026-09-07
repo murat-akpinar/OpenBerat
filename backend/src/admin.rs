@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 OpenBerat contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The management plane: /api/admin/*. Not protected by the entitlement table —
 // the portal is open to every authenticated user, so if reaching it were enough
 // then anyone could grant themselves entitlements (docs/02, "Management plane").

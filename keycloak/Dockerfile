@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 OpenBerat contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Keycloak was a stock image until the login theme arrived. A theme is read at
 # runtime, so bind-mounting it would be exactly the configuration drift the
 # rules forbid — it is baked in like every other running configuration. The

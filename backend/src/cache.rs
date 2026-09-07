@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 OpenBerat contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The decision cache (docs/05, "Decision cache"). Not an optimisation: steps
 // 2-12 of the flow repeat on every asset of every page, so without this N-01 is
 // unreachable and the oauth2-proxy hop runs 50 times for one page load.

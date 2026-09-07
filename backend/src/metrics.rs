@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 OpenBerat contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The four numbers Phase 6 asks the backend for — decision latency, error rate,
 // cache hit rate and audit rows that never reached Postgres — in Prometheus
 // text exposition format on GET /metrics.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 OpenBerat contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The sub -> oauth2-proxy session key index (ADR-0019).
 //
 // oauth2-proxy's Redis store is keyed by a ticket derived from the session

@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 OpenBerat contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Cuts a release: one tarball an air-gapped host installs from (ADR-0023).
 #
 #   ./release.sh [git-ref]      default HEAD; a release cuts a tag

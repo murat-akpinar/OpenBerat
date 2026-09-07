@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 OpenBerat contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // PDP — the authorisation decision. The heart of the project.
 // Decision order and rules: docs/05-authz-model.md
 // Stays a pure function (no DB access, inputs -> decision); its tests live here.

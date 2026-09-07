@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 OpenBerat contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Entry point. Reads configuration from the environment, applies the schema and
 // serves /decide on the core network — see TODO.md.
 

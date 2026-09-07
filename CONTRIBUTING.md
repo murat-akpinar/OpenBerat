@@ -39,6 +39,16 @@ yet, so the useful report at this stage is a flaw in the design itself.
 OpenBerat is [GPL-3.0-or-later](LICENSE). Contributions are accepted under the
 same terms ([ADR-0013](docs/adr/0013-licence-gpl.md)).
 
+Every source file carries an SPDX identifier — `SPDX-License-Identifier:
+GPL-3.0-or-later`, with a copyright line above it — and CI fails on a file
+without one. New files need both lines; the header goes after a shebang or a
+doctype and before anything else.
+
+Two exceptions. `frontend/src/vendor/alpine.js` is MIT and carries its own
+notice, in the file rather than only in `frontend/src/vendor/README.md`, because
+it is served to every browser that opens the portal. And `backend/migrations/`
+carries no header at all, for the reason below.
+
 ## Before you write code
 
 - Read [`docs/adr/`](docs/adr/). Most "why is it done this way" questions are
@@ -68,6 +78,12 @@ reader outside the maintainer's machine can find them.
 - **The audit record format is immutable.** Changing what an `audit_event` row
   holds is a breaking change, which is why the summary columns are in the first
   migration rather than added later (`docs/02-architecture.md`).
+- **An applied migration is immutable, byte for byte.** sqlx stores a checksum
+  of every file in `backend/migrations/` and refuses to start when one changes,
+  so adding even a comment to `0001_init.sql` is an upgrade that stops every
+  installation that already ran it — measured, not reasoned about
+  (`docs/07`). New schema goes in a new file, and CI fails a migration that
+  gains a licence header.
 - **`policy.rs` stays pure:** no database, no HTTP, no reading the clock. Every
   input arrives as a parameter, so the decision is testable in isolation. It is
   the file with the strictest test requirement in the repository.

@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 OpenBerat contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // HTTP endpoints:
 //   GET /decide       for the nginx auth_request — 200 / 401 / 403, never 5xx.
 //                     Inputs: X-App-Slug, X-Original-URI, X-Original-Method,

@@ -1,4 +1,7 @@
 #!/bin/bash
+# SPDX-FileCopyrightText: 2026 OpenBerat contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # The lab AD fixture (ADR-0010): the objects every Phase 1 measurement runs
 # against. It is a script and not a click-path because a measurement is only
 # reproducible if the directory it ran in is.

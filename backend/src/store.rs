@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 OpenBerat contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // Postgres access (sqlx). application / entitlement / audit_event queries.
 // Schema: migrations/0001_init.sql, model: docs/02-architecture.md
 

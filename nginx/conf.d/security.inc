@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 OpenBerat contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # The response headers every host serves. Set once at http level, from
 # nginx.conf, and pulled back in by hand wherever a location writes a header of
 # its own.

@@ -1910,6 +1910,59 @@ the offline site needs. And the certificate, `.env` and any lab override are the
 operator's: the test copies them in from the existing installation, which is
 exactly the manual step §11 describes.
 
+### TEST — a licence header, and the migration that would not take one
+
+ADR-0013 asks for a notice in every file and for Alpine.js's MIT notice to be
+preserved. Both were done in one sweep — 41 files, two lines each — and the
+sweep passed `cargo fmt`, `clippy`, the whole test suite and the nginx and
+frontend CI checks. Deployed to the lab, **the backend would not start**:
+
+```
+ERROR openberat: cannot connect or apply migrations, refusing to start:
+                 migration 1 was previously applied but has been modified
+```
+
+`sqlx::migrate!` stores a **checksum of every migration file** in
+`_sqlx_migrations` and compares it on each start. Two comment lines at the top
+of `0001_init.sql` change that checksum, so the file is a different migration as
+far as the migrator is concerned — and the correct response to "the schema is
+not the one I was built against" is to refuse, which is what happened. A comment
+is not a comment in that directory; it is a schema change nobody wrote.
+
+**The local test suite could not have caught it**, and that is the point worth
+keeping. `decide_section` and the schema test both begin with
+`drop schema public cascade`, so every local run applies migration 1 to an empty
+database and records the new checksum as if it had always been that one. Only an
+installation that had *already* applied the old file can see the difference,
+which is exactly what the lab is. The same shape will hold for any future change
+to an applied migration.
+
+| | Before | After |
+|---|---|---|
+| `cargo test`, locally | 34 unit + 1 integration, all passing | the same, all passing |
+| The lab backend | up | `Restarting (1)` in a loop, `/decide` unreachable |
+| A protected application | 200 | 500 — nginx has no `auth_request` to ask |
+
+Fixed by leaving `backend/migrations/` out of the sweep, and the CI job now
+fails a migration that *gains* a header rather than one that lacks it. The rule
+is in `CONTRIBUTING.md`: an applied migration is immutable byte for byte, and
+new schema goes in a new file.
+
+With that reverted, the rest holds on the live stack: `nginx -t` accepts every
+`.conf` and `.inc` with its new header, the login theme still pulls
+`css/openberat.css` (a comment in `theme.properties` would have failed silently
+by falling back to the stock sheet), and both notices arrive at a browser — the
+portal page carries its own, and `/vendor/alpine.js` opens with the MIT banner.
+That last one is why the banner is in the file rather than only in the vendor
+README: the file is distributed to every visitor, and a notice in a README is
+not attached to the copy they receive.
+
+Two runs of the verification failed on a stopwatch rather than on the change.
+Rebuilding restarts three clocks the login needs — the backend re-applies
+migrations, Keycloak re-imports the realm and drops every session, and
+oauth2-proxy exits and restarts until discovery answers — and waiting on the
+portal alone reports a broken login that is only an early one.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is

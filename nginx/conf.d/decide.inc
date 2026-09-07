@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: 2026 OpenBerat contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # The authorisation subrequest. Included at server level on every protected
 # host. The request contract is docs/02; every header here is written
 # unconditionally, because the backend treats a missing one as a DENY.

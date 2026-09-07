@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 OpenBerat contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // The kill switch's first step (ADR-0019). Without it the other three are
 // theatre: deleting the oauth2-proxy session only sends the browser back to
 // Keycloak, which still holds a live SSO session and signs the user straight

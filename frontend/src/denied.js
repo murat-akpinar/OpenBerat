@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2026 OpenBerat contributors
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // --- Feature Start ---
 // nginx puts the refused host in `app` (`@denied`, errors.inc), but anyone can
 // type this URL by hand: the value is a display string and nothing else. It is

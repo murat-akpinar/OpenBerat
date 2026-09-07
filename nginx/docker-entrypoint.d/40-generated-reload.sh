@@ -1,4 +1,7 @@
 #!/bin/sh
+# SPDX-FileCopyrightText: 2026 OpenBerat contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
 # Applies the application blocks the backend generates (ADR-0011).
 #
 # The backend has no nginx binary and this container has no database, so the
