@@ -26,6 +26,14 @@ inherited one whatever the specificity.
 by the `Dockerfile`, which is why the build context is the repository root. One
 file, one product, one place to change it.
 
+**The favicon is the one exception, and only because the template hardcodes it.**
+`keycloak.v2` writes `<link rel="icon" href="${url.resourcesPath}/img/favicon.ico">`,
+so without a file at that path the browser tab shows *Keycloak's* mark on our
+login page. `themes/openberat/login/resources/img/favicon.ico` is therefore
+committed — generated from the mark, never drawn:
+`magick -background none frontend/src/logo.svg -define icon:auto-resize=16,32,48 keycloak/themes/openberat/login/resources/img/favicon.ico`.
+Regenerate it whenever `logo.svg` changes; nothing checks that it matches.
+
 **Not done by hand, written to the file.** If a setting is changed through the
 Keycloak UI, the realm is exported again and committed here; otherwise the lab
 cannot be rebuilt.

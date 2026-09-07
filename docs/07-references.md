@@ -2411,6 +2411,83 @@ scrapes the form action out of the page and a broken template would fail there
 rather than merely look wrong.
 
 
+### The dark restyle — a palette that has to survive its own background
+
+The four screens were repainted from the paper/ink light theme to a near-black
+ground lit by two corner glows, with the panels as translucent glass over it
+(`frontend/README.md` "Design"). The interesting part is not the look, it is that
+an aurora makes the ground **variable**: a contrast ratio computed against
+`--ground` is a ratio against the darkest pixel on the page, and the text does
+not necessarily sit there.
+
+So the ratios are computed against the worst ground any text can reach — both
+glows at full strength, overlapping, which the two corner positions make
+impossible in practice, with a panel's scrim over them:
+
+| On | --ink | --muted | --gold-ink | --refuse |
+|---|---|---|---|---|
+| a card (`--panel`, 0.70 scrim) | 10.24 | **4.81** | 6.46 | 5.15 |
+| the header bar (0.78 scrim) | 11.39 | 5.36 | 7.20 | 4.99 |
+| the scrimmed middle of the page, no panel | 10.38 | 4.88 | 6.55 | 4.55 |
+| the raw lit ground | 4.19 | 3.67 | 4.93 | 3.42 |
+
+The last row is why a panel is **a dark scrim first and a sheen second** rather
+than the plain white alpha glassmorphism is usually written with: on the lit
+patch a white-alpha panel *adds* to the glow and `--muted` lands at 3.67:1. The
+only thing that touches the raw lit ground is the `h1`, at 4.19:1 — it is
+28-44 px, where AA asks 3:1. Two colours moved to make the table hold:
+`--muted` `#9a9384` → `#a8a08e`, and `--refuse` `#e0605c` → `#ef8a84`, which at
+the original value read 3.42:1 on that ground.
+
+**The login theme in both OS modes, which is the measurement that mattered.**
+Same method as the section above — the rendered page and its stylesheets pulled
+off the lab, served locally, screenshotted in Firefox headless with
+`ui.systemUsesDarkTheme` 0 and 1. keycloak.v2 puts PatternFly's dark palette
+behind a `.pf-v5-theme-dark` class it sets from `prefers-color-scheme`, so a
+dark-only child theme on a light-set machine is the case that breaks, and it is
+invisible to whoever writes the CSS on a dark machine. **The two screenshots are
+identical**, after one fix.
+
+The fix is a follow-on to the per-component finding above, and a sharper version
+of it: **`--pf-v5-c-form-control--BorderColor` is not a variable that exists.**
+In PatternFly v5 a form control's border is drawn on its `::before` and `::after`
+pseudo-elements, so the names are `--pf-v5-c-form-control--before--BorderTopColor`
+and friends; setting the plausible-looking `--BorderColor` does nothing at all,
+silently, and the input keeps a white border on a dark card in light-set OSes.
+The same is true of the eye toggle beside the password field
+(`.pf-v5-c-button.pf-m-control`). The names were read out of the shipped
+`patternfly.min.css` rather than guessed — grepping
+`--pf-v5-c-form-control--[A-Za-z-]*Border[A-Za-z-]*` is faster than a screenshot
+round trip and does not produce a plausible wrong answer.
+
+**The favicon is a template string, so it is the one asset a palette cannot
+reach.** keycloak.v2 renders
+`<link rel="icon" href="${url.resourcesPath}/img/favicon.ico">`; resource lookup
+walks the theme chain, so with no file at that path the browser tab of our login
+page carried *Keycloak's* mark. Dropping a real `.ico` at
+`themes/openberat/login/resources/img/favicon.ico` overrides it without touching
+the template — verified on the lab, the rendered page links
+`/resources/<v>/login/openberat/img/favicon.ico` and it comes back 200 at
+15 086 bytes, byte-identical to the committed file. It is generated from
+`frontend/src/logo.svg` with ImageMagick (`icon:auto-resize=16,32,48`) and is the
+only derived asset in the repository; the regeneration command is in both
+`frontend/README.md` and `keycloak/README.md` because nothing checks that it
+still matches the mark.
+
+**The portal's application buttons open in a new tab** (`target="_blank"`), with
+`rel="noopener"` — not decoration: without it the application it opens gets
+`window.opener` on the portal, which is the one host carrying a cookie valid for
+every application on `.apps.<domain>` (ADR-0015). The tab change is announced,
+not only drawn: the card shows a `↗` from CSS and `portal.js` appends a
+visually-hidden "(opens in a new tab)", since a screen reader is told nothing by
+the arrow.
+
+Verified after the rebuild rather than on the local copies: `nginx -t` passes,
+`ob-login.sh` completes a real `labuser` login through the retheme — the check
+that matters, since the harness scrapes the form action out of the page and a
+broken template would fail there rather than merely look wrong — and `api/me`,
+the portal, `portal.css` and the Jenkins vhost all answer 200.
+
 ## Unverified, to be tested
 
 **The list is empty: every claim here has been tried.** It is kept as a record

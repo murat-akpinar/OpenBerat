@@ -3,55 +3,84 @@
  */
 
 /* The name is the brief: a *berat* is a sealed warrant granting a right, which
-   is what this product issues on every request. So the ground is paper, the
-   text is ink and the accent is gold leaf — not the cool grays every other
-   identity product already wears.
+   is what this product issues on every request. Gold leaf is the accent, and
+   gold leaf is meant to be seen against something dark — so the ground is
+   near-black, lit from the corners the way a lamp lights a document, and the
+   panels are the warrant laid on top of it.
 
    --gold is decorative and never carries text; where an accent has to be read,
-   --gold-ink does it. That split is the only reason this palette holds WCAG AA
-   (--muted 4.87:1 light / 6.04:1 dark, --gold-ink 4.98:1), so it is a rule. */
+   --gold-ink does it. That split is the only reason this palette holds WCAG AA.
+   The ratios are computed against the worst ground any text can land on, which
+   is not the flat one: both glows at full strength, overlapping, with a panel's
+   scrim over them. There: --muted 4.81:1, --gold-ink 6.46:1, --refuse 5.15:1,
+   --ink 10.24:1, and 4.88:1 for --muted read straight off the scrimmed middle
+   of the page. The one thing that touches the raw lit ground is the h1, at
+   4.19:1 — it is 28-44px, where AA asks for 3:1 (docs/07).
+
+   Dark only, deliberately. `backdrop-filter` glass over a light ground reads as
+   dirt rather than glass, so a light theme would be a second design, not a
+   second palette. */
 
 :root {
-  color-scheme: light dark;
-  --paper: #faf7f2;
-  --card: #ffffff;
-  --ink: #1a1d24;
-  --muted: #6b6355;
-  --line: #e3ddd2;
-  --gold: #b8892b;
-  --gold-ink: #8a6516;
+  color-scheme: dark;
+  --ground: #0b0c0f;
+  --ink: #ece8e0;
+  --muted: #a8a08e;
+  --gold: #d9a842;
+  --gold-ink: #e0b45c;
   --seal: #7c4a1e;
-  --refuse: #a3352b;
-}
+  --seal-lit: #b8892b;
+  --refuse: #ef8a84;
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #14161b;
-    --card: #1b1e25;
-    --ink: #ece8e0;
-    --muted: #9a9384;
-    --line: #2b2f38;
-    --gold: #d9a842;
-    --gold-ink: #e0b45c;
-    --seal: #b8892b;
-    --refuse: #e0605c;
-  }
+  /* A panel is a dark scrim first and a sheen second, in that order: the scrim
+     is what makes the contrast ratios above hold no matter which part of the
+     aurora a panel drifts over, and the sheen is what makes it read as glass.
+     The blur is an enhancement — a browser without `backdrop-filter` loses the
+     frost and keeps a readable card. */
+  --panel: rgba(11, 12, 15, 0.70);
+  --panel-bar: rgba(11, 12, 15, 0.78);
+  --sheen: linear-gradient(rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  --line: rgba(255, 255, 255, 0.10);
+  --line-lit: rgba(217, 168, 66, 0.55);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: var(--paper);
+  min-height: 100vh;
+  background: var(--ground);
   color: var(--ink);
-  font: 1rem/1.55 system-ui, sans-serif;
+  font: 1rem/1.6 system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* --- Feature Start --- */
+/* The aurora is one fixed layer behind everything, not a background on `body`:
+   painted on the element it would scroll with the content and the lit corners
+   would slide off the top, and every contrast ratio in this file assumes the
+   light stays where it is. The last layer is the point of the whole thing — a
+   scrim that pulls the middle of the page back to the flat ground, so the two
+   glows stay at the edges and nothing long-form is ever read off a lit patch. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(78rem 38rem at -2% -25%, rgba(217, 168, 66, 0.42), transparent 62%),
+    radial-gradient(74rem 44rem at 104% -18%, rgba(124, 74, 30, 0.70), transparent 60%),
+    linear-gradient(180deg, rgba(11, 12, 15, 0) 0, rgba(11, 12, 15, 0.60) 32%, var(--ground) 56%);
+}
+/* --- Feature End --- */
+
+/* --- Feature Start --- */
 /* The gradient rule is the signature. It is the same three pixels on the
-   portal, the denied page and the outage page, and that repetition is what
-   makes three separate files read as one product — the outage page especially,
-   which a user meets without any other context to place it by. */
+   portal, the denied page, the outage page and the Keycloak login screen, and
+   that repetition is what makes four separate files read as one product — the
+   outage page especially, which a user meets without any other context to place
+   it by. */
 .site-header::after {
   content: "";
   display: block;
@@ -60,7 +89,14 @@ body {
 }
 /* --- Feature End --- */
 
-.site-header { background: var(--card); }
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--sheen), var(--panel-bar);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
+}
 
 .bar {
   display: flex;
@@ -102,30 +138,65 @@ body {
 .signout:hover { color: var(--gold-ink); text-decoration: underline; }
 .signout:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 4px; }
 
-main { max-width: 60rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
-h1 { font-size: 1.375rem; letter-spacing: -0.01em; margin: 0 0 1rem; }
+main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+
+h1 {
+  font-size: clamp(1.75rem, 1.2rem + 2vw, 2.75rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  margin: 0 0 1.5rem;
+}
+
+/* The gradient is painted through the glyphs, which means the text has no
+   colour of its own — so the flat colour is set first and only replaced where
+   the clip is supported, and forced-colours mode takes it back. Invisible text
+   is the failure mode this guards against. */
+.accent { color: var(--gold-ink); }
+
+@supports (-webkit-background-clip: text) or (background-clip: text) {
+  .accent {
+    background: linear-gradient(100deg, var(--gold-ink), var(--seal-lit));
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+}
+
+@media (forced-colors: active) {
+  .accent { -webkit-text-fill-color: revert; }
+}
+
 a { color: var(--gold-ink); }
 
 .prose { color: var(--muted); max-width: 42rem; }
-.notice { border-left: 3px solid var(--gold); padding-left: 0.875rem; }
-.refusal { border-left: 3px solid var(--refuse); padding-left: 0.875rem; max-width: 42rem; }
+.notice, .refusal {
+  border-left: 3px solid var(--gold);
+  padding: 0.75rem 1rem;
+  border-radius: 0 0.5rem 0.5rem 0;
+  background: var(--sheen), var(--panel);
+}
+.refusal { border-left-color: var(--refuse); max-width: 42rem; }
 
 #apps {
   display: grid;
-  gap: 0.75rem;
-  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: 0.875rem;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
 }
 
 .app {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 0.875rem;
-  padding: 0.875rem 1rem;
+  padding: 1rem 2.25rem 1rem 1rem;
   border: 1px solid var(--line);
-  border-radius: 0.625rem;
-  background: var(--card);
+  border-radius: 1rem;
+  background: var(--sheen), var(--panel);
+  backdrop-filter: blur(14px);
   color: inherit;
   text-decoration: none;
+  transition: border-color 120ms, box-shadow 120ms, transform 120ms;
   /* Nothing validates the name or the icon an admin types (`application`
      table), so the layout has to survive a 200-character name and an icon
      that is not one glyph. */
@@ -133,18 +204,44 @@ a { color: var(--gold-ink); }
   overflow-wrap: anywhere;
 }
 
-.app:hover { border-color: var(--gold); }
+/* Decorative twin of the "opens in a new tab" text portal.js appends: the
+   arrow is what a sighted user reads, the text is what a screen reader does. */
+.app::after {
+  content: "↗";
+  position: absolute;
+  top: 0.75rem;
+  right: 0.875rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+.app:hover {
+  border-color: var(--line-lit);
+  box-shadow: 0 0.75rem 2rem rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(217, 168, 66, 0.12);
+  transform: translateY(-2px);
+}
+
+.app:hover::after { color: var(--gold-ink); }
 .app:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .app { transition: none; }
+  .app:hover { transform: none; }
+}
+
+.app:hover .icon { border-color: var(--line-lit); }
 
 .icon {
   flex: none;
   display: grid;
   place-items: center;
-  width: 2.5rem;
-  height: 2.5rem;
-  border-radius: 0.5rem;
-  background: var(--paper);
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 0.75rem;
+  background: linear-gradient(145deg, rgba(217, 168, 66, 0.28), rgba(124, 74, 30, 0.32));
   border: 1px solid var(--line);
+  transition: border-color 120ms;
   font-size: 1.25rem;
   line-height: 1;
   overflow: hidden;
@@ -153,3 +250,21 @@ a { color: var(--gold-ink); }
 .app-text { min-width: 0; }
 .app-name { display: block; font-weight: 600; }
 .app-host { display: block; color: var(--muted); font-size: 0.8125rem; }
+
+code {
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+  background: var(--panel);
+  font-size: 0.875em;
+}
+
+/* Announced, never drawn. */
+.vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

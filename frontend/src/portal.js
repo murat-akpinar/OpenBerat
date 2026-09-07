@@ -29,6 +29,12 @@ function button(app) {
   const link = document.createElement('a');
   link.className = 'app';
   link.href = app.url;
+  // The portal is the one page a user comes back to, so an application takes a
+  // tab of its own. `noopener` is not decoration: without it the application
+  // gets `window.opener` on the host holding a cookie valid for every other
+  // application on .apps.<domain> (ADR-0015).
+  link.target = '_blank';
+  link.rel = 'noopener';
   const icon = document.createElement('span');
   icon.className = 'icon';
   icon.textContent = app.icon || app.name.slice(0, 1).toUpperCase();
@@ -48,7 +54,12 @@ function button(app) {
     host.hidden = true;
   }
   text.append(name, host);
-  link.append(icon, text);
+  // The card shows an arrow; a screen reader gets the sentence. Without it the
+  // tab change is the one thing about this link nobody is told.
+  const hint = document.createElement('span');
+  hint.className = 'vh';
+  hint.textContent = ' (opens in a new tab)';
+  link.append(icon, text, hint);
   return link;
 }
 

@@ -2,21 +2,33 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-/* The login screen is the first page every user meets, and until now it was
-   stock Keycloak on a second hostname — a different product to anyone looking.
-   The tokens below are copied from `frontend/src/portal.css` on purpose: that
-   file is served by nginx and this one by Keycloak, so they cannot share a
-   stylesheet, and the palette is the only thing that makes the two hostnames
-   read as one product. If one moves, move the other. */
+/* The login screen is the first page every user meets, and it is served by
+   Keycloak from a second hostname — so it cannot share a stylesheet with the
+   portal, and the palette is the only thing that makes the two read as one
+   product. The tokens below are copied from `frontend/src/portal.css` on
+   purpose. If one moves, move the other.
+
+   Dark only, like the portal, and that is the hard part here: keycloak.v2 puts
+   PatternFly's dark palette behind a `.pf-v5-theme-dark` class it sets from
+   `prefers-color-scheme`, so on a machine set to light the parent paints a
+   light login screen under our dark ground. Everything this file needs is
+   therefore stated outright rather than left to the parent — measured in both
+   OS modes (docs/07), because the failure is invisible on the machine of
+   whoever writes the CSS. */
 
 :root {
-  --paper: #faf7f2;
-  --card: #ffffff;
-  --ink: #1a1d24;
-  --line: #e3ddd2;
-  --gold: #b8892b;
-  --gold-ink: #8a6516;
+  color-scheme: dark;
+  --ground: #0b0c0f;
+  --ink: #ece8e0;
+  --muted: #a8a08e;
+  --gold: #d9a842;
+  --gold-ink: #e0b45c;
   --seal: #7c4a1e;
+  --seal-lit: #b8892b;
+
+  --panel: rgba(11, 12, 15, 0.70);
+  --sheen: linear-gradient(rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  --line: rgba(255, 255, 255, 0.10);
 
   /* The accent and the text colour, which PatternFly derives most things from.
      It has to be the `--100` names: PatternFly writes those as literals in its
@@ -24,35 +36,57 @@
      overriding the pair repaints nothing. Measured, not assumed. */
   --pf-v5-global--primary-color--100: var(--gold-ink);
   --pf-v5-global--link--Color: var(--gold-ink);
+  --pf-v5-global--link--Color--hover: var(--gold);
   --pf-v5-global--Color--100: var(--ink);
+  --pf-v5-global--Color--200: var(--muted);
+  --pf-v5-global--BorderColor--100: var(--line);
+  --pf-v5-global--BackgroundColor--100: transparent;
+
+  /* One line to change when a face is bundled; the portal's `body` font is the
+     other. */
+  --pf-v5-global--FontFamily--text: system-ui, sans-serif;
+  --pf-v5-global--FontFamily--heading--sans-serif: system-ui, sans-serif;
+  --pf-v5-global--FontFamily--redhatfont--heading--sans-serif: system-ui, sans-serif;
+  --pf-v5-global--FontFamily--redhatfont--text: system-ui, sans-serif;
 
   /* keycloak.v2's own two hooks: its background artwork off, its card rule gold. */
   --keycloak-bg-logo-url: none;
   --keycloak-card-top-color: var(--gold);
 }
 
-/* keycloak.v2 swaps its palette on a class it sets from prefers-color-scheme;
-   this file answers the media query directly instead, so the two sheets stay
-   diffable against each other. */
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #14161b;
-    --card: #1b1e25;
-    --ink: #ece8e0;
-    --line: #2b2f38;
-    --gold: #d9a842;
-    --gold-ink: #e0b45c;
-    --seal: #b8892b;
-  }
+/* The parent sets `background:` in shorthand, which resets the colour; this
+   rule follows it and puts the ground back. */
+.login-pf body {
+  background-color: var(--ground);
+  color: var(--ink);
 }
 
-/* The parent sets `background:` in shorthand, which resets the colour; this
-   rule follows it and puts the paper back. */
-.login-pf body { background-color: var(--paper); }
+/* --- Feature Start --- */
+/* The same fixed aurora layer as the portal, and fixed for the same reason: on
+   `body` it would scroll with a long form — a password page with three errors
+   is taller than the viewport — and the lit corners the contrast ratios assume
+   would slide away. `-1` puts it behind the card without touching the parent's
+   stacking. */
+.login-pf body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(78rem 38rem at -2% -25%, rgba(217, 168, 66, 0.42), transparent 62%),
+    radial-gradient(74rem 44rem at 104% -18%, rgba(124, 74, 30, 0.70), transparent 60%),
+    linear-gradient(180deg, rgba(11, 12, 15, 0) 0, rgba(11, 12, 15, 0.60) 32%, var(--ground) 56%);
+}
+/* --- Feature End --- */
 
 .pf-v5-c-login__main {
-  background-color: var(--card);
+  background: var(--sheen), var(--panel);
+  backdrop-filter: blur(16px);
   border: 1px solid var(--line);
+  border-radius: 1.25rem;
+  overflow: hidden;
+  box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.55);
 }
 
 /* --- Feature Start --- */
@@ -67,17 +101,75 @@
 }
 /* --- Feature End --- */
 
-/* The one component that cannot be reached from `:root`: in dark mode
-   PatternFly sets the primary button's colours *on the button element*, and a
-   value set on the element beats an inherited one however specific the
-   inherited rule is. So the button is painted through its own variables, which
-   is also what lets one rule serve both modes — `--card` is the ground the
-   button sits on, so it is always the readable text colour against the gold. */
-.pf-v5-c-button.pf-m-primary {
-  --pf-v5-c-button--m-primary--BackgroundColor: var(--gold-ink);
-  --pf-v5-c-button--m-primary--Color: var(--card);
-  --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--seal);
+.pf-v5-c-login__main-header,
+.pf-v5-c-login__main-body,
+.pf-v5-c-login__main-footer {
+  background-color: transparent;
+  color: var(--ink);
 }
+
+/* --- Feature Start --- */
+/* Anything PatternFly assigns *per component* has to be answered per component:
+   a custom property set on the element beats an inherited one however specific
+   the rule that inherits it, so a `:root` override cannot reach these three. The
+   primary button was measured in Phase 6; the form control and the control
+   button beside it are the pair to it, and left alone they keep PatternFly's
+   light borders on a dark card. The names are read out of `patternfly.min.css`
+   rather than guessed — the border lives on `::before` and `::after`, so
+   `--BorderColor` is not a variable that exists and setting it does nothing. */
+.pf-v5-c-form-control {
+  --pf-v5-c-form-control--BackgroundColor: rgba(255, 255, 255, 0.05);
+  --pf-v5-c-form-control--Color: var(--ink);
+  --pf-v5-c-form-control--before--BorderTopColor: var(--line);
+  --pf-v5-c-form-control--before--BorderRightColor: var(--line);
+  --pf-v5-c-form-control--before--BorderBottomColor: var(--line);
+  --pf-v5-c-form-control--before--BorderLeftColor: var(--line);
+  --pf-v5-c-form-control--after--BorderBottomColor: var(--line);
+  --pf-v5-c-form-control--hover--after--BorderBottomColor: var(--gold-ink);
+  --pf-v5-c-form-control--focus--after--BorderBottomColor: var(--gold-ink);
+  --pf-v5-c-form-control--m-expanded--after--BorderBottomColor: var(--gold-ink);
+  --pf-v5-c-form-control--placeholder--Color: var(--muted);
+  border-radius: 0.625rem;
+}
+
+.pf-v5-c-button.pf-m-control {
+  --pf-v5-c-button--m-control--BackgroundColor: rgba(255, 255, 255, 0.05);
+  --pf-v5-c-button--m-control--Color: var(--ink);
+  --pf-v5-c-button--m-control--after--BorderTopColor: var(--line);
+  --pf-v5-c-button--m-control--after--BorderRightColor: var(--line);
+  --pf-v5-c-button--m-control--after--BorderBottomColor: var(--line);
+  --pf-v5-c-button--m-control--after--BorderLeftColor: var(--line);
+  --pf-v5-c-button--m-control--hover--BackgroundColor: rgba(255, 255, 255, 0.09);
+  --pf-v5-c-button--m-control--hover--after--BorderBottomColor: var(--gold-ink);
+  --pf-v5-c-button--m-control--focus--BackgroundColor: rgba(255, 255, 255, 0.09);
+  --pf-v5-c-button--m-control--focus--after--BorderBottomColor: var(--gold-ink);
+}
+
+.pf-v5-c-form-control input,
+.pf-v5-c-form-control select,
+.pf-v5-c-form-control textarea {
+  background-color: transparent;
+  color: var(--ink);
+}
+
+.pf-v5-c-button.pf-m-primary {
+  --pf-v5-c-button--m-primary--BackgroundColor: var(--gold);
+  --pf-v5-c-button--m-primary--Color: var(--ground);
+  --pf-v5-c-button--m-primary--hover--BackgroundColor: var(--gold-ink);
+  background-image: linear-gradient(100deg, var(--gold), var(--seal-lit));
+  border-radius: 0.625rem;
+  font-weight: 600;
+}
+
+.pf-v5-c-button.pf-m-primary:hover {
+  background-image: linear-gradient(100deg, var(--gold-ink), var(--gold));
+}
+/* --- Feature End --- */
+
+.pf-v5-c-form__label-text,
+.pf-v5-c-check__label { color: var(--ink); }
+.pf-v5-c-login__main-footer-band,
+#kc-info-message { color: var(--muted); }
 
 /* The mark is `frontend/src/logo.svg`, copied in by the Dockerfile rather than
    kept here twice. */
