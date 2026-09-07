@@ -74,17 +74,24 @@ keeping, and it is why that ADR is amended rather than superseded.
   when. **What it cannot say:** when the session started, from where, or through
   which browser. None of that is in the index, and the options that would put it
   there are refused above.
-- **A row is a session that would still authenticate, not a user who is
-  active.** This is the sentence the screen has to carry, because the two read
-  alike and only one of them is true. A session exists in Redis until it is
-  signed out or `cookie_expire` passes — 168 h in the shipped configuration —
-  and nothing requires anybody to still hold its cookie. A closed laptop, a
-  cleared browser and a CI job that logged in and exited all leave one behind,
-  and it stays a working credential for a week. For a console whose purpose is
-  revocation that is the **right** thing to count: what matters is what would
-  still let somebody in, not who happens to be clicking. Counting only recent
-  traffic would hide exactly the credentials worth revoking.
-  Measured on the lab (`docs/07`): 60 sessions across 8 subjects, for a
+- **A row is a session key that has not been used since it stopped working, not
+  a user who is active.** This is the sentence the screen has to carry, because
+  the three read alike and only one of them is true. For a console whose purpose
+  is revocation, counting keys rather than clicks is the **right** direction:
+  what matters is what would still let somebody in, not who happens to be
+  typing. Counting only recent traffic would hide exactly the credentials worth
+  revoking.
+  **This ADR said something stronger and it was wrong.** It said a session "stays
+  a working credential for a week", reasoning from `cookie_expire` alone. The
+  realm ends it long before that — 30 minutes idle, 10 hours absolute — and
+  neither number was written anywhere when this was decided; they are in
+  `docs/04`, "How long a session lasts", now. Measured on the lab (`docs/07`): a
+  session idle for 33 minutes answers **302** on its next request while its
+  Redis key is still there with six days of TTL, and it is still counted here.
+  oauth2-proxy deletes the key when a request finds the session dead, not when
+  it dies, so the overcount lasts until somebody uses the cookie — bounded by
+  `cookie_expire`, which is why that is now the realm's own 10 h instead of
+  168 h. Measured on the lab (`docs/07`): 60 sessions across 8 subjects, for a
   directory with two users.
 - **`SCAN`, not `KEYS`,** and it runs on an admin request only. This is the
   first endpoint whose cost grows with the Redis keyspace rather than with the

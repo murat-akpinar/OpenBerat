@@ -32,7 +32,7 @@ Context: http, server, location
 |---|---|---|---|
 | `set_xauthrequest` | `false` | `true` | Without it, `X-Auth-Request-User/-Groups/-Email` never arrive. The docs describe it as "useful in Nginx auth_request mode". |
 | `cookie_refresh` | off (`0`) | `5m` | While off, the session lives as long as `cookie_expire`. **Keycloak is supported.** |
-| `cookie_expire` | `168h0m0s` | per policy | 7 days |
+| `cookie_expire` | `168h0m0s` | `10h` | The realm's own `ssoSessionMaxLifespan`: a cookie may not outlive the session it stands for (`docs/04`) |
 | `session_store_type` | `cookie` | `redis` | Kill switch + large sessions |
 
 ### The official nginx integration pattern
@@ -2304,7 +2304,7 @@ performs next — `location.href = /oauth2/sign_out?rd=%2F` — is what clears i
 1 cookie after login, still 1 after the POST, **0** after the navigation. Nothing
 is exposed by the gap — the session is already destroyed server-side and the
 value is dead — but a client that only POSTs and never navigates keeps a dead
-cookie for `cookie_expire`, 168 h.
+cookie for `cookie_expire` (168 h when this was measured, 10 h now — `docs/04`).
 
 **No session fixation on the way in.** An attacker-chosen
 `_oauth2_proxy=ATTACKER-PLANTED` planted in the jar before the login was replaced
@@ -2538,29 +2538,13 @@ were the opposite of the assumption and one of those (`Set-Cookie` on
 `/oauth2/auth`) is load-bearing for ADR-0006. A new claim goes in unticked and
 leaves ticked.
 
-- [ ] **Open.** How long is a session in the *shipped* configuration, and does
-      `GET /api/admin/sessions` count sessions that would still authenticate?
-      ADR-0028 rests on one number: "a session exists in Redis until it is
-      signed out or `cookie_expire` passes — **168 h** in the shipped
-      configuration", and "it stays a working credential for a week". That reads
-      `oauth2-proxy.cfg` and stops there. The realm export ships
-      `ssoSessionIdleTimeout: 1800` and `ssoSessionMaxLifespan: 36000` — **30
-      minutes idle, 10 hours absolute** — and neither number appears in any
-      document in this repository. `cookie_refresh` is 5 m and only runs when a
-      request arrives, so an abandoned session gets no refresh, its Keycloak SSO
-      session idles out, and the next presentation of that cookie should fail
-      the refresh and be refused. Its oauth2-proxy key, whose TTL is
-      `cookie_expire`, would still be in Redis and would still be counted.
-      If that is what happens, the Live tab reports as "would still
-      authenticate" a credential that would not — the one wrong answer ADR-0028
-      says the screen exists to avoid — and the 60 sessions across 8 subjects it
-      records as evidence of correct counting are evidence of the opposite.
-      **To measure:** sign in on the lab, note the session key, leave it
-      untouched past 30 minutes, then read `/api/admin/sessions` and present the
-      cookie. Three outcomes are possible and they are different bugs: the key
-      is gone (ADR-0028's number is merely wrong), the key exists and the cookie
-      works (the realm's timeouts are not reaching oauth2-proxy at all), or the
-      key exists and the cookie is refused (the screen over-reports).
+- [x] **Answered: both, and they were the same mistake.** How long is a session
+      in the *shipped* configuration, and does `GET /api/admin/sessions` count
+      sessions that would still authenticate? ADR-0028 read `cookie_expire` and
+      stopped there; the realm ends a session at **30 minutes idle or 10 hours
+      absolute**, and the third of the three possible outcomes is what happens:
+      the key exists and the cookie is refused, so the screen over-reports. Run
+      below, and the four numbers now live in one table in `docs/04`.
 
 - [x] **Answered: no.** Can an nginx subrequest (the `auth_request` target)
       itself trigger an `auth_request`? The whole access phase is skipped for a
@@ -2765,9 +2749,9 @@ The one property the endpoint exists for is that it counts session keys that
 still **exist** rather than the index set's cardinality — a session that merely
 expired leaves its key in the set until the set's own TTL, and cardinality would
 report it as somebody signed in. The lab could not produce that case on its own:
-every key in `labadmin`'s set was still live, because a lab session lasts
-`cookie_expire` (168 h) and no harness run had been going long enough to strand
-one. So it is forced, by adding a key that names no session rather than deleting
+every key in `labadmin`'s set was still live, because a lab session's key lasts
+`cookie_expire` (168 h then, 10 h now) and no harness run had been going long
+enough to strand one. So it is forced, by adding a key that names no session rather than deleting
 one that does — deleting a real key would sign a live browser out:
 
 | Step | Set (`SCARD`) | Endpoint |
@@ -2799,11 +2783,13 @@ separate causes, and only one of them is a lab artifact:
   knew 3 ids; the index held 8. This does not happen to an installation that
   follows `INSTALL.md`, which gives Keycloak a real database — but it is worth
   recording that **an oauth2-proxy session outlives the IdP forgetting the user
-  it names**, and keeps authenticating until `cookie_expire`.
+  it names**, and keeps authenticating until the next `cookie_refresh` finds out
+  — five minutes, measured since (`docs/04`).
 - **The rest are sessions nobody signed out of.** Every harness run in this
-  document logged in and deleted its cookie jar. That leaves a working
-  credential for 168 h, which is what a closed laptop, a cleared browser and a
-  finished CI job also leave. `verify-auditscreen.sh` now signs out at the end.
+  document logged in and deleted its cookie jar. That leaves a key behind, which
+  is what a closed laptop, a cleared browser and a finished CI job also leave —
+  and it is counted here until somebody presents the cookie, though it stops
+  *working* 30 minutes later (`docs/04`). `verify-auditscreen.sh` now signs out at the end.
 
 Pruning the 6 subjects Keycloak did not have took the lab to **3 subjects and 22
 sessions** — one of them a `labnested` session with no audit row at all, drawn
@@ -3270,3 +3256,52 @@ lock is released, so cancelling the query does not leave the pool damaged.
 **Not measured:** the daily tick itself. `interval_at` starts one interval out
 rather than firing immediately, which is what stops the awaited pass being run
 twice, and nothing here waits 24 h to watch the second one.
+
+## How long a session actually lasts, and what the Live tab counts
+
+Two runs on the lab, because the question had two halves and only one of them
+needed 33 minutes of waiting.
+
+**The idle half** (`verify-sessionlife.sh`). Two sessions for the same user, A
+abandoned and B touched every 5 minutes — B is the control, because if B died
+too then something other than the idle timeout did it. Redis is read *before*
+the dead cookie is presented, since presenting it is what makes oauth2-proxy
+notice:
+
+| | at t0 | after 33 min |
+|---|---|---|
+| A (abandoned) | `/api/me` 200, key TTL 604 799 s | key still there, TTL 602 698 s, **`/api/me` 302** |
+| B (touched every 5 min) | `/api/me` 200 | `/api/me` **200** |
+
+So `ssoSessionIdleTimeout` is real and `cookie_refresh` is what keeps B alive.
+The abandoned key kept **six days** of TTL after the credential stopped working,
+and only the probe removed it: `exists=0` immediately after the 302.
+
+**The counting half** (`verify-sessioncount.sh`), which reaches the same state
+in a second by ending the Keycloak session under a live key rather than waiting
+out the idle timeout:
+
+| Step | `/api/me` | key | `/api/admin/sessions` |
+|---|---|---|---|
+| logged in | 200 | exists | **12** |
+| Keycloak session ended | — | exists | **12** |
+| past `cookie_refresh` (5 m) | **302** | — | — |
+| after that probe | — | gone | **11** |
+
+The screen counted a credential that no longer worked, and stopped only because
+something used it. That is the one wrong answer ADR-0028 says the list exists to
+avoid, and the ADR now says so.
+
+**What changed:** `cookie_expire` is `10h`, the realm's own
+`ssoSessionMaxLifespan`, instead of 168 h. It does not make the count exact —
+nothing short of asking Keycloak per subject would, and ADR-0028 refuses to
+decrypt the session — but it bounds the window a dead key can be counted in by
+the life of the session it stands for, rather than by a week.
+
+**Two harness lessons.** The observer needs touching too: the first run's
+`/api/admin/sessions` calls used an admin jar minted at t0 and idle for the same
+33 minutes, so they came back empty — the measurement instrument idled out along
+with the thing it was measuring. And `oauth2-proxy` does not refuse a cookie the
+moment Keycloak ends the session: it revalidates on `cookie_refresh`, so the
+five minutes between step 2 and step 3 above are the configured interval, not a
+delay in the finding.

@@ -1788,28 +1788,34 @@ serving the person who has to run it.
       backend's default is what an operator gets from `curl` and nothing the
       screen depends on.*
 
-- [ ] **VERIFY:** how long a session lasts in the shipped configuration, and
+- [x] **VERIFY:** how long a session lasts in the shipped configuration, and
       whether the Live tab counts credentials that still work
-      *Found by reading the realm export against ADR-0028 rather than by a
-      failure. The ADR reasons from `cookie_expire = 168h` and says a session
-      "stays a working credential for a week". The realm ships
-      `ssoSessionIdleTimeout: 1800` and `ssoSessionMaxLifespan: 36000` — 30
-      minutes idle, 10 hours absolute — and **neither number is written in any
-      document here**, so the one sentence the screen was told to carry was
-      derived from half the configuration. `cookie_refresh` runs only on a
-      request, so an abandoned session should idle out at Keycloak while its
-      oauth2-proxy key sits in Redis until `cookie_expire` — and that key is
-      what `/api/admin/sessions` counts.
-      Not fixed, because three different things could be true and they are three
-      different bugs (`docs/07`, "Unverified"). Measured on the lab first; then
-      either the ADR's number is corrected, or the endpoint stops calling a
-      surviving key a session that would authenticate. Nothing in the shipped
-      realm changes until it is known which.
-      Whichever it is, the four numbers that together decide how long a session
-      lasts — `cookie_expire`, `cookie_refresh`, `ssoSessionIdleTimeout`,
-      `ssoSessionMaxLifespan` — end in one table in `docs/04`. Today each is
-      written where only one of them can be read, which is how a document came
-      to state the session length from a quarter of it.*
+      *Measured, and the third of the three possible outcomes is what happens:
+      **the key exists and the cookie is refused**, so the screen over-reports.
+      A session left alone 33 minutes answers **302** on its next request while
+      its Redis key still holds six days of TTL — and is still counted by
+      `/api/admin/sessions` until somebody presents the cookie, which is what
+      makes oauth2-proxy notice and delete it. One touched every 5 minutes is
+      still 200, so `cookie_refresh` is what kept it alive and the idle timeout
+      is what ended the other. The counting half was then reproduced in a
+      second rather than in 33 minutes, by ending the Keycloak session under a
+      live key: counted 12, still 12 with the session gone, 302 past
+      `cookie_refresh`, 11 after the probe (`docs/07`).
+      **Both sentences were wrong in the same direction**, and the fix is one
+      number and three corrections. `cookie_expire` is now `10h` — the realm's
+      own `ssoSessionMaxLifespan` — instead of 168 h: it cannot make the count
+      exact, since only asking Keycloak per subject would and ADR-0028 refuses
+      to decrypt the session, but it bounds how long a dead key can be counted
+      by the life of the session it stands for rather than by a week. ADR-0028's
+      "working credential for a week" is corrected in the ADR and on the screen,
+      which now says a row is a key rather than a working credential.
+      The four numbers — `cookie_expire`, `cookie_refresh`,
+      `ssoSessionIdleTimeout`, `ssoSessionMaxLifespan` — are in one table in
+      `docs/04`, "How long a session lasts", and everything else cites it.
+      One harness lesson worth keeping: **the observer idles out too.** The
+      first run's admin calls used a jar minted at t0 and left for the same 33
+      minutes, so they came back empty — the instrument expired along with the
+      thing it was measuring.*
 
 - [ ] **The management plane is one password deep** — admin MFA, and the open
       question is asked in the wrong shape

@@ -62,6 +62,37 @@ Group information goes stale in exactly **one place** in the chain:
 | **oauth2-proxy** | **Yes** | Groups come from the ID token at login time and freeze into the session |
 | backend decision cache | Yes | Our TTL. The identity resolution lives in the same entry (`docs/05`) — one TTL, not a separate layer. |
 
+### How long a session lasts
+
+Four numbers decide it, and they live in two different files. **This table is
+where they are written; everything else cites it.** Each was read out of what is
+running, not out of a default:
+
+| Number | Where | Shipped | What it ends |
+|---|---|---|---|
+| `ssoSessionIdleTimeout` | realm export | **30 min** | A session nobody uses. This is the one that ends most sessions |
+| `ssoSessionMaxLifespan` | realm export | **10 h** | Every session, however active |
+| `cookie_expire` | `oauth2-proxy.cfg` | **10 h** | The browser cookie and the Redis key behind it — deliberately the same as the line above |
+| `cookie_refresh` | `oauth2-proxy.cfg` | **5 min** | Nothing; it is how often the session is revalidated against Keycloak, and it is what makes an AD change arrive (ADR-0006) |
+
+So a session is **at most 10 hours old and at most 30 minutes idle**, and the
+shortest sentence that is true is: *close the browser for half an hour and you
+log in again.*
+
+Two consequences worth having in one place:
+
+- **The idle timeout is not enforced by anything the user can see.**
+  `cookie_refresh` runs on a request, so an abandoned session is not signed out
+  — it stops working. Measured on the lab (`docs/07`): a session left alone for
+  33 minutes answers 302 on its next request, while one touched every 5 minutes
+  is still 200.
+- **The Redis key outlives the credential, and it is counted.** oauth2-proxy
+  deletes the key when a request finds the session dead, not when it dies, so
+  `GET /api/admin/sessions` counts it until somebody tries to use it
+  ([ADR-0028](adr/0028-live-sessions-endpoint.md)). `cookie_expire` is what
+  bounds that window, which is why it is 10 h rather than 168 h: the cookie may
+  not outlive the session it stands for.
+
 ### Dangerous defaults
 
 oauth2-proxy's default settings are **silently wrong** for this project:
@@ -69,9 +100,9 @@ oauth2-proxy's default settings are **silently wrong** for this project:
 | Setting | Default | Consequence | Should be |
 |---|---|---|---|
 | `set_xauthrequest` | `false` | No identity or group header arrives at all | `true` |
-| `cookie_refresh` | off | The session lives as long as `cookie_expire` → **168 hours** of stale groups | `5m` |
+| `cookie_refresh` | off | The session lives as long as `cookie_expire` → a week of stale groups | `5m` |
 | `session_store_type` | `cookie` | Kill switch impossible + the 4 KB cookie limit | `redis` |
-| `cookie_expire` | `168h0m0s` | 7 days | Shorten per policy |
+| `cookie_expire` | `168h0m0s` | 7 days — longer than the session it stands for | `10h`, the realm's `ssoSessionMaxLifespan` |
 | `backend_logout_url` | unset | `/oauth2/sign_out` clears the cookie and leaves the **IdP** session open, so the next login needs no password — the "I logged out" illusion (`docs/02`) | Keycloak's `end_session_endpoint` with `?id_token_hint={id_token}` |
 
 `cookie_refresh` is not supported for every provider in oauth2-proxy, but

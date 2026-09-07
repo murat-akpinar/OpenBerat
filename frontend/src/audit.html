@@ -34,14 +34,14 @@
 
   <section id="view-live" role="tabpanel" aria-labelledby="tab-live">
     <p class="prose">
-      <strong>A row is a session that would still authenticate — not a user who
-      is active.</strong> The two read alike and only one of them is true. A
-      session lives in Redis until it is signed out or it expires seven days
-      later, and nothing requires anybody to still hold its cookie: a closed
-      laptop, a cleared browser and a script that logged in and exited each
-      leave one behind, working, for a week. That is the right thing to count
-      here, because the question this page exists for is what would still let
-      somebody in.
+      <strong>A row is a session key, not a user who is active — and not
+      always a credential that still works.</strong> The three read alike and
+      only one of them is true. A session stops working after 30 minutes idle or
+      10 hours in total, but its key stays in Redis until somebody uses the
+      cookie and finds it dead, so a closed laptop or a script that logged in
+      and exited is counted here for a while after it can no longer get in.
+      Counting keys is still the right direction for a page about revocation:
+      what matters is what would let somebody in, not who happens to be typing.
     </p>
     <p class="prose">
       Read out of the index the kill switch uses, so it sees the user who signed
