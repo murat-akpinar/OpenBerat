@@ -1572,6 +1572,50 @@ serving the person who has to run it.
       N-04 retention job", which Phase 6 then wrote. An applied migration is
       byte-immutable (`docs/07`), so that comment stays wrong on purpose.*
 
+- [ ] **Four things a second security read found** — the `X-Forwarded-*` family,
+      one hostname written in a fifth place, and a private key in the build
+      context
+      *None came from a failing test. The first two are the same omission read
+      twice: `protected.inc` pins `Host`, `X-Real-IP`, `X-Forwarded-For` and
+      `X-Forwarded-Proto` and nothing else, and nginx forwards every header it
+      is not told to overwrite.*
+      1. ***`X-Forwarded-Host`, `-Port` and `-Prefix` reach the upstream as the
+         client wrote them.** So do `X-Original-URL` and `X-Rewrite-URL`. An
+         application that builds an absolute URL out of `X-Forwarded-Host` —
+         a password-reset link, an OAuth `redirect_uri`, a cache key — builds it
+         out of an attacker's string. `decide.inc` already says in a comment that
+         `X-Forwarded-Host` is client-controlled and pins the subrequest against
+         it; the upstream hop never got the same treatment, and neither did
+         `breakglass/upstream.inc`, which strips `X-Auth-*` with care and leaves
+         this family alone. ADR-0021's contract is that the upstream trusts what
+         this proxy tells it, so the whole family is the proxy's to write.*
+      2. ***`$proxy_add_x_forwarded_for` prepends whatever the client sent.**
+         Four hops use it and no `real_ip` module is configured, so the leftmost
+         value — the one most readers take as the client address — is
+         attacker-chosen. The sharp end is `keycloak.inc`: Keycloak runs
+         `KC_PROXY_HEADERS=xforwarded` and reads the first entry, so the source
+         address on every login event, successful or failed, is forgeable on the
+         one host every browser is redirected to. Rate limiting is unaffected —
+         `limit_req` keys on `$binary_remote_addr` — but the record of a password
+         spray is not. nginx is the only edge here, so the value is `$remote_addr`.*
+      3. ***`errors.inc` hardcodes the portal's hostname.** `@denied` returns a
+         302 to `https://portal.apps.example.local/denied`, and `errors.inc` is
+         included by the portal *and* by every block `render_apps_conf` generates
+         — so on any deployment that is not the lab, every refused user is sent
+         to a host that does not exist. Worse than the bug: two comments
+         (`10-portal.conf`, `oauth2-proxy.cfg`) enumerate where the lab domain is
+         written and both say three files. It is five —  those two, the realm
+         export, `errors.inc`, and `PORTAL_ORIGIN` in `docker-compose.yml`. A
+         number written in two places that disagree is the failure the change
+         propagation table exists to prevent, in the table's own file.*
+      4. ***`certs/` is not in `.dockerignore`.** `nginx/Dockerfile` and
+         `keycloak/Dockerfile` both build from the repository root, so
+         `certs/wildcard.key` is sent to the daemon on every build. No `COPY`
+         puts it in a layer, so nothing leaks into an image — but "secrets are
+         never baked, the certificate is the one mount" is the rule, and handing
+         the private key to the build is not it. `dist/` is not excluded either,
+         which sends a whole saved-image tarball as build context.*
+
 ---
 
 ## Later
