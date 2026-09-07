@@ -53,6 +53,31 @@ ister. VPN'in yerine geçiyor; kurulumu VPN'den hafif değil, yaşatması hafif.
 [INSTALL.md](INSTALL.md) v1 için tamamlandı; içindeki her adım akıl yürütülerek
 değil, laboratuvarda çalıştırılarak yazıldı.
 
+## Çalıştırmak
+
+Dört adım; [INSTALL.md](INSTALL.md) aynı dört adımın her birinde ne ters
+gidebileceğiyle birlikte:
+
+```sh
+mkdir certs            # *.$APPS_DOMAIN kapsayan wildcard sertifika        §1
+cp .env.example .env   # APPS_DOMAIN, parolalar, iki client secret         §3
+docker compose build
+docker compose up -d
+```
+
+Argümansız `up`, bir sürümün oluştuğu altı servisi başlatır; lab dizini ve iki
+örnek uygulama `--profile lab` arkasında durur, adıyla istenmedikçe kalkmaz
+([ADR-0023](docs/adr/0023-versioning-and-release.md)). Veritabanı şemasını
+kimse uygulamıyor — backend `backend/migrations/`'ı açılışta kendi çalıştırıyor
+ve görmediği bir şemaya hizmet vermektense çıkıyor; yani ilk kurulum `psql`
+istemiyor, yükseltme de `docker compose up -d`'den ibaret.
+
+İlk açılışta hata gibi görünen ama olmayan iki şey: oauth2-proxy, Keycloak OIDC
+discovery'ye cevap verene kadar yeniden başlıyor (~25 sn), ve kendi imzalı
+sertifikada her tarayıcı uyarı veriyor. **Lab** bir adım daha istiyor: Keycloak
+yerel kullanıcı tutmuyor, kimse giriş yapamadan önce AD fixture'ının çalışması
+gerekiyor ([INSTALL.md](INSTALL.md) §5).
+
 ## Nasıl çalışıyor
 
 ```mermaid
@@ -142,6 +167,60 @@ Yazdığımız iki bileşen: **backend** (yetki kararı, `/api`, audit) ve
 kimlik Keycloak'ta — üçü de hazır, yapılandırma işi.
 
 **Stack:** Rust (axum + sqlx) · Postgres · Redis · nginx · oauth2-proxy · Keycloak · Docker
+
+## Kurumsal ağda
+
+Yük dengeleyici, mevcut bir AD ve güvenlik duvarı varken dört şey operatörün
+sorumluluğunda — ve bu iş genellikle bunlardan birinin yanlış kurulmasıyla
+bozuluyor:
+
+- **Alan adı `APPS_DOMAIN`** — `.env`'de tek değişken; iki `server_name`,
+  oauth2-proxy'nin issuer, redirect, cookie ve whitelist alan adları, realm'ın
+  redirect URI'ı ve backend'in origin kontrolü onu okuyor. İkisi build veya
+  import zamanında okuduğu için değiştirmek yeniden başlatma değil,
+  `docker compose build nginx keycloak` demek. Boş bırakılırsa compose hiçbir
+  şeyi başlatmıyor.
+- **TLS nginx'te sonlanır.** Dengeleyici 443'ü ya geçirir ya nginx'e yeniden
+  şifreler; TLS'i sonlandırıp düz HTTP konuşan bir dengeleyici :443'ü düz metni
+  reddederken, :80'i yayınlanmamış bulur. Ne yaparsa yapsın üç header hayatta
+  kalmalı — `Host`, `X-Forwarded-Proto: https`, ve **eklenerek değil
+  değiştirilerek** yazılan `X-Forwarded-For`; Keycloak listenin ilk girdisini
+  istemci adresi sayıyor ([INSTALL.md](INSTALL.md) §1).
+- **Üç güvenlik duvarı yönü, ve atlanan üçüncüsü.** Gelen: yalnız 443. Giden:
+  bir domain controller'a LDAPS 636. Ve **kullanıcılar korunan bir uygulamaya
+  doğrudan erişememeli** — `X-Auth-*` ile header'ın kendisi kimlik doğrulaması
+  olduğu için, erişilebilir bir upstream portu bilgi sızıntısı değil, kimliğe
+  bürünmedir. Sadece proxy'nin adresine izin ver, sonra üçüncü bir makineden
+  sahte header'la test et ([INSTALL.md](INSTALL.md) §7).
+- **Dizin sizin.** Keycloak LDAPS üzerinden salt okunur bağlanıyor;
+  `OpenBerat-` grupları, `ADMIN_GROUP`, `NO_CACHE` ve grup filtresi dizin
+  tarafında ve hiçbiri opsiyonel değil ([INSTALL.md](INSTALL.md) §4).
+
+Dengeleyiciye verilecek bir sağlık ucu yok: `/healthz` ve `/readyz` iç ağda
+duruyor, nginx ikisini de proxy'lemiyor. 443'te TCP kontrolü kullan ya da
+portalın kendisini — oturumsuz istekte Keycloak'a 302 dönüyor, bu da tek bir
+sürecin değil bütün zincirin cevabı.
+
+## Neleri yapmıyor
+
+- **v1'de HA yok.** Tek makine, tek nginx, ve ikincisi yerine provası yapılmış
+  bir break-glass ([ADR-0017](docs/adr/0017-fail-closed-availability.md));
+  birden fazla instance'ı N-06 v1'in dışına koyuyor.
+- **Zaten açık bir WebSocket veya SSE bağlantısı iptalin dışında.** Bir kez,
+  upgrade anında yetkilendiriliyor ve bir daha değil — ölçüldü
+  ([docs/07](docs/07-references.md)). HTTP istekleri sınırlı: AD değişikliği
+  için altı dakika, kill switch için saniyeler
+  ([ADR-0016](docs/adr/0016-n03-revocation-targets.md)). Uzun ömürlü bağlantı
+  değil ([INSTALL.md](INSTALL.md) §8).
+- **Henüz MFA yok, yöneticiler dahil.** Keycloak bunu realm yapılandırmasıyla
+  yapıyor, buradaki hiçbir kod değişmiyor ([docs/03](docs/03-keycloak-ad.md));
+  karar iki yönde de verilmiş değil.
+- **Keycloak hâlâ dev kipinde**, gömülü veritabanıyla. Lab için doğru, yeniden
+  kurulumdan sağ çıkması gereken bir kurulum için yanlış — production biçimi
+  [TODO.md](TODO.md)'de açık bir madde.
+- **Yalnızca web.** SSH ve RDP aynı proxy'nin arkasında Guacamole olarak gelir
+  ([ADR-0001](docs/adr/0001-scope-v1-web-only.md)). Parola kasası yok, cihaz
+  duruşu yok, ajan yok ([docs/06](docs/06-requirements.md)).
 
 ## Dizinler
 

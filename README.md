@@ -53,6 +53,31 @@ nginx. It replaces a VPN; it is not lighter than one to set up, only lighter to
 live with. [INSTALL.md](INSTALL.md) is complete for v1, and every step in it has
 been run on the lab rather than reasoned about.
 
+## Running it
+
+Four steps, and [INSTALL.md](INSTALL.md) is the same four with everything that
+can go wrong in each:
+
+```sh
+mkdir certs            # a wildcard certificate covering *.$APPS_DOMAIN     §1
+cp .env.example .env   # APPS_DOMAIN, the passwords, two client secrets     §3
+docker compose build
+docker compose up -d
+```
+
+`up` with no arguments starts the six services a release consists of; the lab
+directory and the two sample applications sit behind `--profile lab` and stay
+down unless asked for by name ([ADR-0023](docs/adr/0023-versioning-and-release.md)).
+Nobody applies the database schema — the backend runs `backend/migrations/`
+itself at startup and exits rather than serve against a schema it has not seen,
+so a first install needs no `psql` and an upgrade is `docker compose up -d`.
+
+Two things look like failures on a first boot and are not: oauth2-proxy
+restarts until Keycloak answers OIDC discovery (~25 s), and a self-signed
+certificate makes every browser warn. A **lab** needs one more step — Keycloak
+holds no local users, so the AD fixture has to run before anyone can log in
+([INSTALL.md](INSTALL.md) §5).
+
 ## How it works
 
 ```mermaid
@@ -142,6 +167,59 @@ and the **frontend** (the portal). Proxying is nginx, OIDC is oauth2-proxy,
 identity is Keycloak — all three are off the shelf and configured, not written.
 
 **Stack:** Rust (axum + sqlx) · Postgres · Redis · nginx · oauth2-proxy · Keycloak · Docker
+
+## On a corporate network
+
+Behind a load balancer, an existing AD and a firewall, four things are the
+operator's, and getting one of them wrong is the way this is usually broken:
+
+- **The domain is `APPS_DOMAIN`** — one variable in `.env`, read by both
+  `server_name`s, oauth2-proxy's issuer, redirect, cookie and whitelist
+  domains, the realm's redirect URI, and the backend's origin check. Two of
+  those read it at build or import time, so changing it is `docker compose
+  build nginx keycloak` rather than a restart. Unset, compose refuses to start
+  anything.
+- **TLS terminates at nginx.** A balancer passes 443 through or re-encrypts to
+  it; one that terminates TLS and speaks plain HTTP finds :443 refusing
+  plaintext and :80 unpublished. Whatever it does, three headers have to survive
+  it — `Host`, `X-Forwarded-Proto: https`, and an `X-Forwarded-For` that is
+  **replaced rather than appended**, because Keycloak reads the first entry as
+  the client address ([INSTALL.md](INSTALL.md) §1).
+- **Three firewall directions, and the third is the one that is missed.** In:
+  443 only. Out: LDAPS 636 to a domain controller. And **users must not be able
+  to reach a protected application directly** — with `X-Auth-*` a header *is*
+  the authentication, so a reachable upstream port is impersonation and not
+  information disclosure. Allow the proxy's address and nothing else, then test
+  it with a forged header from a third machine ([INSTALL.md](INSTALL.md) §7).
+- **The directory is yours.** Keycloak binds read-only over LDAPS; the
+  `OpenBerat-` groups, `ADMIN_GROUP`, `NO_CACHE` and the group filter are all
+  directory-side, and none of them is optional ([INSTALL.md](INSTALL.md) §4).
+
+There is no health endpoint to hand the balancer: `/healthz` and `/readyz` sit
+on the internal network and nginx proxies neither. Use a TCP check on 443, or
+the portal itself — without a session it answers 302 towards Keycloak, which is
+the whole chain answering rather than one process.
+
+## What it does not do
+
+- **No HA in v1.** One machine, one nginx, and a rehearsed break-glass instead
+  of a second one ([ADR-0017](docs/adr/0017-fail-closed-availability.md)); N-06
+  puts more than one instance outside v1.
+- **An already-open WebSocket or SSE connection is outside revocation.** It is
+  authorised once, at the upgrade, and never again — measured
+  ([docs/07](docs/07-references.md)). HTTP requests are bounded: six minutes for
+  an AD change, seconds for the kill switch
+  ([ADR-0016](docs/adr/0016-n03-revocation-targets.md)). A long-lived connection
+  is not ([INSTALL.md](INSTALL.md) §8).
+- **No MFA yet, including for administrators.** Keycloak does it as realm
+  configuration and no code here would change
+  ([docs/03](docs/03-keycloak-ad.md)); it is decided in neither direction.
+- **Keycloak still runs in dev mode** with the embedded database. Right for a
+  lab, wrong for an install that has to survive a rebuild — the production form
+  is an open item in [TODO.md](TODO.md).
+- **Web only.** SSH and RDP would arrive as Guacamole behind the same proxy
+  ([ADR-0001](docs/adr/0001-scope-v1-web-only.md)). No password vault, no device
+  posture, no agents ([docs/06](docs/06-requirements.md)).
 
 ## Directories
 
