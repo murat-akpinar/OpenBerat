@@ -93,6 +93,11 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       decision against the 11–29 µs a whole decision measures. An instance with
       no live subscription serves no cache hits
 
+- [x] ADR-0032 MFA is required for `ADMIN_GROUP` and for nobody else: the realm
+      export's browser flow asks its members for a TOTP code and enrols them on
+      the first login. Keycloak's condition keys on a role and `ADMIN_GROUP` is
+      a group, so one realm role is mapped onto the group; no code changes
+
 **Phase 0 is closed.** Everything decidable from the design has been decided;
 what remains needs facts about the target environment and is tracked in
 `docs/06-requirements.md`, not here. Phase 1 answers several of them by
@@ -1817,23 +1822,36 @@ serving the person who has to run it.
       minutes, so they came back empty — the instrument expired along with the
       thing it was measuring.*
 
-- [ ] **The management plane is one password deep** — admin MFA, and the open
+- [x] **The management plane is one password deep** — admin MFA, and the open
       question is asked in the wrong shape
-      *`ADMIN_GROUP` membership plus a password is the whole of it. The realm
-      ships `bruteForceProtected` with a lockout, which bounds guessing and does
-      nothing about a password already known — and the account it stands in
-      front of defines applications, maps groups and kills sessions.
-      `docs/06` keeps MFA open as "for everyone at login, or per application".
-      Both are decisions about the whole deployment; the third answer is
-      narrower than either and needs nobody's environment to settle it —
-      **required for `ADMIN_GROUP`, left alone for everyone else.**
-      Per-application MFA is a different question, reads `acr` and is F-21/v2.
-      No code: Conditional OTP is realm configuration (`docs/03`, "MFA"), so the
-      work is an ADR, the realm export and one `INSTALL.md` §4 line. What the
-      ADR has to establish on the lab is the shape of the condition — Keycloak's
-      conditional step keys on a role, and `ADMIN_GROUP` arrives as a group, so
-      the two are bridged or the condition is written differently. The question
-      leaves `docs/06` when the ADR lands.*
+      *[ADR-0032](docs/adr/0032-admin-mfa.md): **required for `ADMIN_GROUP`,
+      left alone for everyone else** — the third answer, the one that needs
+      nobody's environment. No code: a browser flow in the realm export, one
+      `INSTALL.md` §4 line, and the open question leaves `docs/06` as the
+      narrower one it always was (MFA for ordinary users).
+      **The shape the ADR had to establish is a bridge**: Keycloak's condition
+      keys on a role and `ADMIN_GROUP` arrives as a group, so one realm role
+      `openberat-mfa` is mapped onto the group and inherited by every member —
+      membership stays the only thing an operator manages and it stays in AD.
+      Two things in the flow are the decision rather than the mechanism. The
+      admin's OTP form is **REQUIRED, not ALTERNATIVE**: an `ALTERNATIVE` form
+      is skipped for a user with no credential, which is every admin on the
+      first day, so the control would be off exactly when it was switched on.
+      And the other sub-flow carries the **negated** condition, or an admin who
+      also enrolled OTP voluntarily is asked for the same code twice.
+      Verified twice (`docs/07`): built with `kcadm` first, then rebuilt from
+      the export on a wiped Keycloak, which is the run that proves the export
+      rather than the session. Four stages both times — a non-admin untouched
+      (200 / 403, no OTP page), an admin with no credential sent to enrolment,
+      an admin with one challenged and through, and a wrong code leaving no
+      session at all (302), not a session with fewer rights.
+      Four traps, all in `docs/07`; the one that cost most is that the config
+      key is `condUserRole`, not `condition-user-role` — written wrong it is
+      accepted, stored, and silently never true, which reads exactly like a flow
+      that was never bound.
+      The lab's own `ob-login.sh` had to learn the OTP step, which is the
+      consequence the ADR names: a password-only scripted admin login stops at
+      the page now.*
 
 - [ ] **A new application has no acceptance list** — the checks exist, spread
       over four sections

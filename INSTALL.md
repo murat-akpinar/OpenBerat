@@ -328,6 +328,18 @@ are:
   place the two are named together is `docker compose logs backend | grep
   'admin refused'`. Widen the filter to cover the new name in the same edit, or
   leave the variable alone.
+- **The admin group carries a second factor, so `ADMIN_GROUP` and the
+  `openberat-mfa` role have to name the same group.** The realm's browser flow
+  asks members of that role for a TOTP code and enrols them on their first login
+  ([ADR-0032](docs/adr/0032-admin-mfa.md)), so **the first admin login of a new
+  installation needs an authenticator app** — Google Authenticator, FreeOTP,
+  Aegis, any of them. The export maps the role onto `OpenBerat-Admins`; point
+  `ADMIN_GROUP` at your own name and you must map `openberat-mfa` onto that
+  group as well (Keycloak → Groups → *your group* → Role mapping). Nothing
+  reports the mismatch: the management plane keeps working, with one factor.
+  A lost phone is not a lockout — Keycloak's own admin console
+  (`KC_ADMIN_PASSWORD`) deletes the user's OTP credential and the next login
+  enrols again.
 - **Never delete and recreate a prefixed group.** Entitlements match on the name
   (ADR-0008), so a group recreated later under an old name inherits that name's
   entitlements and hands them to everyone in the new group. Renaming is safe; it

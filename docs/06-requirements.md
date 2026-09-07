@@ -92,6 +92,7 @@ answered and write the decision to `docs/adr/`.
 | Which applications break-glass serves | The same ones, generated from the `application` table by the same validators — not a hand-written list | [0030](adr/0030-breakglass-generated-blocks.md) |
 | `worker_shutdown_timeout` | Set to 300 s — `proxy_read_timeout`'s value — in both main configurations, to bound the worker a reload leaves behind. No periodic reload; the N-03 exclusion for upgraded connections stands | [0025](adr/0025-worker-shutdown-timeout.md) |
 | The decision cache with more than one instance | The cache stays in memory on each instance and invalidations are broadcast over the Redis that ADR-0019 already requires; an instance with no live subscription serves no cache hits | [0031](adr/0031-decision-cache-multi-instance.md) |
+| MFA on the management plane | Required for `ADMIN_GROUP` and for nobody else, as TOTP in the realm's browser flow; a realm role mapped onto the group bridges Keycloak's role-keyed condition to a group-keyed grant | [0032](adr/0032-admin-mfa.md) |
 | AD group strategy | `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` | `docs/03`, `docs/07` |
 
 ### 🔴 Needs an answer about the target environment
@@ -116,13 +117,12 @@ network and policy. Phase 1 exists partly to establish them.
       wait for it — a self-signed wildcard is enough there, and the lab needs one
       from its first day because the OIDC redirect and the `Secure` cookie do not
       work over plain HTTP.
-- [ ] MFA: **wanted** (maintainer intent, 2026-09-05) as TOTP — the user scans a
-      QR once and types the code from a phone app (Google Authenticator,
-      FreeOTP…). The basic form is **Keycloak realm configuration only**, no
-      code in this repository (`docs/03`, "MFA"). Still open, and
-      environment-dependent: for everyone at login, or per application — the
-      per-application form reads `acr` and is F-21, v2. When it is switched on
-      is free: config can land in any phase without touching the roadmap.
+- [ ] MFA **for ordinary users** — for everyone at login, or per application.
+      Still environment-dependent and still open; the per-application form reads
+      `acr` and is F-21, v2. The management plane is no longer part of this
+      question: MFA is required for `ADMIN_GROUP` and for nobody else
+      ([ADR-0032](adr/0032-admin-mfa.md)), so what is left here is a decision
+      about somebody else's users, which is why it stays open.
 - [ ] **Do the protected applications strip path parameters?** Tomcat and Jetty
       drop `;jsessionid=…` from a segment, so `/admin;x/` reaches the
       application as `/admin/` while `policy.rs` sees a segment that matches no

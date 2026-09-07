@@ -75,6 +75,10 @@ carries no SID column. A nullable column that nothing ever writes is exactly the
 2. **Change control on deletion and recreation** of prefixed groups, on the AD
    side. This is an operational control, written into the installation
    documentation, not something the software can enforce.
+   Since [ADR-0032](0032-admin-mfa.md) this group carries one more thing: the
+   realm role the browser flow asks a second factor for. The two names have to
+   agree, and no code can check that they do — the backend decides on group
+   names in a header and never sees a Keycloak role.
 3. **`ADMIN_GROUP` defaults to `OpenBerat-Admins`** and is supplied through the
    environment (`docs/02`, "Management plane"). It follows the same convention
    but is deliberately a separate variable, so a customer with a fixed AD naming

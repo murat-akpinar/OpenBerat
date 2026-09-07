@@ -246,7 +246,7 @@ sürecin değil bütün zincirin cevabı.
 | [docs/05-authz-model.md](docs/05-authz-model.md) | Yetkilendirme modeli ve karar kuralları |
 | [docs/06-requirements.md](docs/06-requirements.md) | Gereksinimler ve **açık sorular** |
 | [docs/07-references.md](docs/07-references.md) | **Kaynaklar** — teknik iddiaların dayanağı, doğrulanmış varsayılanlar |
-| [docs/adr/](docs/adr/) | **Alınan kararlar** — 31 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği, denetim saklama süresi, sürümleme, tek bir salt-okunur yönetim ekranı, frontend'de çatı yok, canlı oturumlar, bir path deseninin anlamı, break-glass aynı tablodan, birden fazla instance'ta karar cache'i |
+| [docs/adr/](docs/adr/) | **Alınan kararlar** — 32 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği, denetim saklama süresi, sürümleme, tek bir salt-okunur yönetim ekranı, frontend'de çatı yok, canlı oturumlar, bir path deseninin anlamı, break-glass aynı tablodan, birden fazla instance'ta karar cache'i, yönetim düzleminde MFA |
 | [SECURITY.md](SECURITY.md) | Güvenlik açığı bildirimi — kanallar, cevap süreleri, kapsam, kabul edilmiş sınırlar |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Nasıl katkı verilir — DCO imzası, konvansiyonlar, neler reddedilir |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |

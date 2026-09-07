@@ -3257,6 +3257,55 @@ lock is released, so cancelling the query does not leave the pool damaged.
 rather than firing immediately, which is what stops the awaited pass being run
 twice, and nothing here waits 24 h to watch the second one.
 
+## MFA for the management plane, and the bridge it needed
+
+[ADR-0032](adr/0032-admin-mfa.md) had one thing to establish on the lab: the
+shape of the condition. Keycloak's conditional step keys on a **role** and
+`ADMIN_GROUP` arrives as a **group**, so the bridge is a realm role
+(`openberat-mfa`) mapped onto the group — inherited by every member, so nothing
+is assigned to a user. Built with `kcadm` first, then written into the realm
+export and rebuilt from it.
+
+`verify-adminmfa.sh`, four stages, each a real portal login driven with curl:
+
+| Stage | After the password | `/api/me` | `/api/admin/applications` |
+|---|---|---|---|
+| `labuser`, not in the group | no form — logged in | 200 | 403 |
+| `labadmin`, no OTP credential yet | **OTP enrolment** (QR + secret) | 200 after enrolling | 200 |
+| `labadmin`, credential exists | **OTP challenge**, correct code | 200 | 200 |
+| `labadmin`, wrong code | OTP challenge, still the challenge | **302** | **302** |
+
+The last row is the control: a refused code leaves no session at all, not a
+session with fewer rights.
+
+**Four things the run cost, none of them the design.**
+
+- **The condition's config key is `condUserRole`, not `condition-user-role`.**
+  Written with the wrong name the condition is accepted, stored and silently
+  never true — the first run logged an admin straight in with no OTP page, which
+  looks exactly like a flow that was never bound. `kcadm get
+  authentication/config-description/conditional-user-role` is what settles it.
+- **`kcadm update authentication/flows/<flow>/executions` needs `-n`.** Without
+  it kcadm reads the resource first to merge, gets an array back, and fails with
+  a Jackson deserialisation error; the requirement stays `DISABLED` and the
+  sub-flow is dead.
+- **A sub-flow created by `create …/executions/flow` lands first, not last.** It
+  sat above `Username Password Form`, where the role condition is evaluated
+  before there is a user to have a role — always false, so the admin is never
+  asked. `authentication/executions/<id>/lower-priority` moves it.
+- **A refused OTP is a failed login, and the realm is `bruteForceProtected`.**
+  The stage that tests a wrong code locks the account, and every stage after it
+  reads "password form" instead of what it is measuring. The harness clears
+  `attack-detection/brute-force/users/<id>` between stages, and deletes any
+  existing OTP credential first so that "first login" is really the first.
+
+Two smaller ones. Keycloak's enrolment page carries the raw secret in
+`name="totpSecret"` — the base32 in the QR is that string encoded, so a harness
+computing a code uses the string's bytes as the HMAC key, not a base32 decode.
+And a code already spent on enrolment is refused on the next login, so two
+stages seconds apart have to wait for the next 30 s window: TOTP replay
+protection, not a wrong code.
+
 ## How long a session actually lasts, and what the Live tab counts
 
 Two runs on the lab, because the question had two halves and only one of them
