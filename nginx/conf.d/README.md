@@ -176,3 +176,14 @@ The rules below apply to all of them.
    (`docs/07`): Keycloak sends `no-referrer` and Jenkins sends `same-origin`,
    both stricter than anything the proxy should impose. It is set on the
    portal's own HTML only, where nothing upstream has an opinion.
+21. **`$request` in a `log_format` writes credentials to the access log.** The
+   query string comes with it, and two of the parameters that cross this proxy
+   are secrets: `code` on `/oauth2/callback` and Keycloak's `session_code` on
+   `/login-actions/authenticate`. Both were in the log on every login, in full,
+   and reached the log shipper and the backup with it. `logredact.inc` replaces
+   the two values and `nginx.conf`/`breakglass.conf` log `$safe_request`
+   instead; the rest of the query string is deliberately kept, since `state`,
+   `rd` and `error_description` are what a failed login is diagnosed from. The
+   redaction is defence in depth, not the control that matters — PKCE is
+   (`docs/07`: no verifier, wrong verifier and a replay are each refused).
+   A query parameter added later that carries a token needs a third map.

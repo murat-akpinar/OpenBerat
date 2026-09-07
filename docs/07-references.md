@@ -2194,6 +2194,93 @@ the same age. Verified afterwards on the rebuilt image rather than on a
 `docker cp`'d file — `nginx -t` passes on both `nginx.conf` and
 `breakglass.conf`, and a real login answers `api/me` 200 and Jenkins 200.
 
+### TEST — what a login leaves behind: the logs, the stores, and the logout
+
+Two questions asked in one pass on the lab (`verify-logleak.sh`,
+`verify-codeleak.sh`): does a logout destroy the credential or only stop showing
+it, and does anything a person types or is issued — password, session cookie,
+authorization code, JWT — survive in a place somebody without the session can
+read. The hunt is for the **exact byte string**, taken from `.env` and from the
+live cookie jar, across `docker compose logs` for all six services and across
+the host's `/var/lib/docker/containers/*/*-json.log`, which is where they persist
+after the container is gone.
+
+**Nothing that is a secret is in a log.** Session cookie, the Redis session key,
+`labuser`'s password, a deliberately wrong password submitted as a canary, the
+OIDC client secret, and the Postgres, Keycloak-admin and AD-bind passwords: all
+eight clean, in every service and on disk. The backend, Keycloak, Redis and
+Postgres logs carry no JWT, no `Bearer`, no `password=` and no `Cookie` header —
+including on the error paths, which is where secrets usually get printed: a
+forged `_oauth2_proxy` cookie and a failed password were both fed in first.
+
+**The one thing that was:** nginx logs `"$request"`, and the query string comes
+with it. Every login therefore wrote the OAuth **authorization code** into the
+access log at `/oauth2/callback`, and Keycloak's **`session_code`** at
+`/login-actions/authenticate`. oauth2-proxy logged the callback a second time in
+its own request log.
+
+```
+"GET /oauth2/callback?state=…&session_state=…&iss=…&code=0307490a-8b54-4b58-a397-739c14d96dac.8fe8…"
+```
+
+**How much that code is worth to whoever reads the log — measured, not assumed.**
+The flow is driven to the callback and stopped there so the code is unspent, then
+redeemed at the token endpoint the way a log reader would: with the client secret,
+which is a server-side configuration value, but without the PKCE verifier, which never
+leaves oauth2-proxy.
+
+| Redeeming the logged code with | Keycloak answers |
+|---|---|
+| no `code_verifier` | `invalid_grant` / **PKCE code verifier not specified** |
+| a wrong `code_verifier` | `invalid_grant` / **PKCE verification failed: Code mismatch** |
+| the correct `code_verifier` (positive control) | **accepted** — `access_token` issued |
+| the same code again | `invalid_grant` / **Code not valid** |
+
+`accessCodeLifespan` is 60 s on top of that. So `code_challenge_method = "S256"`
+in `oauth2-proxy.cfg` is the control that matters, and it holds; the log entry is
+a defence-in-depth failure, not an exploitable one. Fixed anyway, in
+`conf.d/logredact.inc` (README rule 21): two `map`s replace the two values and
+the log formats write `$safe_request`. The rest of the query string is kept on
+purpose — `state`, `rd` and `error_description` are what a failed login is read
+from. Re-measured after the rebuild: `code=REDACTED`, `session_code=REDACTED`,
+zero live values in either service, and a login still answers `api/me` 200.
+oauth2-proxy has no redaction of its own and nginx already logs every request it
+sees, so its duplicate went with `request_logging = false` — `auth_logging` keeps
+`[AuthSuccess]` and the startup errors `INSTALL.md` §"oauth2-proxy" sends people
+to are untouched. What is left that *looks* like a token is `client_data=eyJ…` on
+the Keycloak login-action URL: base64 JSON holding `redirect_uri`,
+`response_type` and `state`, no credential.
+
+**The stores hold no more than the logs.** The oauth2-proxy session in Redis is
+ciphertext — no readable JWT in the stored value. `audit_event` is
+sub / name / application / decision / reason / path / IP / request-id, with no
+column that could hold a token, and the frontend uses no `localStorage`,
+`sessionStorage` or `document.cookie`, so `/api/me`'s five fields
+(`admin`, `email`, `groups`, `sub`, `username`) are all the browser ever holds
+besides the cookie.
+
+**Logout destroys the credential rather than hiding it**, which the logout test
+above establishes step by step; this run adds the replay. The pre-logout cookie
+was copied to a jar the logout never touched and used afterwards: `/api/me`
+**302** and the Jenkins vhost **302**, the Redis key `exists=1 → 0`, the session
+index 4 → 3 with the user's other sessions deliberately untouched.
+
+**Where the browser's copy of the cookie is cleared is worth knowing.**
+`POST /api/logout` does **not** clear it: the backend calls oauth2-proxy's
+`/oauth2/sign_out` server-to-server, so the `Set-Cookie` that clears it is
+addressed to the backend and the 204 carries none. The navigation `portal.js`
+performs next — `location.href = /oauth2/sign_out?rd=%2F` — is what clears it,
+`_oauth2_proxy=; Max-Age=0; HttpOnly; Secure; SameSite=Lax`. Measured on the jar:
+1 cookie after login, still 1 after the POST, **0** after the navigation. Nothing
+is exposed by the gap — the session is already destroyed server-side and the
+value is dead — but a client that only POSTs and never navigates keeps a dead
+cookie for `cookie_expire`, 168 h.
+
+**No session fixation on the way in.** An attacker-chosen
+`_oauth2_proxy=ATTACKER-PLANTED` planted in the jar before the login was replaced
+by a server-minted value, and a second login in the same jar minted a fresh one
+again.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is
