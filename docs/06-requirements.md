@@ -86,6 +86,7 @@ answered and write the decision to `docs/adr/`.
 | Audit retention | The operator sets `AUDIT_RETENTION_MONTHS` (default 12); a month is dropped whole | [0022](adr/0022-audit-retention.md) |
 | Versioning and what a release is | One semver for the whole product, from `backend/Cargo.toml`; the release is one tarball holding the tagged source and every image | [0023](adr/0023-versioning-and-release.md) |
 | Admin screens | None in v1 — administration is `/api/admin/*`, driven the way `INSTALL.md` §6 shows | [0024](adr/0024-no-admin-ui-in-v1.md) |
+| `worker_shutdown_timeout` | Set to 300 s — `proxy_read_timeout`'s value — in both main configurations, to bound the worker a reload leaves behind. No periodic reload; the N-03 exclusion for upgraded connections stands | [0025](adr/0025-worker-shutdown-timeout.md) |
 | AD group strategy | `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` | `docs/03`, `docs/07` |
 
 ### 🔴 Needs an answer about the target environment
@@ -166,15 +167,6 @@ network and policy. Phase 1 exists partly to establish them.
       [ADR-0015](adr/0015-single-parent-domain.md) is why it may not wait: with
       a shared session cookie, a compromised protected application is a
       realistic path to the rest of the system.
-- [ ] **Should `worker_shutdown_timeout` be set, and to what?** Measured
-      (`docs/07`): it is the only lever short of restarting nginx that reaches a
-      WebSocket already up, and without it ADR-0011's reload-per-application-change
-      leaves one `shutting down` worker behind per reload while such a connection
-      is open. Setting it bounds both — but it also bounds *ordinary* reloads, so
-      the value is a trade between how long a revoked long-lived connection may
-      survive and how abruptly a normal config change cuts requests in flight.
-      An ADR, not a config tweak, because it changes what
-      [ADR-0016](adr/0016-n03-revocation-targets.md) excludes.
 - [ ] **Nothing reconciles the group claim against AD.** F-03 and F-12 both
       derive authorisation from AD group membership, but measured (`docs/07`)
       the `groups` claim is AD's `memberOf` **union** whatever groups Keycloak

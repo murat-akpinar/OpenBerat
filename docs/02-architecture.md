@@ -315,15 +315,21 @@ connection. The candidates, none of them free:
 | Option | Effect | Cost |
 |---|---|---|
 | `proxy_read_timeout` | Cuts **idle** long-lived connections only | Does not cover the case that matters |
-| `worker_shutdown_timeout` + a periodic reload | Old workers are killed after the timeout, so every connection is bounded | Reload side effects, worker churn; a blunt instrument |
+| `worker_shutdown_timeout` + a periodic reload | Old workers are killed after the timeout, so every connection is bounded | Reload side effects, worker churn; a blunt instrument — and the arithmetic says it would not deliver N-03 anyway ([ADR-0025](adr/0025-worker-shutdown-timeout.md)) |
 | Re-authorisation inside the upstream application | Correct and precise | Not something a proxy can impose; the upstream has to cooperate |
 
 **Decision: v1 sets `proxy_read_timeout` below the N-03 target (300 s,
 ADR-0016) and states the limitation rather than hiding it** — an idle
 connection is cut, a busy one is not. Revocation on active WebSocket/SSE connections is **explicitly outside the
 N-03 guarantee** (ADR-0016), and the Phase 1 measurement exists to show exactly
-how large the gap is. If it turns out to matter, the `worker_shutdown_timeout`
-route is the next step.
+how large the gap is.
+
+`worker_shutdown_timeout` is set, at the same 300 s, but it does **not** narrow
+that exclusion: it bounds the worker a reload leaves behind, not the connection,
+so a connection is cut only when a reload happens to fall under it. The periodic
+reload that would bound every connection was measured against N-03 and rejected
+— the reconnect re-enters a session that can still be 330 s stale, putting the
+worst case near 630 s ([ADR-0025](adr/0025-worker-shutdown-timeout.md)).
 
 ## Data model
 

@@ -173,6 +173,23 @@ jobs:
           print('\n'.join(bad) if bad else 'every auth_request location answers from the content phase')
           sys.exit(1 if bad else 0)
           EOF
+      # `worker_shutdown_timeout` is main-context, so unlike the TLS and header
+      # settings it cannot live in a shared include: it is written twice, and
+      # the two copies have to agree (ADR-0025).
+      - run: |
+          python3 - <<'EOF'
+          import pathlib, re, sys
+
+          found = {}
+          for name in ('nginx/nginx.conf', 'nginx/breakglass.conf'):
+              m = re.search(r'^\s*worker_shutdown_timeout\s+(\S+);',
+                            pathlib.Path(name).read_text(), re.M)
+              found[name] = m.group(1) if m else None
+          if None in found.values() or len(set(found.values())) != 1:
+              print(f'worker_shutdown_timeout must be set, to the same value, in both: {found}')
+              sys.exit(1)
+          print(f'worker_shutdown_timeout {next(iter(found.values()))} in both configurations')
+          EOF
 
   frontend:
     name: frontend

@@ -153,11 +153,15 @@ The rules below apply to all of them.
    goes to `worker process is shutting down` and keeps serving its open
    connections under the **old** configuration — measured across two reloads,
    the same PID still shutting down 133 s later with a live connection on it
-   (`docs/07`). `worker_shutdown_timeout` is unset and nginx's default is no
-   timeout, so one worker accumulates per reload for as long as any long-lived
-   connection is open. Two things follow: a policy change does not reach a
-   connection that is already up (ADR-0016 states this; it is measured), and a
-   busy admin session can grow the worker count without bound.
+   (`docs/07`). nginx's default is no timeout at all, so one worker would
+   accumulate per reload for as long as any long-lived connection is open;
+   `worker_shutdown_timeout 300s` in `nginx.conf` and `breakglass.conf` bounds
+   it (ADR-0025). Two things still follow: a policy change does not reach a
+   connection that is already up (ADR-0016 states this; it is measured), and the
+   value only reaches workers **started** under it — measured, a worker already
+   shutting down when the value was set was still there 102 s later, so the
+   first reload after such a change still leaves one behind. It is main-context,
+   so it cannot live in an include here; CI checks the two copies agree.
 19. **`add_header` is inherited by replacement, not by merge.** A location that
    sets one header of its own loses **every** header defined above it, silently
    and with `nginx -t` reporting success. The three places that relay the

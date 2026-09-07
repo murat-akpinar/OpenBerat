@@ -56,7 +56,11 @@ a single bad record in the admin UI into an internal-network redirect hole.
   admin can add an application but cannot create name resolution. This goes in
   the installation documentation.
 - Open connections survive a reload (nginx behaviour), but frequent reloads pile
-  up workers; reloads are debounced.
+  up workers; reloads are debounced. Measured, that pile-up is unbounded while a
+  long-lived connection is open — one worker per reload, none of them leaving —
+  which is what [ADR-0025](0025-worker-shutdown-timeout.md) bounds. The debounce
+  is now the other half of that bound: it limits how many reloads can land
+  inside one 300 s window.
 - **The file is rendered at every backend start, not only when a row changes.**
   It is a pure function of the table, so nothing is lost by writing it again —
   and it is what makes the shared volume derived state rather than state:

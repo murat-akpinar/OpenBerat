@@ -542,7 +542,11 @@ seconds ([ADR-0016](docs/adr/0016-n03-revocation-targets.md)). **An already-open
 WebSocket or SSE connection is outside that.** It is authorised once, at the
 upgrade, and never again; measured in the lab, one carrying steady traffic ran
 for another eight minutes after its group was removed, and neither the kill
-switch nor an nginx reload touched it (`docs/07`). `proxy_read_timeout` bounds
+switch nor an nginx reload touched it (`docs/07`). A reload does cut such a
+connection 300 s later — that is `worker_shutdown_timeout`
+([ADR-0025](docs/adr/0025-worker-shutdown-timeout.md)) — but only when a reload
+happens to fall under it, which is a side effect of an admin editing an
+application, not a revocation you can ask for. `proxy_read_timeout` bounds
 only *idle* connections — and only bounds them: one was cut at 300 s in the lab,
 but the reconnect that follows is authorised against a session that can still be
 stale, so even an idle connection sits nearer ten minutes than six.

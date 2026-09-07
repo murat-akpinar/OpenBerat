@@ -2155,6 +2155,45 @@ pattern that will not decode) whose only fail-closed answer is to match
 everything, which is an outage. The boundary has no such problem — it can
 refuse. Nothing is released yet, so there are no stored rows to migrate.
 
+### MEASURE — `worker_shutdown_timeout`, and the reload it does not reach
+
+The open question `docs/06` carried since Phase 1 — should it be set, and to
+what ([ADR-0025](adr/0025-worker-shutdown-timeout.md)). Measured on the lab with
+a throwaway vhost carrying no `auth_request` (`verify-shutdown.sh`,
+`99-wsq.conf`), because the claim is about how long a retired worker keeps
+serving an upgraded connection and that does not depend on who authorised it.
+Three connections, one per configuration, each trading a frame a second.
+
+| Configuration the worker started under | Retired by a reload at | Worker gone | Connection died |
+|---|---|---|---|
+| unset (the committed configuration) | 05:08:53 | **never** — still shutting down at 05:16, 7 min later | still alive |
+| `worker_shutdown_timeout 20s` | 05:10:12 | 05:10:32, **+20 s** | +22 s |
+| `worker_shutdown_timeout 300s` | 05:11:08 | 05:16:10, **+302 s** | +302 s |
+
+**The finding is the middle row of the first column.** Setting the directive and
+reloading does not reach a worker that is *already* shutting down: at 05:09:26
+the value was set to 20 s and nginx reloaded, and worker 8207 — retired at
+05:08:53 under the unset configuration — was still there at 05:10:35, **102 s
+later**, with its connection alive at 107 exchanges. Meanwhile worker 8285,
+started under the 20 s value, was killed 20 s after the reload that retired it.
+The timer is read from the configuration the worker was *started* with, not the
+one live when it is retired. So the first reload after this change still leaves
+one unbounded worker behind, and existing ones survive it: `docker compose up -d
+nginx` clears them, a reload does not.
+
+**What it costs an ordinary reload: nothing measurable.** 120 requests to the
+portal spanning two reloads with the value set — 120 × 302, no failures, no
+dropped connections. The first attempt at that measurement read 50 × 302 and
+**350 × 429**: unpaced, it was not measuring the reload at all but the 5 r/s
+login-flow zone in `00-auth.conf`, the same limit the load test found
+(`docs/06`, N-07). Paced under it, the reload is invisible.
+
+The value is `proxy_read_timeout` on protected locations, deliberately
+(ADR-0025): one duration, so a reloaded connection and an idle one are cut at
+the same age. Verified afterwards on the rebuilt image rather than on a
+`docker cp`'d file — `nginx -t` passes on both `nginx.conf` and
+`breakglass.conf`, and a real login answers `api/me` 200 and Jenkins 200.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is

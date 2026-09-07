@@ -100,6 +100,11 @@ t+300.002 s and the talking one was still trading frames at t+420 s.
 - **A reload is not a revocation, and it is not free either.** ADR-0011
   regenerates the application blocks and reloads nginx; each reload leaves one
   worker in `shutting down`, serving the old configuration, for as long as a
-  long-lived connection stays open. `worker_shutdown_timeout` would bound both —
-  it is the only lever measured to work short of a restart — and it is an open
-  question in `docs/06` because it also bounds ordinary reloads.
+  long-lived connection stays open. `worker_shutdown_timeout` bounds that
+  worker, and [ADR-0025](0025-worker-shutdown-timeout.md) sets it to 300 s — the
+  same value as `proxy_read_timeout`, so nothing is cut sooner than this
+  configuration already allowed. **It does not narrow the exclusion above.** A
+  connection is only cut if a reload happens to fall under it, and the periodic
+  reload that would bound every connection was rejected in that ADR: the client
+  reconnects into a session that can still be 330 s stale, so the worst case is
+  near 630 s and N-03 would not hold for upgraded connections either way.

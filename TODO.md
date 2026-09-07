@@ -47,6 +47,11 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       driven the way `INSTALL.md` §6 shows — every endpoint exists, and the
       one screen worth building (audit + `explain`) is worth building on top
       of a v1 people already run
+- [x] ADR-0025 `worker_shutdown_timeout 300s` in both main configurations —
+      the reload ADR-0011 performs on every application change leaves a worker
+      behind for as long as an upgraded connection lives, and unset there is no
+      bound at all. No periodic reload: it would not deliver N-03 for those
+      connections anyway, so the exclusion stands
 
 **Phase 0 is closed.** Everything decidable from the design has been decided;
 what remains needs facts about the target environment and is tracked in
