@@ -16,6 +16,12 @@ location @signin {
     proxy_set_header X-Auth-Request-Redirect $scheme://$host$request_uri;
     proxy_set_header Host              $host;
     proxy_set_header X-Forwarded-Proto $scheme;
+    # oauth2-proxy runs with `reverse_proxy = true`, so it reads X-Forwarded-For
+    # for the address on its [AuthFailure] lines — the client's own copy would
+    # otherwise be the one it believes (rule 24).
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Host  $host;
+    proxy_set_header X-Forwarded-Port  443;
     # The trailing `?` drops the original query string; without it nginx
     # appends it and the injection is back.
     rewrite ^ /oauth2/start? break;

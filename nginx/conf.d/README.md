@@ -225,3 +225,20 @@ The rules below apply to all of them.
    never sees it: each call is an oauth2-proxy hop, a Redis write (the ADR-0019
    session index) and, on `/api/apps`, an uncached join. It carries the same
    zone now.
+24. **Pin the whole `X-Forwarded-*` family on every hop, and never
+   `$proxy_add_x_forwarded_for`.** Rule 3 strips the family the *backend*
+   trusts; this is the family the *upstream* trusts, and it was pinned by
+   halves. nginx forwards every header no directive overwrites, so
+   `X-Forwarded-Host`, `-Port` and `-Prefix` reached the application as the
+   client wrote them — and an application that builds an absolute URL out of
+   `X-Forwarded-Host` (a password-reset link, an OAuth `redirect_uri`, a cache
+   key) builds it out of an attacker's string. `X-Original-URL` and
+   `X-Rewrite-URL` are cleared on the two hops that reach somebody else's
+   application (`protected.inc`, `breakglass/upstream.inc`): a framework that
+   honours either re-routes off a client header, which is the PEP deciding one
+   path and the upstream serving another. `$proxy_add_x_forwarded_for` **keeps**
+   what the client sent and appends to it, so the leftmost entry — the one every
+   reader takes as the client — is attacker-chosen; Keycloak reads exactly that
+   one (`KC_PROXY_HEADERS=xforwarded`), which put a forged source address on
+   every login event it records. nginx is the only edge here, so the value is
+   `$remote_addr`. CI checks every location that writes a `proxy_set_header`.

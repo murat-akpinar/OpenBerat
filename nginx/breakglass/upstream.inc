@@ -26,10 +26,19 @@ proxy_set_header Cookie "";
 # curl rather than by reading a compose file over someone's shoulder.
 add_header X-OpenBerat-Breakglass "active" always;
 
+# Pinned for the reason the X-Auth-* names above are cleared: break-glass gives
+# up authorisation and nothing else, so what the upstream is told about the
+# request must still come from this proxy rather than from the client
+# (protected.inc says the rest).
 proxy_set_header Host              $host;
 proxy_set_header X-Real-IP         $remote_addr;
-proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-For   $remote_addr;
 proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-Host  $host;
+proxy_set_header X-Forwarded-Port  443;
+proxy_set_header X-Forwarded-Prefix "";
+proxy_set_header X-Original-URL     "";
+proxy_set_header X-Rewrite-URL      "";
 proxy_http_version 1.1;
 proxy_set_header Upgrade    $http_upgrade;
 proxy_set_header Connection $connection_upgrade;

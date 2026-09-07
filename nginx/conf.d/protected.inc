@@ -58,10 +58,30 @@ proxy_set_header X-Auth-Request-Redirect "";
 # application's own cookies do.
 proxy_set_header Cookie $upstream_cookie;
 
+# --- Feature Start ---
+# The same rule as the strip above, applied to the family nobody strips: nginx
+# forwards every header it is not told to overwrite, so `X-Forwarded-Host` and
+# `X-Forwarded-Port` arrive as the client wrote them unless they are pinned
+# here. An upstream that builds an absolute URL out of them — a password-reset
+# link, an OAuth `redirect_uri`, a cache key — builds it out of an attacker's
+# string, and ADR-0021's contract is that it trusts what this proxy tells it.
+# `$proxy_add_x_forwarded_for` is not the value: it *keeps* what the client
+# sent and appends to it, so the leftmost entry, the one every reader takes as
+# the client, is attacker-chosen. nginx is the only edge here (docs/02), so the
+# client address is `$remote_addr` and nothing else.
 proxy_set_header Host              $host;
 proxy_set_header X-Real-IP         $remote_addr;
-proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-For   $remote_addr;
 proxy_set_header X-Forwarded-Proto $scheme;
+proxy_set_header X-Forwarded-Host  $host;
+proxy_set_header X-Forwarded-Port  443;
+# Not forwarded at all. A framework that honours any of these re-routes off a
+# client header, which is the PEP deciding one path and the upstream serving
+# another (docs/05, "Path normalisation" — same failure, a different door).
+proxy_set_header X-Forwarded-Prefix "";
+proxy_set_header X-Original-URL     "";
+proxy_set_header X-Rewrite-URL      "";
+# --- Feature End ---
 
 # WebSocket and SSE. Authorised once, at the upgrade — see below.
 proxy_http_version 1.1;

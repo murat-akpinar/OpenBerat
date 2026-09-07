@@ -166,6 +166,70 @@ jobs:
           print('\n'.join(bad) if bad else 'every auth_request location answers from the content phase')
           sys.exit(1 if bad else 0)
           EOF
+      # nginx forwards every header it is not told to overwrite, so a header no
+      # location pins is one the client writes for the upstream. `nginx -t` has
+      # nothing to say about it and neither did any test (rule 24).
+      - run: |
+          python3 - <<'EOF'
+          # nginx forwards every header it is not told to overwrite, so a header this
+          # proxy does not pin is a header the client writes for the upstream. The
+          # X-Auth-* family is stripped with care in four files; the X-Forwarded-* one
+          # was pinned by halves (rule 24).
+          import pathlib, re, sys
+
+          conf = pathlib.Path('nginx/conf.d')
+          inc = {p.name: p.read_text() for p in conf.glob('*.inc')}
+
+          def expand(text, seen=()):
+              def sub(m):
+                  name = m.group(1)
+                  if name in seen or name not in inc:
+                      return ''
+                  return expand(inc[name], seen + (name,))
+              return re.sub(r'include\s+/etc/nginx/conf\.d/([\w.-]+);', sub, text)
+
+          def blocks(text):
+              for m in re.finditer(r'^\s*(location\s[^{]*)\{', text, re.M):
+                  depth, i = 1, m.end()
+                  while depth and i < len(text):
+                      depth += (text[i] == '{') - (text[i] == '}')
+                      i += 1
+                  yield m.group(1).strip(), text[m.end():i - 1]
+
+          def bodies(path):
+              text = expand(path.read_text())
+              return list(blocks(text)) or [(path.name, text)]
+
+          # Every hop pins all four: the two a client can forge into an absolute URL
+          # (Host, Port) as much as the two that were already there.
+          PINNED = ('X-Forwarded-For', 'X-Forwarded-Host', 'X-Forwarded-Port', 'X-Forwarded-Proto')
+          # The two hops that reach somebody else's application. These names are not
+          # forwarded at all: a framework that honours them re-routes off a client header.
+          THIRD_PARTY = {'protected.inc', 'upstream.inc'}
+          CLEARED = ('X-Forwarded-Prefix', 'X-Original-URL', 'X-Rewrite-URL')
+
+          bad = set()
+          files = sorted([*conf.glob('*.conf'), *conf.glob('*.inc'),
+                          *pathlib.Path('nginx/breakglass').glob('*.inc')])
+          for path in files:
+              # Comments off first: this file explains why the appending form is wrong,
+              # and a check that cannot read its own rationale flags the rule that states it.
+              if '$proxy_add_x_forwarded_for' in re.sub(r'#.*', '', path.read_text()):
+                  bad.add(f'{path.name}: $proxy_add_x_forwarded_for keeps what the client sent; nginx is the only edge, so it is $remote_addr')
+              for header, body in bodies(path):
+                  body = re.sub(r'#.*', '', body)
+                  if 'proxy_set_header' not in body:
+                      continue
+                  for name in PINNED:
+                      if not re.search(rf'proxy_set_header\s+{name}\s', body, re.I):
+                          bad.add(f'{path.name}: `{header}` shapes an upstream request and does not pin {name}')
+                  if path.name in THIRD_PARTY:
+                      for name in CLEARED:
+                          if not re.search(rf'proxy_set_header\s+{name}\s+""', body, re.I):
+                              bad.add(f'{path.name}: `{header}` reaches a third-party upstream and does not clear {name}')
+          print('\n'.join(sorted(bad)) if bad else 'every upstream hop pins the whole X-Forwarded-* family')
+          sys.exit(1 if bad else 0)
+          EOF
       # `worker_shutdown_timeout` is main-context, so unlike the TLS and header
       # settings it cannot live in a shared include: it is written twice, and
       # the two copies have to agree (ADR-0025).

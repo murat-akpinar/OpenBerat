@@ -45,6 +45,15 @@ location = /decide {
     proxy_set_header X-Auth-Email    "";
     proxy_set_header X-Auth-Groups   "";
 
+    # The same inheritance, one family over. The PDP reads none of these today,
+    # and that is the whole argument for pinning them now rather than after
+    # something starts to: a client-written header sitting in the request the
+    # decision is made from is a trap set for the next reader.
+    proxy_set_header X-Forwarded-For   $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host  $host;
+    proxy_set_header X-Forwarded-Port  443;
+
     # /decide returns the whole group list in one X-Auth-Groups, and nginx
     # reads a response header block into a single buffer: 4 KB breaks between
     # 100 and 200 groups and auth_request turns the 502 into a 500 for the

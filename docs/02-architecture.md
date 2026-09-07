@@ -189,6 +189,7 @@ original request reaches the backend **only** through the headers nginx passes:
 | `X-Request-Id` | `$request_id` | Correlating the nginx access log with `audit_event` |
 | `Cookie` | from the client | The session cookie to forward to oauth2-proxy. The cache key hashes **only the `_oauth2_proxy` cookie's value**, never the whole header (`docs/05`, "Decision cache") |
 | `X-Auth-Request-*`, `X-Auth-*` | **cleared** (`proxy_set_header … "";`) | Not input. They are the *response* side of this contract; inherited copies from the client are removed so the backend cannot read one by accident |
+| `X-Forwarded-For/-Host/-Port/-Proto` | `$remote_addr` / `$host` / `443` / `$scheme` | Not read by the PDP, and pinned for that reason: an inherited client copy sitting in the request a decision is made from is a trap set for the next reader (`nginx/conf.d/README.md` rule 24) |
 
 The application identity comes from the fixed `X-App-Slug` value in nginx's own
 configuration, **not from a client-controlled hostname**: the subrequest

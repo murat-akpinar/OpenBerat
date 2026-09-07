@@ -12,7 +12,15 @@ proxy_pass http://$keycloak:8080;
 
 proxy_set_header Host              $host;
 proxy_set_header X-Real-IP         $remote_addr;
-proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+# --- Feature Start ---
+# `$remote_addr` and not `$proxy_add_x_forwarded_for`, which keeps what the
+# client sent and appends to it. Keycloak runs KC_PROXY_HEADERS=xforwarded and
+# takes the *first* entry as the client address, so the appending form put an
+# attacker-chosen IP on every login event this realm records — successful or
+# failed — on the one host every browser is redirected to. `limit_req` was never
+# affected (it keys on $binary_remote_addr); the record of a password spray was.
+proxy_set_header X-Forwarded-For   $remote_addr;
+# --- Feature End ---
 proxy_set_header X-Forwarded-Proto $scheme;
 proxy_set_header X-Forwarded-Host  $host;
 proxy_set_header X-Forwarded-Port  443;
