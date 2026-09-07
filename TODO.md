@@ -1644,6 +1644,37 @@ serving the person who has to run it.
       The test asserts on every structure that holds a `Key`, not on the one
       that was wrong, so the next side index is caught too.*
 
+- [x] **The group filter closed the spelling it was tested with** — ADR-0008
+      mitigation 1, corrected
+      *`(cn=OpenBerat-*)` was written down as the control for the comma
+      escalation, and the lab measurement behind it used
+      `Payroll,OpenBerat-Admins` — a name the **prefix** clause rejects. Put the
+      prefix in front of the same attack and it passes the same filter:
+      `OpenBerat-Payroll,OpenBerat-Admins` is selected by `(cn=OpenBerat-*)`,
+      enters the claim, and splits into a group nobody granted and `ADMIN_GROUP`.
+      Anyone who can create a group in AD holds the management plane, which is
+      exactly what the ADR says the filter prevents.
+      Measured against OpenLDAP holding all three names: the shipped filter
+      returns the prefixed attack, `(&(cn=OpenBerat-*)(!(cn=*,*)))` does not, and
+      both exclude the unprefixed one. Keycloak imports the two-clause filter and
+      reads it back verbatim. The comma is not special in an LDAP filter string
+      (RFC 4515 escapes `\`, `*`, `(`, `)`, NUL), so the second clause is a plain
+      "contains a comma" test.
+      Changed: the realm export, `INSTALL.md` §4 — which also lost a `'''` that
+      a shell heredoc left in `Keycloak's` — ADR-0008 mitigation 1, a second row
+      in the `docs/05` attack table. The four documents that spelled the filter
+      out only to name its prefix job now say "the group filter" and point at
+      §4, so the string lives in two places instead of six.*
+
+- [ ] **VERIFY:** the corrected group filter, end to end on the lab
+      *Two layers are measured off-lab (LDAP filter semantics, and that Keycloak
+      accepts and stores the two-clause form). The chain between them is not:
+      create `OpenBerat-Payroll,OpenBerat-Admins` in the lab AD, put `labuser` in
+      it, and read the claim, `/api/me` and `/api/admin/applications` — with the
+      shipped filter and with the corrected one, the way the original ADR-0008
+      measurement was run (`docs/07`). Until then the fix is right in the two
+      places it was tested and asserted in the one it was not.*
+
 ---
 
 ## Later

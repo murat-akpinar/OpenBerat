@@ -52,12 +52,23 @@ carries no SID column. A nullable column that nothing ever writes is exactly the
    that single group reached `/api/admin/*` and created a wildcard entitlement
    (`docs/07`, "A comma in a group name is the management plane"). The backend
    cannot detect it — oauth2-proxy flattens the claim array before the request
-   arrives — so the filter, which matches the whole `cn` against `OpenBerat-*`
-   and rejects that name, is the control. An installation that skips it has an
+   arrives — so the filter is the control. An installation that skips it has an
    escalation path, not merely a large token. Verified against a real LDAP
    filter and its control case (`docs/07`): with the filter in place the name is
    in AD, in the user's `memberOf` and absent from the claim; with it emptied
    the same account reaches `/api/admin/*`.
+
+   **The prefix half of that filter is not the whole control, and this ADR said
+   it was.** `(cn=OpenBerat-*)` rejects `Payroll,OpenBerat-Admins` because that
+   name does not carry the prefix — which is the name the measurement used. Put
+   the prefix in front of it and the same attack passes the same filter:
+   `OpenBerat-Payroll,OpenBerat-Admins` is selected by `(cn=OpenBerat-*)`, enters
+   the claim, and splits into a group nobody granted and `ADMIN_GROUP`. Measured
+   against a directory holding all three names (`docs/07`). The filter is
+   `(&(cn=OpenBerat-*)(!(cn=*,*)))` now: the prefix bounds what the claim may
+   name and the second clause is what actually closes the comma. A prefix is a
+   naming convention; the comma is the injection, and only the second clause
+   speaks to it.
 2. **Change control on deletion and recreation** of prefixed groups, on the AD
    side. This is an operational control, written into the installation
    documentation, not something the software can enforce.

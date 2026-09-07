@@ -249,7 +249,7 @@
                   "sAMAccountName"
                 ],
                 "groups.ldap.filter": [
-                  "(cn=OpenBerat-*)"
+                  "(&(cn=OpenBerat-*)(!(cn=*,*)))"
                 ],
                 "mode": [
                   "READ_ONLY"

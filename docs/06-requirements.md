@@ -104,7 +104,7 @@ network and policy. Phase 1 exists partly to establish them.
       claim at all** on the default strategy — denied everything, not granted
       the wrong thing — and `LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY` fixes
       it from the next login, including across intermediate groups the
-      `(cn=OpenBerat-*)` filter excludes.
+      group filter excludes.
 - [ ] **Wildcard certificate: internal CA or Let's Encrypt?** ADR-0015 makes the
       certificate mandatory but not its source. Only the **source** is still
       open: the certificate is never baked into an image, and the renewal path

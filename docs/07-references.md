@@ -3067,3 +3067,35 @@ the daemon on every build.
 pattern is matched against the whole path, not segment by segment, so a bare
 `target/` matches a top-level directory and misses `backend/target/`. The first
 attempt used it and the context did not move.
+
+### The group filter closed the spelling it was tested with
+
+ADR-0008 mitigation 1 was measured on the lab and the measurement was real: with
+`(cn=OpenBerat-*)` on the group mapper, a user in an AD group named
+`Payroll,OpenBerat-Admins` gets a claim without it, and emptying the filter puts
+the name in the next token and `admin: true` in `/api/me`. The name it used
+carries no prefix, and the filter's prefix clause is what rejects it.
+
+Put the prefix in front and the same attack passes the same filter. Measured
+against OpenLDAP holding all three names, `ldapsearch` on `ou=Groups`:
+
+| Filter | Groups returned |
+|---|---|
+| `(cn=OpenBerat-*)` — as shipped | `OpenBerat-Finance`, **`OpenBerat-Payroll,OpenBerat-Admins`** |
+| `(&(cn=OpenBerat-*)(!(cn=*,*)))` | `OpenBerat-Finance` |
+
+`Payroll,OpenBerat-Admins` is excluded by both, which is the row the original
+measurement covered. The comma is not special in an LDAP filter string — RFC
+4515 escapes only `\`, `*`, `(`, `)` and NUL — so `(!(cn=*,*))` is a plain
+substring test for "contains a comma", and it is the clause that speaks to the
+injection. The prefix is a naming convention and says nothing about it.
+
+Keycloak accepts the two-clause filter: the realm export imports clean
+(`Import finished successfully`) and `kcadm get components` reads it back
+verbatim as `['(&(cn=OpenBerat-*)(!(cn=*,*)))']` with `mode: READ_ONLY`
+unchanged.
+
+**Not measured here, and it is a VERIFY:** the end-to-end run on the lab —
+prefixed comma group in AD, `labuser` a member, the claim, `/api/me` and
+`/api/admin/applications` — the way the original was measured. Two layers are
+proved off-lab; the chain between them is not.

@@ -76,7 +76,7 @@ is a member of `OpenBerat-Finance`, a user in `Finance-All` does not see
 so a nested-group directory left on this strategy denies everything rather than
 granting the wrong thing. `LOAD_GROUPS_BY_MEMBER_ATTRIBUTE_RECURSIVELY` put the
 parent group in the very next token, with one field changed and no restart — and
-it resolved *across* `Finance-All`, which the `(cn=OpenBerat-*)` filter excludes.
+it resolved *across* `Finance-All`, which the group filter excludes.
 The filter bounds what the claim can name, not what the resolution may cross.
 The performance cost is real but was not measured; the lab fixture is too small
 to show it.
@@ -124,7 +124,7 @@ next token, one removed is gone from it, with no sync and no restart.
 
 **But the claim is a union, not a projection of `memberOf`.** A group assigned
 to the user *inside* Keycloak lands in it too, with nothing in AD to support it,
-and neither `READ_ONLY` nor the `(cn=OpenBerat-*)` filter reaches that path.
+and neither `READ_ONLY` nor the group filter reaches that path.
 Since `ADMIN_GROUP` is matched on this claim by name, reading AD does not tell
 you who holds admin here — see the open question in `docs/06`.
 

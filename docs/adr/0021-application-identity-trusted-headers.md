@@ -79,7 +79,7 @@ a signature is the only thing that still holds.
   comma-joined in one header and the application splits the same string the
   backend does ([ADR-0008](0008-group-identity-name.md), mitigation 1), so an
   application deriving its own roles from `X-Auth-Groups` inherits the escalation
-  the `(cn=OpenBerat-*)` filter is the control for. The filter now protects two
+  the group filter is the control for. The filter now protects two
   consumers, not one.
 - **What arrives is not the AD group list.** Measured: oauth2-proxy's
   `keycloak-oidc` provider appends Keycloak realm and client roles as `role:`

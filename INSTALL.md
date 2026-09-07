@@ -32,13 +32,18 @@
   login, and nothing bounds the delay. Like the missing `cookie_refresh`, it
   does not fail — it keeps working on entitlements that no longer track AD
   (ADR-0006).
-- **A group filter on Keycloak'''s LDAP group mapper**, matching the
-  `OpenBerat-` prefix — e.g. `(&(objectClass=group)(cn=OpenBerat-*))`. This is
-  not tidiness. Group names reach the backend joined with commas, so a group
-  *named* `Payroll,OpenBerat-Admins` arrives as two names and the second one is
+- **A group filter on Keycloak's LDAP group mapper**, matching the
+  `OpenBerat-` prefix **and excluding any name with a comma in it** —
+  `(&(objectClass=group)(cn=OpenBerat-*)(!(cn=*,*)))`. This is not tidiness.
+  Group names reach the backend joined with commas, so a group *named*
+  `Payroll,OpenBerat-Admins` arrives as two names and the second one is
   `ADMIN_GROUP`; the filter is what stops such a name from ever entering the
-  claim (ADR-0008, `docs/07`). Without it, anyone who can create a group in AD
-  can grant themselves the management plane. Widening it is not undone by
+  claim (ADR-0008, `docs/07`). **The prefix half alone is not enough, and this
+  document used to say it was:** `OpenBerat-Payroll,OpenBerat-Admins` carries
+  the prefix, passes `(cn=OpenBerat-*)` and splits exactly the same way —
+  measured against a directory in `docs/07`. Both halves are needed. Without
+  them, anyone who can create a group in AD can grant themselves the management
+  plane. Widening it is not undone by
   narrowing it again: the groups it excludes are **imported into Keycloak**
   while it is wide and stay there afterwards, so they have to be deleted by
   hand.
@@ -230,7 +235,7 @@ are:
 
 They are in `keycloak/realm/openberat-realm.json`: three on the `ad ldap`
 provider component, one on its `openberat-groups` mapper. Everything else there
-— the disabled-account filter, `NO_CACHE`, the `(cn=OpenBerat-*)` group filter,
+— the disabled-account filter, `NO_CACHE`, the group filter (§4),
 the group strategy — is verified against the lab directory (`docs/03`,
 `docs/07`) and is not yours to adjust.
 
