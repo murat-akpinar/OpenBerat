@@ -10,7 +10,8 @@
 //   docker run --rm -d -p 56379:6379 redis:7-alpine
 //   DATABASE_URL=postgres://openberat:test@localhost:55432/openberat \
 //     REDIS_URL=redis://127.0.0.1:56379 cargo test
-// Without them the test skips loudly rather than failing.
+// Without them this fails rather than skipping: cargo captures a passing
+// test's output, so a skip reads as `1 passed` with 2600 lines unrun.
 
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -31,8 +32,9 @@ fn no_redirects() -> reqwest::Client {
         .unwrap()
 }
 
-async fn fresh_db() -> Option<PgPool> {
-    let url = std::env::var("DATABASE_URL").ok()?;
+async fn fresh_db() -> PgPool {
+    let url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL is not set; the header of this file says how to get one");
     let pool = PgPool::connect(&url)
         .await
         .expect("connect to DATABASE_URL");
@@ -46,7 +48,7 @@ async fn fresh_db() -> Option<PgPool> {
         .run(&pool)
         .await
         .expect("0001_init.sql applies to an empty database");
-    Some(pool)
+    pool
 }
 
 async fn insert_app(pool: &PgPool, slug: &str) -> Uuid {
@@ -82,10 +84,7 @@ async fn insert_audit(pool: &PgPool, app: Uuid, ts: &str) -> Result<(), sqlx::Er
 // giving each its own Postgres schema and a search_path on the pool.
 #[tokio::test]
 async fn backend_against_postgres() {
-    let Some(pool) = fresh_db().await else {
-        eprintln!("SKIPPED backend_against_postgres: DATABASE_URL is not set");
-        return;
-    };
+    let pool = fresh_db().await;
     schema_section(&pool).await;
     store_section(&pool).await;
     decide_section(&pool).await;
