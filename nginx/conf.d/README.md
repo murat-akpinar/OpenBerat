@@ -8,13 +8,14 @@ authorisation decision. Reference pattern and verified details:
 |---|---|---|
 | `openberat.conf` | The `:80` → `:443` redirect and the default `server`, which answers 404 | now |
 | `00-auth.conf` | http-level only: the `map` that strips the session cookie, and the WebSocket upgrade map | now |
-| `10-portal.conf` | Portal and admin: frontend static files, `/api/*` → backend — **and the two anonymous hosts**, `/oauth2/*` and Keycloak's `/realms/` + `/resources/` | now, minus `/api/*` |
+| `10-portal.conf` | Portal and admin: frontend static files, `/api/*` → backend — **and the two anonymous hosts**, `/oauth2/*` and Keycloak's `/realms/openberat/` + `/resources/` | now, minus `/api/*` |
 | `generated/apps.conf` | Protected applications (`*.apps.<domain>`) → upstream. **Not in this repository**: the backend renders it from the `application` table into a shared volume, and the loop in `docker-entrypoint.d/40-generated-reload.sh` installs it (ADR-0011) | now |
 | `errors.inc` | `@signin`, `@denied`, and the `/unavailable.html` location — included at **server** level | now |
 | `decide.inc` | `location = /decide` — included at **server** level | now |
 | `protected.inc` | `auth_request` and the whole header rewrite — included inside a **location** | now |
 | `tls.inc` | The certificate and the TLS floor, at **http** level — one wildcard serves every host, so no `server` block carries a copy | now |
 | `security.inc` | The response headers every host serves, at **http** level and re-included in each location that writes an `add_header` of its own | now |
+| `keycloak.inc` | The Keycloak upstream and its `X-Forwarded-*` set — included inside a **location**, by the three that serve that host, so the values Keycloak builds every issuer URL from cannot drift between them | now |
 
 The shared pieces are `.inc` and not `.conf` for a mechanical reason:
 `nginx.conf` includes `conf.d/*.conf` into the `http` block, and a bare
@@ -60,7 +61,12 @@ The rules below apply to all of them.
    subrequest**, and `allow`/`deny` live in that phase: measured side by side,
    `internal` still returned 404 on a direct request while `deny all` in the
    same location did nothing at all (`docs/07`). An IP ACL on `/decide` would
-   test clean and constrain nothing.
+   test clean and constrain nothing. **The portal's `= /oauth2/auth` is the
+   other subrequest target and carries `internal;` for the same reason**:
+   without it a browser can call it directly, and it answers "is this cookie a
+   live session" and hands back that session's `X-Auth-Request-*` identity
+   headers, anonymously and with no rate limit in front of it. Measured against
+   the image built before the line was added: 502 (proxied) rather than 404.
 6. **Pass the original request's details to `/decide`.** In the subrequest the URI
    is `/decide`; the backend sees host/path/method only through headers:
    `X-App-Slug`, `X-Original-URI`, `X-Original-Method`, `X-Real-IP`,
@@ -187,3 +193,34 @@ The rules below apply to all of them.
    redaction is defence in depth, not the control that matters — PKCE is
    (`docs/07`: no verifier, wrong verifier and a replay are each refused).
    A query parameter added later that carries a token needs a third map.
+22. **The Keycloak host publishes one realm, by name, and rate-limits the
+   form.** `location ~ ^/(realms|resources)/` looks like "only the login flow"
+   and is not: it also publishes `/realms/master/`, and master's `admin-cli`
+   client has direct access grants enabled by default — so a `POST` to
+   `/realms/master/protocol/openid-connect/token` with
+   `grant_type=password&client_id=admin-cli` is an online guessing oracle for
+   `KC_BOOTSTRAP_ADMIN_PASSWORD`, on the one host every browser is redirected
+   to. Measured against the image built before the fix: proxied. The pattern
+   names the realm — `^/realms/openberat/` — and `/realms/openberat-other/`
+   does not match it. The realm name is written in three places that have to
+   agree: here, `oauth2-proxy.cfg`'s `oidc_issuer_url`, and the backend's
+   `KEYCLOAK_REALM`.
+   The rate limit belongs on `^/realms/openberat/login-actions/` and nowhere
+   wider. That is where the browser posts a password; `/protocol/openid-connect/
+   token` is oauth2-proxy redeeming a code from **one** container address, so a
+   limit above it would cap the whole deployment's logins at the zone's rate —
+   and it is not a guessing oracle anyway, both realm clients being confidential
+   with `directAccessGrantsEnabled: false`. `/resources/` is left free: one
+   login page pulls a dozen assets, and a burst wide enough for them is wide
+   enough for a run of guesses. The per-user second layer is the realm's own
+   brute-force lockout (`keycloak/README.md`), which is off in Keycloak by
+   default.
+23. **Every authenticated location needs a `limit_req`, `/api/*` included.**
+   The zones in `00-auth.conf` exist because everything funnels through one
+   backend: a flood does not degrade one application, it exhausts the PDP every
+   application depends on, and fail-closed turns that into a total outage.
+   `protected.inc` carries the `decisions` zone, so an application is covered —
+   but the portal's `/api/*` is not behind `/decide` and the decision cache
+   never sees it: each call is an oauth2-proxy hop, a Redis write (the ADR-0019
+   session index) and, on `/api/apps`, an uncached join. It carries the same
+   zone now.

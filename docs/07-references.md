@@ -2817,3 +2817,71 @@ code, a header or a JSON field. The layout reuses the panel, table and contrast
 tokens `portal.css` already carries, and no ratio in that file's table changed —
 `allow` takes `--gold-ink` and `deny` takes `--refuse`, both already computed —
 but nobody has opened it in a browser.
+
+## A security read of the finished configuration
+
+Nothing below came from a failing test. Each one is a rule the repository
+already writes down, applied to a file that did not follow it. Measured by
+building the nginx image from the commit before the fix and from the commit
+after, running each on `:8443`/`:8444` with only the certificate mounted — no
+upstreams — and reading the status code. **`502` means the location matched and
+proxied**, `404` means it did not exist.
+
+| Request | Before | After |
+|---|---|---|
+| `auth.…/realms/master/protocol/openid-connect/token` | **502** — proxied | 404 |
+| `auth.…/realms/master/` | **502** — proxied | 404 |
+| `auth.…/realms/openberat/.well-known/openid-configuration` | 502 | 502 — still served |
+| `auth.…/realms/openberat/login-actions/authenticate` | 502 | 502 — still served, now rate-limited |
+| `auth.…/realms/openberat-other/foo` | — | 404 — the alternation does not leak |
+| `auth.…/resources/x/login/openberat/css/openberat.css` | 502 | 502 — still served |
+| `auth.…/admin/master/console/` | 404 | 404 |
+| `portal.…/oauth2/auth` | **502** — proxied | 404 |
+| `portal.…/portal.css` | 200 | 200 — the anonymous files still are |
+
+The first two are the one that matters. `location ~ ^/(realms|resources)/` reads
+as "the login flow and its assets", and Keycloak's `master` realm is neither: its
+`admin-cli` client is public with direct access grants enabled by default, so
+that URL takes `grant_type=password&client_id=admin-cli&username=…&password=…`
+and answers a token or an error — an online guessing oracle for
+`KC_BOOTSTRAP_ADMIN_PASSWORD`, on the one hostname every browser in the
+deployment is redirected to. There was nothing in front of it: the `login` zone
+was on `@signin` and `/oauth2/`, and `bruteForceProtected` is **absent** from a
+stock realm export, which in Keycloak means off.
+
+`/oauth2/auth` is the smaller sibling of the same omission. `/decide` carries
+`internal;` and the README explains at length why an IP ACL would not do the
+job; the portal's other subrequest target had nothing, so it answered directly —
+`401` without a cookie, `202` with one, and on the `202` the session's own
+`X-Auth-Request-User/-Email/-Groups`. Neither number is a leak to somebody who
+does not already hold the cookie, and that is the whole of its defence.
+
+### The generated block, and the field nobody checked
+
+`render_apps_conf` describes itself as the last point before a value becomes
+nginx configuration. It validated the upstream URL and the hostname's *name* —
+whether it shadows `portal.` or `auth.` — and never the shape of either the
+hostname or the slug, which becomes a bare directive argument:
+
+```
+set $app_slug {slug};
+```
+
+Only the schema's `CHECK` stood between a `;` and a second directive, and
+because the admin API did not check it either, a bad slug came back from
+Postgres through the generic error path as a **503** — an operator reading an
+outage where the answer was "that is not a slug". Three tests, each seen red
+first by removing the guard: with it gone, `render_apps_conf` renders a row
+whose slug is `evil; return 200` exactly as written.
+
+### `/api/*` and the zone it did not have
+
+`00-auth.conf` says why rate limiting was pulled forward: everything funnels
+through one backend, so a flood does not degrade one application, it exhausts
+authorisation for all of them, and fail-closed turns that into a total outage.
+`protected.inc` carries the `decisions` zone, so every application was covered.
+`/api/*` was not — and it is the one authenticated path the decision cache never
+sees, because the portal does not go through `/decide`. Each call is an
+oauth2-proxy hop, a Redis write (the ADR-0019 index) and, on `/api/apps`, an
+uncached join across `application` and `entitlement`.
+

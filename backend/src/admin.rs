@@ -286,6 +286,9 @@ async fn create_application(
     let actor = Caller::from(&headers)
         .map(|c| c.username)
         .unwrap_or_default();
+    if let Err(why) = validate_slug(&new.slug) {
+        return bad_request(why);
+    }
     if let Err(why) = validate_upstream(&new.upstream_url) {
         return bad_request(why);
     }
@@ -928,11 +931,47 @@ fn reject_reserved(ip: IpAddr) -> Result<(), String> {
     Ok(())
 }
 
+// --- Feature Start ---
+// The slug and the hostname are interpolated straight into a generated server
+// block — `set $app_slug {slug};` and `server_name {hostname};` — so a value
+// carrying a space, a newline or a semicolon is nginx configuration injection
+// (ADR-0011). The shape is the schema's CHECK constraint, written here as well
+// for two reasons: a value the API never validated came back from Postgres as a
+// 503, so the guard read to the admin as an outage rather than as a refusal;
+// and `render_apps_conf` — the last gate before the value *is* configuration —
+// checked the upstream and the hostname's name but never the slug's shape.
+// --- Feature End ---
+/// Lower-case alphanumeric labels joined by single separators — the two CHECK
+/// constraints of `0001_init.sql` written once, and without a regex crate to
+/// state them in. An empty label is what refuses a leading, trailing or
+/// doubled separator.
+fn labelled(value: &str, separators: &[char]) -> bool {
+    !value.is_empty()
+        && value.split(|c| separators.contains(&c)).all(|label| {
+            !label.is_empty()
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        })
+}
+
+pub fn validate_slug(slug: &str) -> Result<(), String> {
+    if labelled(slug, &['-']) {
+        return Ok(());
+    }
+    Err("slug must be lower-case letters and digits, separated by single hyphens".into())
+}
+
 /// A generated block for `portal.…` or `auth.…` would shadow the portal or the
 /// login flow — and nginx would serve it without complaint, because the first
 /// matching `server_name` wins (ADR-0011).
 pub fn validate_hostname(hostname: &str, portal_origin: &str) -> Result<(), String> {
     let hostname = hostname.to_ascii_lowercase();
+    if !labelled(&hostname, &['.', '-']) {
+        return Err(
+            "external_hostname must be lower-case letters and digits, separated by single dots or hyphens".into(),
+        );
+    }
     let first = hostname.split('.').next().unwrap_or_default();
     if ["portal", "auth"].contains(&first) {
         return Err("external_hostname uses a reserved name (portal, auth)".into());
@@ -970,7 +1009,8 @@ pub fn render_apps_conf(applications: &[Application], portal_origin: &str) -> St
         // Belt and braces over the schema's CHECK constraints and the API's
         // validation: this is the last point before the value becomes nginx
         // configuration, and it is the only one that is not on a happy path.
-        if let Err(why) = validate_upstream(&app.upstream_url)
+        if let Err(why) = validate_slug(&app.slug)
+            .and_then(|()| validate_upstream(&app.upstream_url))
             .and_then(|()| validate_hostname(&app.external_hostname, portal_origin))
         {
             tracing::error!(slug = %app.slug, "skipping application in generated config: {why}");
@@ -1186,6 +1226,15 @@ mod tests {
                 ),
                 app("pg", "http://postgres:5432", "pg.apps.example.local", true),
                 app("shadow", "http://x:80", "portal.apps.example.local", true),
+                // The one the generator used to render as written: a slug is a
+                // bare directive argument, so a `;` in it opens a second one.
+                app(
+                    "evil; return 200",
+                    "http://x:80",
+                    "evil.apps.example.local",
+                    true,
+                ),
+                app("bad host", "http://x:80", "bad host.example", true),
                 app("off", "http://off-app:80", "off.apps.example.local", false),
             ],
             PORTAL,
@@ -1194,10 +1243,62 @@ mod tests {
         assert!(rendered.contains("good.apps.example.local"));
         assert!(!rendered.contains("postgres"));
         assert!(!rendered.contains("portal.apps.example.local"));
+        assert!(!rendered.contains("return 200"));
+        assert!(!rendered.contains("bad host"));
         assert!(
             !rendered.contains("off-app"),
             "a disabled application has no block"
         );
+    }
+
+    // The last gate before a value becomes nginx configuration (ADR-0011). Each
+    // of these renders a directive the admin did not write: `;` ends one and
+    // starts another, a newline starts a line, and a space makes `set $app_slug`
+    // take an argument nobody meant.
+    #[test]
+    fn a_slug_that_could_write_configuration_is_refused() {
+        for bad in [
+            "",
+            "a;b",
+            "wiki; return 200",
+            "wiki\n    return 200;",
+            "sample app",
+            "Sample",
+            "-lead",
+            "trail-",
+            "a--b",
+            "a.b",
+            "wiki}",
+            "wiki$host",
+        ] {
+            assert!(validate_slug(bad).is_err(), "{bad:?} should be refused");
+        }
+        for good in ["wiki", "sample-app", "a", "app2", "a-b-c"] {
+            assert!(
+                validate_slug(good).is_ok(),
+                "{good:?}: {:?}",
+                validate_slug(good)
+            );
+        }
+    }
+
+    #[test]
+    fn a_hostname_that_could_write_configuration_is_refused() {
+        for bad in [
+            "",
+            "wiki.apps.example.local; return 200",
+            "wiki apps",
+            "wiki..apps",
+            ".wiki",
+            "wiki.",
+            "wiki_apps",
+            "wiki.apps.example.local}",
+        ] {
+            assert!(
+                validate_hostname(bad, PORTAL).is_err(),
+                "{bad:?} should be refused"
+            );
+        }
     }
 
     #[test]

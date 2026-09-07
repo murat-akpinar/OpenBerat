@@ -34,6 +34,18 @@ committed — generated from the mark, never drawn:
 `magick -background none frontend/src/logo.svg -define icon:auto-resize=16,32,48 keycloak/themes/openberat/login/resources/img/favicon.ico`.
 Regenerate it whenever `logo.svg` changes; nothing checks that it matches.
 
+**Brute-force protection is on in the export, because Keycloak's default is
+off.** `bruteForceProtected` is absent from a stock realm, which means no
+lockout at all — and the login form is reachable from the browser-facing proxy,
+so without it a password is guessable at whatever rate the network allows. The
+export sets it with `failureFactor: 10` and `permanentLockout: false`: the
+lockout is temporary and grows (60 s, doubling to a 900 s ceiling), because a
+*permanent* one turns the same guessing campaign into a way to lock a real user
+out of everything the portal fronts. It is the per-user layer; the per-address
+one is `limit_req` on `login-actions` in `nginx/conf.d/10-portal.conf`, and
+neither sees what the other sees — one address spraying many accounts, or many
+addresses guessing one.
+
 **Not done by hand, written to the file.** If a setting is changed through the
 Keycloak UI, the realm is exported again and committed here; otherwise the lab
 cannot be rebuilt.

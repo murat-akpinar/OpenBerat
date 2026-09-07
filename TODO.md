@@ -2,8 +2,8 @@
 
 Status: **Phases 0–6 are closed; nothing is tagged.** Phase 6 leaves HA open,
 which N-06 puts outside v1. Phase 7 is the work reading the finished code found
-— an admin screen the endpoints already answer for, one ADR, and three smaller
-things.
+— an admin screen the endpoints already answer for, four security fixes a read
+of the configuration turned up, one ADR, and three smaller things.
 Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
 
 ---
@@ -1442,6 +1442,49 @@ serving the person who has to run it.
       **Not measured: what it looks like.** Every assertion is a status code, a
       header or a JSON field; the layout reuses tokens `portal.css` already
       carries and nobody has opened it in a browser.*
+
+- [x] **Five things a security read of the finished chain found** — four fixed,
+      two written down as questions
+      *None came from a failing test; all five came from reading the configuration
+      against its own rules. Measured before and after against images built from
+      both commits, `docs/07`.*
+      1. ***`/realms/master/` was proxied.** `location ~ ^/(realms|resources)/`
+         on the Keycloak host reads as "the login flow" and is not: master's
+         `admin-cli` client has direct access grants on by default, so
+         `POST /realms/master/protocol/openid-connect/token` was an online
+         guessing oracle for `KC_BOOTSTRAP_ADMIN_PASSWORD`, on the host every
+         browser is redirected to, with no lockout and no rate limit. Before:
+         502 (proxied). After: 404. The pattern names the realm now.*
+      2. ***Nothing bounded a password guess, at either layer.** The `login`
+         zone was on `@signin` and `/oauth2/` — neither of which is the form —
+         and `bruteForceProtected` is absent from a stock Keycloak realm, which
+         means off. `limit_req` on `^/realms/openberat/login-actions/` for the
+         per-address layer, and the realm export switches on the per-user one
+         (temporary lockout, not permanent: a permanent one turns the same
+         campaign into a way to lock a real user out).*
+      3. ***The portal's `= /oauth2/auth` was not `internal;`.** `/decide`
+         carries it and README rule 5 says why; the other subrequest target did
+         not, so a browser could call it directly and read back the session's
+         `X-Auth-Request-*` identity headers, anonymously and unthrottled.
+         Before: 502. After: 404.*
+      4. ***`/api/*` had no `limit_req`,** and it is the one authenticated path
+         the decision cache does not cover — the portal never goes through
+         `/decide`, so every call is an oauth2-proxy hop, a Redis write and, on
+         `/api/apps`, an uncached join. Same argument `00-auth.conf` already
+         makes for the other zones.*
+      5. ***`render_apps_conf` never checked the slug's shape.** It calls itself
+         the last point before a value becomes nginx configuration and it
+         checked the upstream and the hostname's *name* — but the slug becomes
+         `set $app_slug {slug};` and only Postgres' CHECK stood between a `;`
+         and a second directive. The API did not check it either, so a bad slug
+         came back to the admin as a **503**, reading as an outage rather than
+         as a refusal. Three tests, red first: with the guards removed the
+         generator really does render `return 200` into the file.*
+      *Two more are questions, not fixes, and are in `docs/06`: a `path_pattern`
+      with no trailing `*` is silently a prefix, so `allow /reports` grants the
+      subtree — and it cannot be narrowed without weakening every deny rule; and
+      break-glass serves the two hand-written lab hostnames, so `docs/08`
+      restores the lab and 404s a real deployment.*
 
 - [ ] **ADR: the decision cache with more than one instance** — the HA box's
       prerequisite

@@ -228,10 +228,15 @@ sit behind the login flow.
   login page in step 6, so that hostname is served by the same nginx and must be
   exempt for exactly the reason above. Easy to miss, because Keycloak is thought
   of as infrastructure rather than as something the user's browser visits.
-  Anonymous covers only the paths the login flow needs (`/realms/*`,
-  `/resources/*`): the `/admin` console and `/metrics` are **not proxied at
-  all** — an internet-facing Keycloak admin login page is attack surface
-  nothing here requires.
+  Anonymous covers only the paths the login flow needs — **this realm's**
+  (`/realms/openberat/*`) and the theme's (`/resources/*`). The `/admin`
+  console and `/metrics` are **not proxied at all**, and neither is any other
+  realm: `/realms/*` unqualified also publishes `master`, whose `admin-cli`
+  client takes a password grant, which puts the Keycloak bootstrap admin's
+  password on a guessable endpoint (`nginx/conf.d/README.md` rule 22,
+  measured in `docs/07`). The one path where a password is actually checked,
+  `/realms/openberat/login-actions/`, is rate-limited; the realm's own
+  brute-force lockout is the second, per-user layer.
 - **The portal host (`portal.apps.<domain>`, ADR-0015) is open to every
   authenticated user.** Not through policy, but through a separate `location` in
   `00-auth.conf`. Otherwise an unauthorised user is redirected to `/denied`,
