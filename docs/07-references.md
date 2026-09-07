@@ -2097,8 +2097,31 @@ lower-cases, and that is all. The two sides were therefore not normalised the
 same way, and `create_entitlement` checked only that the pattern was empty or
 began with `/`.
 
-Proven through the endpoint rather than argued, by taking the new guard out and
-running the integration test against Postgres:
+Proven twice, and the chain test below is the one that matters.
+
+**What the rule does, asked of the whole chain** (`verify-deadrule.sh`, on the
+lab). The row goes in under the API, straight into Postgres, so this measures
+the rule rather than the guard in front of it — one application (`jenkins`),
+one `allow` for `OpenBerat-Finance`, and `GET /admin/` as `labuser` after each
+change plus a cache TTL:
+
+| Deny rule in the table | `/admin/` answers |
+|---|---|
+| none | **404** — the PEP allowed it, Jenkins answered |
+| `/%61dmin/*` | **404** — identical. The rule never fired |
+| `/admin/*` | **302** to `/denied?app=jenkins.apps.example.local` |
+
+A deny rule the matcher cannot meet is not weaker than a working one, it is
+**indistinguishable from having written no rule at all**.
+
+**And that the guard now refuses it** (`verify-pattern.sh`, same host, as
+`labadmin`): `/%61dmin/*`, `/x\admin/*`, `/ADMIN/*`, `/x/../admin/*`, `/a//b`
+and `/adm*n/*` all come back **400**, each naming the form it wanted
+(`path_pattern must be written the way it is matched: /admin/`), while
+`/admin/*` still answers 201 and deletes cleanly.
+
+The same shape at the unit level, by taking the guard out and running the
+integration test against Postgres:
 
 | Pattern, `effect: deny` | Without the guard | With it |
 |---|---|---|
