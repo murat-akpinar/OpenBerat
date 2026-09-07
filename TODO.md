@@ -1745,6 +1745,20 @@ serving the person who has to run it.
       One numbered list under §6 pointing at the sections that already hold the
       detail. No new mechanism, no new document.*
 
+- [ ] **Keycloak runs in dev mode and only a comment says so** — the production
+      form is unwritten
+      *`start-dev` with the embedded H2 database. Right for the lab, and what a
+      first corporate install inherits without being told. `docker-compose.yml`
+      used to defer this to an `INSTALL.md` item; Phase 1 closed without writing
+      one, so the note was the only place the gap existed — it now says so.
+      Two consequences, and the second is the one nobody expects: H2 has no
+      volume, so every rebuild re-imports the realm **and** re-creates the
+      federated users with fresh `sub`s. `audit_event.actor_sub` keys on that,
+      so the audit record quietly detaches from the people it names.
+      `start --optimized` with `KC_DB` and `KC_HOSTNAME` is the shape; where it
+      belongs is `INSTALL.md` §5, beside the start sequence, and the numbers it
+      needs are the operator's Postgres rather than ours.*
+
 ---
 
 ## Later

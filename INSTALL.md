@@ -86,6 +86,53 @@ Browsers warn on a self-signed certificate; either import `wildcard.crt` into
 the trust store of the machine you browse from, or click through per visit.
 `curl` tests take `-k`.
 
+### Behind a load balancer
+
+The supported shape is **TLS terminating here**, at nginx, with the balancer
+passing 443 through (L4) or re-encrypting to it. Everything else is downstream
+of that: `ssl_certificate` in `tls.inc`, the `Secure` session cookie, and the
+issuer and redirect URLs Keycloak assembles out of `X-Forwarded-*`
+(`KC_PROXY_HEADERS=xforwarded`).
+
+A balancer that terminates TLS and speaks plain HTTP to the stack has no port to
+speak it to:
+
+- **:443** is `listen 443 ssl` and refuses a plaintext connection.
+- **:80 is not published**, so there is nothing to fall back to — the
+  connection is refused. Publishing it does not help either, which is the trap:
+  the block behind it answers `301 https://$host$request_uri`, so the balancer
+  fetches the redirect target over HTTP and loops.
+
+Making nginx listen plain is a configuration change rather than a setting, and
+the four things above then have to be told what the browser actually used. The
+failure if one of them is wrong is narrow and late — a token whose `iss` does
+not match what oauth2-proxy validates, which fails at login and nowhere earlier
+(`nginx/conf.d/keycloak.inc`).
+
+Whatever the balancer does with TLS, three headers have to survive it:
+
+| Header | Must be | Why |
+|---|---|---|
+| `Host` | the name the browser used | `server_name` matching, the cookie domain and Keycloak's issuer all key on it |
+| `X-Forwarded-Proto` | `https` | `http` makes Keycloak build an `http://` issuer, and the mismatch surfaces at login |
+| `X-Forwarded-For` | **replaced, not appended** | Keycloak reads the first entry as the client address, so an appending balancer puts a caller-chosen IP on every login event the realm records |
+
+**There is no health endpoint to point it at.** The backend serves `/healthz`
+and `/readyz`, but both are on the `core` network and nginx proxies neither
+(`backend/src/metrics.rs`). Use a TCP check on 443, or the portal itself — a
+request without a session answers 302 towards Keycloak, which is the whole chain
+answering rather than one process.
+
+**The domain is not a variable.** `example.local` is written out in five files:
+`oauth2-proxy/oauth2-proxy.cfg`, `nginx/conf.d/10-portal.conf` (two
+`server_name`s), `nginx/conf.d/00-auth.conf` (the `$portal_origin` map),
+`keycloak/realm/openberat-realm.json`, and `docker-compose.yml` (`PORTAL_ORIGIN`
+and the `auth.` alias on the `core` network). Two of them are baked into the
+nginx image and one is imported into Keycloak at boot, so a real domain is five
+edits and two image builds — `docker compose build nginx keycloak` — and not an
+environment variable. `oauth2-proxy.cfg`'s own header carries that list, which
+is where it gets corrected when it moves.
+
 ### Renewing it
 
 Every host is served from this one certificate, so its expiry takes the whole

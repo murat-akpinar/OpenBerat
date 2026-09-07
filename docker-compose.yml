@@ -32,6 +32,14 @@ services:
     build:
       context: .
       dockerfile: nginx/Dockerfile
+    # The only published port, and TLS terminates *here*. Behind a load
+    # balancer that means passthrough (L4) or re-encryption to this port: one
+    # that terminates TLS and speaks plain HTTP has nowhere to send it. :443
+    # refuses plaintext and :80 is not published — and publishing :80 is the
+    # trap, because the block behind it answers a 301 to https and the balancer
+    # loops on it. The three headers that have to survive the balancer either
+    # way, and why the domain is five edits rather than a variable:
+    # INSTALL.md §1, "Behind a load balancer".
     ports:
       - "443:443"
     volumes:
@@ -142,11 +150,15 @@ services:
     build:
       context: .
       dockerfile: keycloak/Dockerfile
-    # ponytail: start-dev + embedded H2 is lab-only; the production database
-    # and hostname settings are an INSTALL.md item (Phase 1). H2 deliberately
-    # gets no volume — the realm is reproduced by re-importing the export
-    # (keycloak/README.md), so persisting a dev database would only preserve
-    # hand-made drift the import is supposed to prevent.
+    # ponytail: start-dev + embedded H2 is lab-only, and the production form —
+    # `start --optimized`, KC_DB, KC_HOSTNAME — is **still unwritten**. This
+    # used to point at an INSTALL.md item; Phase 1 closed without one, so the
+    # note was the only place the gap existed. H2 deliberately gets no volume:
+    # the realm is reproduced by re-importing the export (keycloak/README.md),
+    # so persisting a dev database would only preserve hand-made drift the
+    # import is supposed to prevent. The cost of that is not only the realm —
+    # every rebuild re-creates the federated users with fresh `sub`s, and
+    # `audit_event.actor_sub` is what the audit record keys on.
     command: ["start-dev", "--import-realm"]
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USER}
