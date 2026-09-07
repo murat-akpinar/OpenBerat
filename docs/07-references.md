@@ -1805,6 +1805,36 @@ and Keycloak's login page have no icon link. Serving `/favicon.ico` anonymously
 would remove that one instance; it does not remove the class, which is why the
 fix is the cookie name and not the favicon.
 
+**The same message has a second, entirely benign cause: a pasted authorize
+URL.** Reported again on 2026-09-07, and reproduced from both sides. The user
+had pasted
+`https://auth.apps.example.local/realms/openberat/protocol/openid-connect/auth?...&state=...`
+into the address bar — oauth2-proxy's own dump names it: `Sec-Fetch-Site: none`,
+which is what a typed or pasted URL looks like, and
+`approval_prompt=force`, which oauth2-proxy adds at `/oauth2/start`, so the URL
+was copied out of an earlier flow's redirect. Keycloak had a live SSO session,
+redirected straight to the callback with a fresh code, and oauth2-proxy answered:
+
+```
+AuthFailure Invalid authentication via OAuth2: unable to obtain CSRF cookie:
+  CSRF cookie with name '_oauth2_proxy_-IqX6rDd_csrf' was not found
+```
+
+That is `cookie_csrf_per_request = true` behaving exactly as the section above
+asks it to: the cookie is named after the `state`, and a `state` the browser
+never received from `/oauth2/start` has no cookie to match. Skipping
+`/oauth2/start` skips the step that sets it, so the callback is a login attempt
+for a flow this browser never began — refused, fail-closed. **The entry point is
+`https://portal.apps.example.local/`, never the authorize URL.** Reproduced with
+curl against a jar holding a valid session and no CSRF cookie: 403, same
+message, `csrf cookies in jar = 0`, while `ob-login.sh` starting at the portal in
+the same minute reached `api/me` 200.
+
+Worth keeping apart, because the two causes look identical from the browser and
+only one is a bug: **no `Cookie` header at all** is the concurrent-flow race
+above; **cookies present but none matching the state** is either a pasted URL or
+a `state` older than the CSRF cookie's expiry.
+
 ### MEASURE — `/metrics`, and what a decision actually costs on the finished chain
 
 The Phase 6 monitoring box, run against the lab stack with `verify-metrics.sh`
