@@ -1646,13 +1646,20 @@ serving the person who has to run it.
       was run is `docker compose config` both ways and the bundled image's
       refusal.*
 
-- [ ] **Two sentences the code does not keep** — found by reading, not by failing
-      *`main.rs` says the retention job gives a fresh install "its partitions
-      before the first decision is written". It is `tokio::spawn`ed and never
-      awaited, so the listener can bind first. The consequence is bounded — that
-      month's rows land in `audit_event_default` and `maintain_audit`'s `delete`
-      half still removes them — but the sentence promises an order the code does
-      not impose: await the first pass, or write down what is true.
+- [x] **Two sentences the code does not keep** — found by reading, not by failing
+      *The first one is now true rather than rewritten: the pass is awaited
+      before the listener binds. Shown red first, which took holding the lock
+      the job needs — a spawned pass wins its race on an idle database, so
+      another session takes `access exclusive` on `audit_event` the way a
+      `pg_dump` does. Before: **bound in 0.06 s with the month missing**, which
+      is the process serving `/decide` while the partition its rows belong in
+      does not exist. After: 5.57 s, partition there (`docs/07`).
+      The await is **bounded**, and that is the half the box did not ask for: a
+      backup outlasting the wait must not turn a restart into an outage, so
+      `RETENTION_FIRST_PASS` is 10 s, past which it logs and serves — measured
+      at 10.09 s against a 20 s lock, with `/readyz` 200 straight after, so the
+      cancelled query leaves no damaged pool. The loop starts one interval out
+      (`interval_at`), or the awaited pass would run twice.
       The second one **cannot be fixed**, and is recorded here so that nobody
       trusts it: `0001_init.sql`'s comment still says monthly partitions "are the
       N-04 retention job", which Phase 6 then wrote. An applied migration is

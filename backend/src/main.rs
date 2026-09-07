@@ -24,6 +24,8 @@ const SHUTDOWN_DRAIN: Duration = Duration::from_secs(5);
 /// Audit partitions are created a month ahead and expire a month at a time, so
 /// there is nothing a run more often than daily could find to do.
 const RETENTION_INTERVAL: Duration = Duration::from_secs(24 * 60 * 60);
+/// How long startup waits for the first retention pass before serving anyway.
+const RETENTION_FIRST_PASS: Duration = Duration::from_secs(10);
 /// The retention nobody configured. Long enough to cover an annual audit, and
 /// deliberately not longer: the log is personal data (ADR-0022).
 const RETENTION_MONTHS: u32 = 12;
@@ -86,8 +88,10 @@ async fn main() {
     // The retention job, and the reason a bad value is fatal rather than
     // defaulted: this is the one background task that deletes, and a typo in an
     // environment variable must not be able to shorten how long the audit log
-    // survives. The first tick fires immediately, so a fresh install has its
-    // partitions before the first decision is written (ADR-0022).
+    // survives. The first pass is awaited below rather than left to a spawned
+    // task, so a fresh install has its partitions before it serves the decision
+    // that writes the first row (ADR-0022) — measured, because spawning it
+    // bound the listener in 0.06 s with the month missing (docs/07).
     // --- Feature End ---
     // Empty is unset, not zero: compose substitutes an empty string for a
     // variable left out of .env (.env.example), and the default belongs in one
@@ -106,10 +110,27 @@ async fn main() {
             }),
         None => RETENTION_MONTHS,
     };
+    // Bounded, and that is the whole reason for the timeout: creating a
+    // partition needs a lock every reader of `audit_event` holds off, so a
+    // pg_dump (INSTALL.md §9) would otherwise turn a restart into an outage.
+    // Past it the rows land in `audit_event_default`, which is what it is for,
+    // and the loop below tries again.
+    match tokio::time::timeout(RETENTION_FIRST_PASS, store::maintain_audit(&pool, months)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => tracing::error!(error = %e, "audit retention did not finish"),
+        Err(_) => tracing::warn!(
+            "the first audit retention pass did not finish in time; serving anyway, the daily run will retry"
+        ),
+    }
     tokio::spawn({
         let pool = pool.clone();
         async move {
-            let mut tick = tokio::time::interval(RETENTION_INTERVAL);
+            // From one interval out, not from now: the pass above is this
+            // tick, and an `interval` would run it twice.
+            let mut tick = tokio::time::interval_at(
+                tokio::time::Instant::now() + RETENTION_INTERVAL,
+                RETENTION_INTERVAL,
+            );
             loop {
                 tick.tick().await;
                 if let Err(e) = store::maintain_audit(&pool, months).await {

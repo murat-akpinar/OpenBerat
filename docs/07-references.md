@@ -3219,3 +3219,33 @@ nothing.
 Nothing here connects to one; what is checked is what compose renders, what the
 bundled image refuses, and what the client does when the URL says nothing about
 TLS.
+
+## The retention job's first pass, and the order the comment promised
+
+`main.rs` said a fresh install has its partitions "before the first decision is
+written". The pass was `tokio::spawn`ed, so that was a race the code usually won
+and never imposed. Run on this host against a throwaway `postgres:17-alpine`,
+with the month's partition dropped and another session holding
+`lock table audit_event in access exclusive mode` — which is what a running
+`pg_dump` (INSTALL.md §9) does to a restart:
+
+| Binary | Lock held | Listener bound after | Month's partition at that moment |
+|---|---|---|---|
+| spawned (before) | 6 s | **0.06 s** | no |
+| awaited (after) | 6 s | **5.57 s** | **yes** |
+| awaited (after) | 20 s | **10.09 s** | no, and it says so |
+
+The first row is the bug: the process was serving `/decide` — and writing audit
+rows into `audit_event_default` — while the partition those rows belong in did
+not exist. The second is the promise kept: startup waits for the lock, then
+binds. The third is why the await is bounded by `RETENTION_FIRST_PASS`: past
+10 s it logs *the first audit retention pass did not finish in time; serving
+anyway, the daily run will retry* and serves, because a backup that outlasts the
+timeout must not turn a restart into an outage.
+
+`/readyz` answers 200 immediately after that timed-out pass and again once the
+lock is released, so cancelling the query does not leave the pool damaged.
+
+**Not measured:** the daily tick itself. `interval_at` starts one interval out
+rather than firing immediately, which is what stops the awaited pass being run
+twice, and nothing here waits 24 h to watch the second one.
