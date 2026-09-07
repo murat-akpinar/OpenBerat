@@ -16,18 +16,19 @@ right. Authentication is delegated to Keycloak and oauth2-proxy — the only thi
 this codebase decides is what you are permitted to reach
 ([ADR-0012](docs/adr/0012-project-name-openberat.md)).
 
-**Status:** the code is written and runs. Phases 0–6 in [TODO.md](TODO.md) are
-closed: the chain from login to a protected application works end to end on a
-lab against a real AD, and N-01 to N-03 are measured rather than estimated
-([docs/07](docs/07-references.md)). **No version is tagged yet** — `release.sh`
-builds the offline bundle, but cutting the tag stays a deliberate manual act
-([ADR-0023](docs/adr/0023-versioning-and-release.md)). Phase 6 leaves one box
-open — running the backend on more than one instance, which N-06 puts outside
-v1, and whose one prerequisite is now decided
-([ADR-0031](docs/adr/0031-decision-cache-multi-instance.md)) — and Phase 7 is what reading the finished code found. The first of it is
-done: v1 now ships one read-only admin screen, the audit record and `explain`
-([ADR-0026](docs/adr/0026-audit-explain-screen-in-v1.md)), written without a
-framework ([ADR-0027](docs/adr/0027-frontend-no-framework.md)).
+**Status:** the code is written and runs. Phases 0–7 are closed: the chain from
+login to a protected application works end to end on a lab against a real AD,
+N-01 to N-03 are measured rather than estimated
+([docs/07](docs/07-references.md)), and what closing each phase took is in
+[docs/09-history.md](docs/09-history.md). **No version is tagged yet** —
+`release.sh` builds the offline bundle, but cutting the tag stays a deliberate
+manual act ([ADR-0023](docs/adr/0023-versioning-and-release.md)). One box is
+open anywhere — running the backend on more than one instance, which N-06 puts
+outside v1, and whose one prerequisite is now decided
+([ADR-0031](docs/adr/0031-decision-cache-multi-instance.md)). Phase 7 was what
+reading the finished code found: v1 ships one read-only admin screen, the audit
+record and `explain` ([ADR-0026](docs/adr/0026-audit-explain-screen-in-v1.md)),
+written without a framework ([ADR-0027](docs/adr/0027-frontend-no-framework.md)).
 
 **Licence:** [GPL-3.0-or-later](LICENSE). Free to install and run in your own
 environment; there is no paid edition. Patches welcome under
@@ -245,11 +246,13 @@ the whole chain answering rather than one process.
 | [docs/05-authz-model.md](docs/05-authz-model.md) | The authorisation model and decision rules |
 | [docs/06-requirements.md](docs/06-requirements.md) | Requirements and **open questions** |
 | [docs/07-references.md](docs/07-references.md) | **Sources** — the basis for the technical claims, verified defaults |
+| [docs/08-breakglass.md](docs/08-breakglass.md) | The rehearsed way back when the proxy is the outage (ADR-0017) |
+| [docs/09-history.md](docs/09-history.md) | **Build log** — how phases 0–7 closed, and what each box actually cost |
 | [docs/adr/](docs/adr/) | **Decisions taken** — 32 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity, audit retention, versioning, one read-only admin screen, no frontend framework, live sessions, what a path pattern means, break-glass from the same table, the decision cache with more than one instance, MFA on the management plane |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability — channels, response times, scope, accepted limitations |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — DCO sign-off, conventions, what gets rejected |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |
-| [TODO.md](TODO.md) | Roadmap |
+| [TODO.md](TODO.md) | What is still open |
 
 ## Where to start
 

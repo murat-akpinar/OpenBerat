@@ -13,18 +13,20 @@ görür ve bunlara VPN olmadan erişir. Her istek kimlikle yeniden yetkilendiril
 doğrulama Keycloak ve oauth2-proxy'ye devredildi — bu kod tabanının verdiği tek
 karar neye erişebileceğin ([ADR-0012](docs/adr/0012-project-name-openberat.md)).
 
-**Durum:** Kod yazıldı ve çalışıyor. [TODO.md](TODO.md)'deki 0–6. fazlar kapalı:
-girişten korumalı uygulamaya kadar olan zincir, gerçek bir AD'ye karşı laboratuvarda
-uçtan uca çalışıyor ve N-01 ile N-03 tahmin değil, ölçüm
-([docs/07](docs/07-references.md)). **Henüz sürüm etiketi atılmadı** — `release.sh`
-çevrimdışı paketi üretiyor, ama etiketi kesmek bilerek elle yapılan bir iş olarak
-kalıyor ([ADR-0023](docs/adr/0023-versioning-and-release.md)). 6. faz tek kutu
-açık bırakıyor — backend'i birden fazla instance'ta çalıştırmak, N-06 onu v1'in
-dışında tutuyor, tek ön koşulu ise artık karara bağlandı
-([ADR-0031](docs/adr/0031-decision-cache-multi-instance.md)) — 7. faz ise bitmiş kodu okurken bulunanlar. İlki bitti: v1
-artık salt-okunur tek bir yönetim ekranı sunuyor, denetim kaydı ve `explain`
-([ADR-0026](docs/adr/0026-audit-explain-screen-in-v1.md)), çatı kullanmadan
-yazıldı ([ADR-0027](docs/adr/0027-frontend-no-framework.md)).
+**Durum:** Kod yazıldı ve çalışıyor. 0–7. fazlar kapalı: girişten korumalı
+uygulamaya kadar olan zincir, gerçek bir AD'ye karşı laboratuvarda uçtan uca
+çalışıyor, N-01 ile N-03 tahmin değil ölçüm
+([docs/07](docs/07-references.md)), her fazı kapatmanın neye mal olduğu ise
+[docs/09-history.md](docs/09-history.md) içinde. **Henüz sürüm etiketi
+atılmadı** — `release.sh` çevrimdışı paketi üretiyor, ama etiketi kesmek bilerek
+elle yapılan bir iş olarak kalıyor
+([ADR-0023](docs/adr/0023-versioning-and-release.md)). Her yerde tek bir kutu
+açık — backend'i birden fazla instance'ta çalıştırmak, N-06 onu v1'in dışında
+tutuyor, tek ön koşulu ise artık karara bağlandı
+([ADR-0031](docs/adr/0031-decision-cache-multi-instance.md)). 7. faz bitmiş kodu
+okurken bulunanlardı: v1 salt-okunur tek bir yönetim ekranı sunuyor, denetim
+kaydı ve `explain` ([ADR-0026](docs/adr/0026-audit-explain-screen-in-v1.md)),
+çatı kullanmadan yazıldı ([ADR-0027](docs/adr/0027-frontend-no-framework.md)).
 
 **Lisans:** [GPL-3.0-or-later](LICENSE). Kendi ortamına kurup bedava
 kullanabilirsin; ücretli sürüm yok. Katkılar [DCO](CONTRIBUTING.md) ile alınır,
@@ -246,11 +248,13 @@ sürecin değil bütün zincirin cevabı.
 | [docs/05-authz-model.md](docs/05-authz-model.md) | Yetkilendirme modeli ve karar kuralları |
 | [docs/06-requirements.md](docs/06-requirements.md) | Gereksinimler ve **açık sorular** |
 | [docs/07-references.md](docs/07-references.md) | **Kaynaklar** — teknik iddiaların dayanağı, doğrulanmış varsayılanlar |
+| [docs/08-breakglass.md](docs/08-breakglass.md) | Proxy'nin kendisi kesinti olduğunda prova edilmiş dönüş yolu (ADR-0017) |
+| [docs/09-history.md](docs/09-history.md) | **Yapım kaydı** — 0–7. fazlar nasıl kapandı, her kutu neye mal oldu |
 | [docs/adr/](docs/adr/) | **Alınan kararlar** — 32 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği, denetim saklama süresi, sürümleme, tek bir salt-okunur yönetim ekranı, frontend'de çatı yok, canlı oturumlar, bir path deseninin anlamı, break-glass aynı tablodan, birden fazla instance'ta karar cache'i, yönetim düzleminde MFA |
 | [SECURITY.md](SECURITY.md) | Güvenlik açığı bildirimi — kanallar, cevap süreleri, kapsam, kabul edilmiş sınırlar |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Nasıl katkı verilir — DCO imzası, konvansiyonlar, neler reddedilir |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |
-| [TODO.md](TODO.md) | Yol haritası |
+| [TODO.md](TODO.md) | Açık kalanlar |
 
 ## Nereden başlanır
 
