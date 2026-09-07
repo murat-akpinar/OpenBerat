@@ -1413,16 +1413,29 @@ Nothing here was found by a failing test. The chain works and is measured; these
 are the places where the code, the compose file or a sentence in a comment stops
 serving the person who has to run it.
 
-- [ ] **The audit + `explain` screen** — the one admin page ADR-0024 left to build
-      *`/api/admin/audit` has a keyset cursor and six filters, `/api/admin/explain`
-      annotates a decision against the rules it walked, and **no page uses
-      either**: an operator without a terminal cannot administer OpenBerat.
-      ADR-0024 deferred the admin UI and named the trigger for coming back —
-      a v1 people already run — while keeping the endpoints, their `ADMIN_GROUP`
-      check and the CSP measurement behind the vendored Alpine build in place
-      for exactly this. Two pages, no new endpoint. It also turns
-      `frontend/src/vendor/alpine.js` from shipped-but-loaded-by-nothing into
-      the thing the CI rule about `unsafe-eval` was written to protect.*
+- [x] **The audit + `explain` screen** — the one admin page ADR-0024 left to build
+      *`/audit`, one page, no new endpoint and no state-changing call. Two ADRs
+      came out of building it. **ADR-0024's trigger could never have fired as
+      written** — "a v1 people already run", with nothing tagged, means the
+      first release is always the one that ships without the screen — and its
+      own closing bullet says what that costs. Before the tag is the cheapest
+      moment: nothing deployed, no upgrade to plan
+      ([ADR-0026](docs/adr/0026-audit-explain-screen-in-v1.md)). And the screen
+      **did not want the framework that was kept for it**: the frontend's
+      text-only rule is guarded by a CI grep and nothing else, and that grep is
+      blind to `x-html`, so `frontend/src/vendor/` is deleted rather than
+      loaded ([ADR-0027](docs/adr/0027-frontend-no-framework.md)).
+      Verified on the lab against a rebuilt nginx image, `ALL OK`
+      (`verify-auditscreen.sh`, `docs/07`): 200 to a session and 302 without
+      one, the CSP unchanged with no `unsafe-*`, `labuser` 403 on both
+      endpoints, a mistyped filter 400 rather than a wider list. Two of the
+      checks were wrong before the code was — `/vendor/alpine.js` answers 200
+      because `try_files` ends at `/index.html`, so the deletion is proved by
+      `content-type: text/html` and not by a 404, and a double-encoded path
+      needs one extra layer in the query string to reach `explain` intact.
+      **Not measured: what it looks like.** Every assertion is a status code, a
+      header or a JSON field; the layout reuses tokens `portal.css` already
+      carries and nobody has opened it in a browser.*
 
 - [ ] **ADR: the decision cache with more than one instance** — the HA box's
       prerequisite

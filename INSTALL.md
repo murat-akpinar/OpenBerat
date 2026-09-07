@@ -434,6 +434,13 @@ something already gone is a 404 rather than a silent success.
 
 ### Checking it before a user does
 
+**There is a screen for this one.** `https://portal.apps.example.local/audit`
+draws both `explain` and the audit record, and the header links it when you are
+in `ADMIN_GROUP` (ADR-0026). It is read-only — everything above stays curl —
+but it is the better way to answer "why was this denied", because it prints
+every rule the decision walked beside the verdict instead of into `jq`. The
+curl form below is the same call and is what the screen sends.
+
 `/api/admin/explain` answers what the PEP would answer, from the same rules and
 the same function, and writes nothing — no cache entry, no audit row, so asking
 why cannot change the answer:

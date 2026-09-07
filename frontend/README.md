@@ -1,15 +1,17 @@
 # frontend
 
-The portal. Served statically by nginx, taking its data from the `backend`'s
-`/api/*` endpoints. **There are no admin screens** — v1 administers through
-`/api/admin/*` ([ADR-0024](../docs/adr/0024-no-admin-ui-in-v1.md),
-`INSTALL.md` §6).
+The portal, and one read-only admin screen. Served statically by nginx, taking
+its data from the `backend`'s `/api/*` endpoints. **Nothing here is written
+through a form**: every state-changing admin call is `/api/admin/*` driven the
+way `INSTALL.md` §6 shows ([ADR-0024](../docs/adr/0024-no-admin-ui-in-v1.md),
+[ADR-0026](../docs/adr/0026-audit-explain-screen-in-v1.md)).
 
 **Screens**
 
 | Screen | Contents |
 |---|---|
 | Portal | The applications the user can reach per their AD `memberOf` entitlements — buttons with icons |
+| Audit and explain | `/audit`. The audit record with its six filters and keyset paging, and the decision the proxy would reach for a given user, host and path with every rule it walked. Read-only; linked from the header only when `/api/me` answers `admin`, which is a convenience — the endpoints authorise themselves |
 | No access | The page shown when an unauthorised application is requested |
 | Unavailable | Served from `error_page` when the decision path does not answer |
 

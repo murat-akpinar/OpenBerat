@@ -2671,3 +2671,66 @@ a difference from Authentik and not only from Pomerium. And Boundary's BUSL is
 not a permanent state: every version becomes MPL-2.0 four years after it ships,
 under a licensor that is now IBM. Neither changes a decision here; both change
 what this document can be quoted for.
+
+
+## The audit and `explain` screen
+
+Run on the lab host on 2026-09-07 with `verify-auditscreen.sh`, against the
+committed configuration and a rebuilt nginx image. `ALL OK`.
+
+The screen ([ADR-0026](adr/0026-audit-explain-screen-in-v1.md)) draws two
+endpoints that already existed, so what needed checking was not the endpoints —
+they were measured when they were written — but that the page reaches a browser
+under the same policy as the rest of the portal, and that the two answers it
+prints carry every field it prints.
+
+| Check | Result |
+|---|---|
+| `/audit` and `/audit.js` to a session | **200** |
+| the same with no session | **302** to Keycloak — the screen is behind `location /` like the portal, not a new anonymous path |
+| CSP on `/audit` | `default-src 'self'` unchanged, **no `unsafe-*`** |
+| the served page | no inline `<script>` body, no inline event handler, loads `/audit.js` |
+| `labuser` on `/api/admin/audit` and `/api/admin/explain` | **403** — the branch the page draws as a refusal rather than an outage |
+| `labadmin` on `/api/admin/audit` | **200** |
+| a mistyped filter (`?decsion=deny`) | **400**, not a wider list |
+| half a keyset cursor (`before_ts` with no `before_id`) | **400** |
+| `since` = `until` | `[]` — an empty window, not the whole table |
+
+`explain` was asked the same request three ways, because the field the screen
+prints as "matched against" is the one an admin reads when the answer surprises
+them:
+
+| `path` as it reaches the handler | `normalised_path` | verdict |
+|---|---|---|
+| `/x` | `/x` | `allow` — the rule is the whole application |
+| `/%61dmin` (single-encoded) | `/admin` | `allow` |
+| `/%2561dmin` (double-encoded) | **`null`** | `deny` / `malformed_uri` |
+
+The last row is the one the screen has a sentence for rather than an empty
+cell: the URI never became a path, so no rule was consulted, and printing `""`
+there would read as the site root. Reaching the handler with a literal
+`/%2561dmin` takes one more layer in the query string (`path=/%252561dmin`),
+because the query is decoded once before `explain` sees it — the first attempt
+at this measurement asked the wrong question and got `/admin`.
+
+**A row is written 35 s after the requests it summarises**, which is `cache::TTL`
+(30 s) plus the sweep interval (5 s), and it carried `count: 4` and
+`distinct_path: 4` for four requests to four paths — the summary columns the
+table has to draw, or a row that stands for fifty thousand requests reads as
+one. The row is found by `?app=<slug>&since=<start of the run>`: audit rows
+**outlive the application they name**, so a slug filter alone matches every
+earlier run of the harness, and the first version of this measurement reported
+5 s for a row written three minutes earlier.
+
+`/vendor/alpine.js` no longer serves JavaScript
+([ADR-0027](adr/0027-frontend-no-framework.md)); it answers `text/html`, because
+`location /` ends its `try_files` with `/index.html` and every unknown path
+under the portal host falls through to the portal page. That is pre-existing
+behaviour and not a 404 — worth writing down, because "is it gone" cannot be
+asked of this host with a status code.
+
+**Not measured: what the page looks like.** Every assertion above is a status
+code, a header or a JSON field. The layout reuses the panel, table and contrast
+tokens `portal.css` already carries, and no ratio in that file's table changed —
+`allow` takes `--gold-ink` and `deny` takes `--refuse`, both already computed —
+but nobody has opened it in a browser.

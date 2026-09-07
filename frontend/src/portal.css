@@ -268,3 +268,162 @@ code {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+/* --- The audit and explain screen (ADR-0026) ------------------------------- */
+
+/* No new colour for a verdict. `allow` takes --gold-ink and `deny` takes
+   --refuse, both already in the contrast table at the top of this file, so the
+   screen adds no ratio that has to be re-checked. Colour is never the only
+   signal either: every verdict is spelled out beside its swatch. */
+
+.panel {
+  margin: 2.5rem 0 0;
+  padding: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--sheen), var(--panel);
+  backdrop-filter: blur(14px);
+}
+
+.panel h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.fields {
+  display: grid;
+  gap: 0.875rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  margin: 1.25rem 0;
+}
+
+.field { margin: 0; }
+
+label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.hint {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 400;
+}
+
+input, select {
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--ground);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.9375rem;
+}
+
+input:focus-visible, select:focus-visible, button:focus-visible {
+  outline: 2px solid var(--gold-ink);
+  outline-offset: 2px;
+}
+
+button {
+  padding: 0.5rem 1.125rem;
+  border: 1px solid var(--line-lit);
+  border-radius: 0.5rem;
+  background: linear-gradient(145deg, rgba(217, 168, 66, 0.24), rgba(124, 74, 30, 0.28));
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button:hover { border-color: var(--gold-ink); }
+button[disabled] { opacity: 0.5; cursor: default; }
+.quiet { background: none; border-color: var(--line); color: var(--muted); font-weight: 400; }
+
+/* A table of six columns on a phone is the one thing in this product that
+   genuinely cannot reflow: an audit row read with a column missing is worse
+   than one read sideways. */
+.scroller { overflow-x: auto; margin-top: 1.25rem; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+
+th {
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--line-lit);
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+td {
+  padding: 0.625rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+/* The summary columns are the row: a count of 50 000 has to fit beside the
+   decision, so a long path is what wraps and nothing else. */
+td:not(.path) { white-space: nowrap; }
+.path { overflow-wrap: anywhere; min-width: 14rem; }
+
+.sub { display: block; color: var(--muted); font-size: 0.8125rem; }
+
+.tag {
+  display: inline-block;
+  padding: 0.05rem 0.5rem;
+  border: 1px solid currentcolor;
+  border-radius: 0.35rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.is-allow { color: var(--gold-ink); }
+.is-deny { color: var(--refuse); }
+
+.verdict {
+  margin-top: 1.25rem;
+  padding: 0.875rem 1rem;
+  border-left: 3px solid currentcolor;
+  border-radius: 0 0.5rem 0.5rem 0;
+  background: var(--panel);
+}
+
+.verdict-line {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.2rem 0.875rem;
+  margin: 0.625rem 0 0;
+  color: var(--ink);
+  font-size: 0.875rem;
+}
+
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+
+/* The rule that decided, and the rule that would have decided if it had not
+   run out — the second is the answer to half the tickets this screen closes,
+   so it is marked rather than left to be spotted in an expiry column. */
+tr.is-matched td { background: rgba(217, 168, 66, 0.08); }
+tr.is-expired td { background: rgba(239, 138, 132, 0.08); }
+
+#paging { display: flex; align-items: center; gap: 0.875rem; margin: 1.25rem 0 0; }

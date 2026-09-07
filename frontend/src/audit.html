@@ -1,0 +1,129 @@
+<!doctype html>
+<!-- SPDX-FileCopyrightText: 2026 OpenBerat contributors
+     SPDX-License-Identifier: GPL-3.0-or-later -->
+
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audit — OpenBerat</title>
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/portal.css">
+<body>
+<header class="site-header">
+  <div class="bar">
+    <a class="brand" href="/">
+      <img class="mark" src="/logo.svg" alt="" width="32" height="32">
+      <span class="wordmark">Open<span class="wordmark-accent">Berat</span></span>
+    </a>
+    <div class="session">
+      <p class="identity" id="whoami"></p>
+      <a class="signout" id="signout" href="/oauth2/sign_out?rd=%2F">Sign out</a>
+    </div>
+  </div>
+</header>
+<main>
+  <h1>Audit and <span class="accent">explain</span></h1>
+  <p id="notice" class="prose notice" role="status" hidden></p>
+
+  <!-- Explain first: it is the question an admin asks most often, and unlike
+       the list below it answers about a request that has not happened yet. -->
+  <section class="panel" aria-labelledby="explain-title">
+    <h2 id="explain-title">Why would this be allowed?</h2>
+    <p class="prose">
+      The verdict below is <code>policy::decide</code>'s own — the same function
+      the proxy runs — over the entitlement rows it would walk. It reads the
+      table, while the proxy may still be answering from a cached decision, so
+      for up to 30 seconds after a rule change this page is right and the live
+      URL is stale.
+    </p>
+    <form id="explain-form">
+      <div class="fields">
+        <p class="field">
+          <label for="ex-user">User <span class="hint">the Keycloak <code>sub</code>, not the username</span></label>
+          <input id="ex-user" name="user" required autocomplete="off" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="ex-groups">Groups <span class="hint">comma-separated, as the token carries them; empty for none</span></label>
+          <input id="ex-groups" name="groups" autocomplete="off" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="ex-host">Host <span class="hint">the application's external hostname</span></label>
+          <input id="ex-host" name="host" required autocomplete="off" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="ex-path">Path <span class="hint">as the client would send it, query string and all</span></label>
+          <input id="ex-path" name="path" required value="/" autocomplete="off" spellcheck="false">
+        </p>
+      </div>
+      <button type="submit">Explain</button>
+    </form>
+    <div id="explain-out"></div>
+  </section>
+
+  <section class="panel" aria-labelledby="audit-title">
+    <h2 id="audit-title">The record</h2>
+    <p class="prose">
+      One row is a summary, not a request: a user hitting the same application
+      with the same outcome inside one cache entry arrives here as a single row
+      with a count. A filter this endpoint cannot honour answers 400 rather than
+      being ignored, so a list is never quietly wider than what was asked for.
+    </p>
+    <form id="filter-form">
+      <div class="fields">
+        <p class="field">
+          <label for="f-actor">Actor <span class="hint">the <code>sub</code> or the display name</span></label>
+          <input id="f-actor" name="actor" autocomplete="off" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="f-app">Application <span class="hint">slug</span></label>
+          <input id="f-app" name="app" autocomplete="off" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="f-decision">Decision</label>
+          <select id="f-decision" name="decision">
+            <option value="">any</option>
+            <option value="allow">allow</option>
+            <option value="deny">deny</option>
+          </select>
+        </p>
+        <p class="field">
+          <label for="f-reason">Reason <span class="hint">e.g. <code>no_matching_grant</code></span></label>
+          <input id="f-reason" name="reason" autocomplete="off" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="f-since">Since <span class="hint">inclusive</span></label>
+          <input id="f-since" name="since" type="datetime-local">
+        </p>
+        <p class="field">
+          <label for="f-until">Until <span class="hint">exclusive</span></label>
+          <input id="f-until" name="until" type="datetime-local">
+        </p>
+      </div>
+      <button type="submit">Apply</button>
+      <button type="reset" class="quiet">Clear</button>
+    </form>
+
+    <div class="scroller">
+      <table id="audit">
+        <thead>
+          <tr>
+            <th scope="col">When</th>
+            <th scope="col">Who</th>
+            <th scope="col">Application</th>
+            <th scope="col">Decision</th>
+            <th scope="col">Requests</th>
+            <th scope="col">Path</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <p id="paging">
+      <button id="more" type="button" hidden>Load more</button>
+      <span id="count" class="hint"></span>
+    </p>
+  </section>
+</main>
+<script src="/audit.js"></script>
+</body>
+</html>

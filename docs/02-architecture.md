@@ -28,7 +28,7 @@ Sources for the technical claims: [`docs/07-references.md`](07-references.md).
 | **nginx** | PEP. TLS, carries traffic, `auth_request`, serves static files | Configured |
 | **oauth2-proxy** | Authentication: the OIDC dance, session (Redis) | Configured |
 | **backend** | **Authorisation decision + `/api` + audit** | **Written** |
-| **frontend** | **Portal** (buildless static, ADR-0007). No admin screens in v1 ([ADR-0024](adr/0024-no-admin-ui-in-v1.md)) — administration is `/api/admin/*`, driven the way `INSTALL.md` §6 shows | **Written** |
+| **frontend** | **Portal + one read-only admin screen** (buildless static, no framework — ADR-0007, [ADR-0027](adr/0027-frontend-no-framework.md)). The screen is the audit record and `explain` ([ADR-0026](adr/0026-audit-explain-screen-in-v1.md)); every write is still `/api/admin/*`, driven the way `INSTALL.md` §6 shows ([ADR-0024](adr/0024-no-admin-ui-in-v1.md)) | **Written** |
 | **Postgres** | application / entitlement / audit_event | Deployed |
 | **Redis** | oauth2-proxy session store — mandatory for the kill switch **and** for the 4 KB cookie limit. Also holds the backend's `sub → session` index (ADR-0019) | Deployed |
 
@@ -566,7 +566,7 @@ for the OIDC redirect to work at all.
 
 ```
 backend/       Rust: /decide, /api, authorisation decision, audit  → Dockerfile
-frontend/      portal — copied into the nginx image at
+frontend/      portal + the audit screen — copied into the nginx image at
                build (ADR-0020), no container of its own
 nginx/         PEP configuration + static serving + frontend files → Dockerfile
 keycloak/      realm export (LDAP federation) + login theme        → Dockerfile

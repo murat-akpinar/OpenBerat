@@ -85,6 +85,10 @@ json('/api/apps')
 json('/api/me')
   .then((me) => {
     document.getElementById('whoami').textContent = `Signed in as ${me.username}`;
+    // `admin` is the backend's answer, not a claim read out of the token here —
+    // and it only decides whether a link is drawn. The endpoints behind it
+    // authorise themselves (ADR-0026).
+    if (me.admin) document.getElementById('admin-link').hidden = false;
   })
   .catch(() => {});
 

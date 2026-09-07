@@ -20,9 +20,10 @@ uçtan uca çalışıyor ve N-01 ile N-03 tahmin değil, ölçüm
 çevrimdışı paketi üretiyor, ama etiketi kesmek bilerek elle yapılan bir iş olarak
 kalıyor ([ADR-0023](docs/adr/0023-versioning-and-release.md)). 6. faz tek kutu
 açık bırakıyor — backend'i birden fazla instance'ta çalıştırmak, N-06 onu v1'in
-dışında tutuyor — 7. faz ise bitmiş kodu okurken bulunanlar; içinde
-[ADR-0024](docs/adr/0024-no-admin-ui-in-v1.md)'ün ertelediği yönetim ekranı da
-var.
+dışında tutuyor — 7. faz ise bitmiş kodu okurken bulunanlar. İlki bitti: v1
+artık salt-okunur tek bir yönetim ekranı sunuyor, denetim kaydı ve `explain`
+([ADR-0026](docs/adr/0026-audit-explain-screen-in-v1.md)), çatı kullanmadan
+yazıldı ([ADR-0027](docs/adr/0027-frontend-no-framework.md)).
 
 **Lisans:** [GPL-3.0-or-later](LICENSE). Kendi ortamına kurup bedava
 kullanabilirsin; ücretli sürüm yok. Katkılar [DCO](CONTRIBUTING.md) ile alınır,

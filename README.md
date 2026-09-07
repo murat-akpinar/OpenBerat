@@ -23,8 +23,10 @@ lab against a real AD, and N-01 to N-03 are measured rather than estimated
 builds the offline bundle, but cutting the tag stays a deliberate manual act
 ([ADR-0023](docs/adr/0023-versioning-and-release.md)). Phase 6 leaves one box
 open — running the backend on more than one instance, which N-06 puts outside
-v1 — and Phase 7 is what reading the finished code found, the admin screen
-[ADR-0024](docs/adr/0024-no-admin-ui-in-v1.md) deferred among it.
+v1 — and Phase 7 is what reading the finished code found. The first of it is
+done: v1 now ships one read-only admin screen, the audit record and `explain`
+([ADR-0026](docs/adr/0026-audit-explain-screen-in-v1.md)), written without a
+framework ([ADR-0027](docs/adr/0027-frontend-no-framework.md)).
 
 **Licence:** [GPL-3.0-or-later](LICENSE). Free to install and run in your own
 environment; there is no paid edition. Patches welcome under
