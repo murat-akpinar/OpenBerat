@@ -1620,16 +1620,31 @@ serving the person who has to run it.
       and the never-used reason is one the enum cannot produce — and it reads
       `ALL PASS`.*
 
-- [ ] **`DATABASE_URL` an override rather than a literal** — for the site that
+- [x] **`DATABASE_URL` an override rather than a literal** — for the site that
       already has a database
-      *It is written into `docker-compose.yml` as a constant, so an operator with
-      a central Postgres has to edit a committed file to point at it. The
-      `postgres` service stays where it is — an install that starts nothing
-      extra is what N-05 and the offline bundle both assume — but the variable
-      becomes the operator's. Most of what this owes them is documentation, not
-      code: the backend applies its own migrations at startup and `audit_event`
-      is range-partitioned, so it needs its own database and DDL rights, not a
-      schema borrowed inside somebody else's.*
+      *One compose line and a section of `INSTALL.md`: the literal became
+      `${DATABASE_URL:-…}` with the old value as its default, so the operator
+      sets a variable instead of editing a committed file. `:-` and not `-`,
+      because `.env.example` now ships `DATABASE_URL=` empty and `-` would hand
+      sqlx an empty string. The `postgres` service stays and starts either way.
+      Most of it is documentation, as the box expected: the database has to be
+      the backend's own with DDL rights — it migrates at startup and creates and
+      drops audit partitions monthly — and §9's backup command reaches into a
+      container that is no longer the database.
+      **Two things the writing found, both checked rather than asserted**
+      (`docs/07`). `POSTGRES_PASSWORD` stays required even when nothing connects
+      to the bundled service: cleared, the image refuses to initialise and the
+      container restart-loops. And **sqlx defaults to `sslmode=prefer`**, which
+      falls back to plaintext without saying so — harmless to a container next
+      door, the whole decision chain in the clear over a network, so the example
+      URL carries `verify-full` and a CA path. The same read found the sharper half: the root store is
+      `webpki-roots` compiled into the binary, so an internal CA has to arrive
+      as `sslrootcert=` and putting it in the image's `/etc/ssl/certs` does
+      nothing. Both are read out of the dependency's source, not run, and
+      `docs/07` says so.
+      **Not measured:** an install actually pointed at an external server. What
+      was run is `docker compose config` both ways and the bundled image's
+      refusal.*
 
 - [ ] **Two sentences the code does not keep** — found by reading, not by failing
       *`main.rs` says the retention job gives a fresh install "its partitions

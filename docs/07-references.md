@@ -3178,3 +3178,44 @@ of cycles.
 has been deployed twice; these are the two transport costs the decision turns
 on, and the ADR is explicit that its subscription-liveness rule is a design
 commitment rather than a measurement.
+
+## `DATABASE_URL` as an override, and what the default hides
+
+Three checks behind INSTALL.md §3, "Pointing at a Postgres you already run".
+Two were run on this host; the third was read out of the dependency's source,
+which is said here rather than implied.
+
+**The interpolation, both ways.** `docker compose config` against an `.env`
+built from `.env.example` renders
+`postgres://openberat:…@postgres:5432/openberat`; with `DATABASE_URL` set to an
+external server it renders exactly that string, query parameters included. The
+form is `${DATABASE_URL:-postgres://openberat:${POSTGRES_PASSWORD}@postgres:5432/openberat}`
+— nested substitution inside a default, which compose v5.5.1 resolves. `:-` and
+not `-` is what makes an **empty** `DATABASE_URL=` in `.env` take the bundled
+service: `.env.example` ships the variable empty, and `-` would hand sqlx an
+empty string instead.
+
+**`POSTGRES_PASSWORD` stays required even when nothing connects to the bundled
+service.** `docker run … -e POSTGRES_PASSWORD= postgres:17-alpine` exits with
+`Database is uninitialized and superuser password is not specified`, so an
+operator who moves the database out and clears the password gets a
+restart-looping container rather than an idle one.
+
+**sqlx defaults to `sslmode=prefer`, which falls back to plaintext without
+saying so.** Read, not run: `sqlx-postgres` 0.9.0 marks `PgSslMode::Prefer`
+`#[default]` and documents it as "First try an SSL connection; if that fails,
+try a non-SSL connection". Its URL parser accepts `sslmode`, `sslrootcert`,
+`sslcert` and `sslkey`, so `verify-full` is available and is what INSTALL
+recommends — over a socket to a container next door the default costs nothing,
+over a network it is the decision chain in the clear. And the root store it
+verifies against is not the container's: `backend/Cargo.toml` asks for
+`tls-rustls-ring`, which sqlx 0.9 resolves to `tls-rustls-ring-webpki` →
+`webpki-roots`, the public CA list compiled into the binary (`Cargo.lock` has
+`webpki-roots` and no `rustls-native-certs`). An internal CA therefore has to
+arrive as `sslrootcert=`; adding it to `/etc/ssl/certs` in the image does
+nothing.
+
+**Not measured:** an installation actually pointed at an external Postgres.
+Nothing here connects to one; what is checked is what compose renders, what the
+bundled image refuses, and what the client does when the URL says nothing about
+TLS.

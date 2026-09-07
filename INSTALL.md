@@ -193,6 +193,11 @@ APPS_DOMAIN=apps.example.local
 # the password. Hex avoids the question:
 #   openssl rand -hex 24
 POSTGRES_PASSWORD=…
+# Optional: where the backend's database is. Left empty it is the `postgres`
+# service in docker-compose.yml, built from the password above. Set it only to
+# point at a server you already run — "Pointing at a Postgres you already run",
+# below.
+DATABASE_URL=
 KC_ADMIN_USER=admin
 KC_ADMIN_PASSWORD=…
 AD_DOMAIN=example.local
@@ -227,6 +232,52 @@ ADMIN_GROUP=OpenBerat-Admins
 # figure is a floor; if your policy is a maximum, set one month less.
 AUDIT_RETENTION_MONTHS=
 ```
+
+### Pointing at a Postgres you already run
+
+`DATABASE_URL` is the whole connection string and the default is the bundled
+`postgres` service. A site that already runs Postgres — with its own backups,
+its own patching and its own on-call — sets the variable in `.env` instead of
+editing a committed file:
+
+```
+DATABASE_URL=postgres://openberat:…@db.example.local:5432/openberat?sslmode=verify-full&sslrootcert=/etc/ssl/certs/ca.crt
+```
+
+Three things that server owes the backend:
+
+- **A database of its own, owned by the role in the URL** — not a schema
+  borrowed inside somebody else's. The backend applies its own migrations at
+  startup and refuses to start if it cannot (`store.rs`), and the audit log is
+  range-partitioned: the retention job creates next month's partition and drops
+  the expired ones ([ADR-0022](docs/adr/0022-audit-retention.md)). That is
+  `create table` and `drop table` at run time, every month, forever.
+  `create database openberat owner openberat;` is the whole of it.
+- **A password that survives URL parsing.** The same trap as
+  `POSTGRES_PASSWORD` above, and now it is yours to avoid: a `/` in the
+  password ends the authority component and the client complains about the
+  *port*.
+- **TLS you asked for by name.** sqlx defaults to `sslmode=prefer`, which
+  falls back to plaintext without saying so — over a network that is the whole
+  decision chain in the clear. `require` encrypts; `verify-full` is the one that
+  also checks who answered, and it needs `sslrootcert=` pointing at a file
+  *inside the backend container*, so it comes with a mount of your own in
+  `docker-compose.override.yml`. Putting your CA in the image's system trust
+  store is not the same thing and will not work: the backend is built against
+  the compiled-in public root list, which does not read `/etc/ssl/certs`.
+
+The `postgres` service still starts — an install that starts nothing extra is
+what the offline bundle assumes (§11), and taking it out of the file would make
+that install two files instead of one. It simply sits idle with an empty
+volume; `docker compose stop postgres` if that bothers you. `POSTGRES_PASSWORD`
+stays required either way: the image refuses to initialise without a non-empty
+one and the container restart-loops, so leave a value there even when nothing
+connects to it.
+
+§9's backup command reaches into that container, so it is not yours any more:
+take the dump the way your site already takes dumps, of the same database. The
+restore procedure is unchanged — the reason for emptying the schema first is the
+partitioned table, not the container it runs in.
 
 ## 4. Active Directory
 
@@ -653,6 +704,10 @@ So the backup is one command, plus the two files:
 docker compose exec -T postgres pg_dump -U openberat openberat \
   > openberat-$(date +%F).sql
 ```
+
+That command reaches into the bundled container. On an install that set
+`DATABASE_URL` to its own server (§3) it is the site's own `pg_dump` of the same
+database, and everything below is unchanged.
 
 `certs/` and `.env` are secrets and belong wherever this installation already
 keeps secrets — not beside the dump, which is configuration and audit only.

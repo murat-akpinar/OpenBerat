@@ -83,7 +83,16 @@ services:
     image: openberat-backend
     build: ./backend
     environment:
-      DATABASE_URL: postgres://openberat:${POSTGRES_PASSWORD}@postgres:5432/openberat
+      # A literal by default and the operator's when they set it: a site that
+      # already runs Postgres points this at it without editing a committed
+      # file. `:-` and not `-`, so a variable left empty in .env still takes the
+      # bundled service rather than handing sqlx an empty string. The
+      # `postgres` service below starts either way — an install that starts
+      # nothing extra is what N-05 and the offline bundle assume — so an
+      # external database leaves it idle. What the backend needs there is a
+      # database of its own with DDL rights, not a schema inside somebody
+      # else's: INSTALL.md §3, "Pointing at a Postgres you already run".
+      DATABASE_URL: ${DATABASE_URL:-postgres://openberat:${POSTGRES_PASSWORD}@postgres:5432/openberat}
       REDIS_URL: redis://redis:6379
       # No default in the code: a default here would be a silent fallback to a
       # name that may not resolve, and /decide would report an outage instead of
