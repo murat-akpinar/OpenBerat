@@ -2291,8 +2291,33 @@ load-bearing for ADR-0006. A new claim goes in unticked and leaves ticked.
       case — the same login with the filter emptied — reaches
       `/api/admin/applications` with a 200.
 
-## Licences (to be verified)
+## Licences — checked 2026-09-07
 
-The licence information in `docs/01-landscape.md` was written from memory and
-**has not been confirmed**. Licences change often in this space. Each will be
-verified on the tool's own page before it is chosen.
+`docs/01-landscape.md`'s licence column was written from memory. Every cell has
+now been read from the project's own `LICENSE` file, through GitHub's licence
+endpoint, which reports what that file says rather than what a README claims.
+Twelve of fourteen were right.
+
+| Project | Written from memory | What the `LICENSE` file says |
+|---|---|---|
+| Keycloak | Apache-2.0 | `Apache-2.0` |
+| Pomerium | Apache-2.0 (some features Enterprise) | `Apache-2.0` — the Enterprise console is a separate product, not a directory in the repository |
+| **Authentik** | **MIT** | **`NOASSERTION` / "Other".** MIT is the default, but the file carves out `authentik/enterprise/` under a separate enterprise licence and `website/` under CC BY-SA 4.0 |
+| Authelia | Apache-2.0 | `Apache-2.0` |
+| oauth2-proxy | MIT | `MIT` |
+| Teleport | AGPL-3.0 community + commercial | `AGPL-3.0` |
+| **HashiCorp Boundary** | **BUSL (no longer open source)** | **`NOASSERTION` / "Other".** Business Source License **1.1**, licensor **International Business Machines Corporation** — not HashiCorp — Change Date four years after each version is published, Change License **MPL-2.0** |
+| Apache Guacamole | Apache-2.0 | `Apache-2.0` |
+| Warpgate | Apache-2.0 | `Apache-2.0` |
+| OpenZiti | Apache-2.0 | `Apache-2.0` |
+| OPA | Apache-2.0 | `Apache-2.0` |
+| Cedar | Apache-2.0 | `Apache-2.0` |
+| Casbin | Apache-2.0 | `Apache-2.0` |
+
+The two corrections both go the same way — **a single SPDX identifier was
+hiding a carve-out.** Authentik is not simply MIT: it has a paid directory
+inside the same repository, which makes ADR-0014's "no feature behind a licence"
+a difference from Authentik and not only from Pomerium. And Boundary's BUSL is
+not a permanent state: every version becomes MPL-2.0 four years after it ships,
+under a licensor that is now IBM. Neither changes a decision here; both change
+what this document can be quoted for.

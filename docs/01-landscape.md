@@ -4,20 +4,22 @@ Before writing anything from scratch: mature open source tools already do this
 job. This document exists to make clear **what we are not reinventing**.
 
 > **Note:** Licences change often in this space (HashiCorp and Teleport both
-> changed theirs in recent years). **Verify** on the project's own page before
-> making a decision.
+> changed theirs in recent years), so the column below was checked against each
+> project's own `LICENSE` file on **2026-09-07** rather than written from
+> memory — which corrected two of them (`docs/07`). Check again before making a
+> decision on one.
 
 ## Open source
 
-| Tool | Category | Licence (verify) | Strength | Weakness |
+| Tool | Category | Licence (checked 2026-09-07) | Strength | Weakness |
 |---|---|---|---|---|
 | **Keycloak** | IdP | Apache-2.0 | AD/LDAP federation, OIDC + SAML, mature, CNCF. **Will be used** in this project — not a competitor. | Its authorisation engine (Authorization Services) is complex and slow; usually solved outside it. |
-| **Pomerium** | IAP | Apache-2.0 (some features Enterprise) | Exactly what this project describes. OIDC + policy + portal. The closest reference. | Complex policy language; enterprise features are paid. |
-| **Authentik** | IdP + Proxy | MIT | Combines Keycloak and Pomerium in one product. Has a portal and a flow editor. | Younger ecosystem than Keycloak. |
+| **Pomerium** | IAP | Apache-2.0 — the core repository; the Enterprise console is a separate paid product rather than a directory inside it | Exactly what this project describes. OIDC + policy + portal. The closest reference. | Complex policy language; enterprise features are paid. |
+| **Authentik** | IdP + Proxy | MIT for the core, **but not only** — `authentik/enterprise/` is under a separate enterprise licence and `website/` under CC BY-SA 4.0, which is why GitHub classifies the repository as "Other" | Combines Keycloak and Pomerium in one product. Has a portal and a flow editor. | Younger ecosystem than Keycloak. It also has a paid tier, so "no feature behind a licence" is a difference from this project and not only from Pomerium. |
 | **Authelia** | Auth portal + forward auth | Apache-2.0 | Very light, single binary, ideal for forward auth. | Not an IdP itself (it now has an OIDC provider, but not at Keycloak's level). |
 | **oauth2-proxy** | Forward auth | MIT | The most minimal PEP. One binary, validates OIDC, sets headers. | No policy engine, only "did they log in". The access decision is yours to make. |
 | **Teleport** | PAM / infra access | AGPL-3.0 community + commercial | SSH/K8s/DB/RDP plus session recording. The reference on the PAM side. | AGPL — be careful if productising. Heavy. |
-| **HashiCorp Boundary** | PAM / access broker | BUSL (no longer open source) | Identity-based brokering to target systems. | Licence is a problem for commercial use. |
+| **HashiCorp Boundary** | PAM / access broker | **BUSL-1.1**, licensor now **IBM**; each version converts to **MPL-2.0** four years after it is published | Identity-based brokering to target systems. | Not open source while it is current, and production use may not compete with the paid version — a problem for commercial use, and the four-year conversion does not help anyone who needs a supported release today. |
 | **Apache Guacamole** | Clientless RDP/SSH/VNC | Apache-2.0 | RDP/SSH from the browser. A ready answer for the "session" part of PAM. **Do not rewrite.** | Has its own user/permission model; managing it externally needs an extension. |
 | **Warpgate** | SSH/HTTP/MySQL bastion | Apache-2.0 | Small, understandable, written in Rust. A good reference to read. | Small project, limited feature set. |
 | **OpenZiti** | Network-layer ZTNA | Apache-2.0 | An overlay network beneath the application layer. | Solves a different problem (L3/L4). |
