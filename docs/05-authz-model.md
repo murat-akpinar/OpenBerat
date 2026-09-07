@@ -145,10 +145,14 @@ force this:
 So:
 
 - Key: `(cookie_hash, app_slug)` — both computable from the request alone.
-  - `cookie_hash`: SHA-256 of the **`_oauth2_proxy` cookie's value only** —
-    never the whole `Cookie` header. Applications set cookies of their own on
-    the shared domain; hash the whole header and every app-cookie change is a
-    new key, and the hit rate N-01 depends on collapses.
+  - `cookie_hash`: SHA-256 of the **`_oauth2_proxy` cookie only** (and its
+    `_0`, `_1`… chunks, whose suffix must be digits) — never the whole `Cookie`
+    header. Applications set cookies of their own on the shared domain; hash the
+    whole header and every app-cookie change is a new key, and the hit rate N-01
+    depends on collapses. Each name and value goes in **length-prefixed**: the
+    client writes both, and run together `_0=X; _1=Y` and `_0=X_oauth2_proxy_1Y`
+    are one byte stream, so two cookie sets would name one entry — and the entry
+    holds a verified identity.
   - Neither the path nor the query string is part of the key
 - Value:
   ```

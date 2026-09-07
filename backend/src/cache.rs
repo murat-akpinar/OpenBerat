@@ -100,7 +100,15 @@ impl Key {
                 .and_then(|rest| rest.strip_prefix('_'))
                 .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
             if name == COOKIE_NAME || chunk {
+                // Length-prefixed, because the parts are joined into one hash
+                // and the client writes both: name+value run together make
+                // `_0=X; _1=Y` and `_0=X_oauth2_proxy_1Y` the same byte stream,
+                // and a cache key names an entry holding a verified identity.
+                // Reaching that today would mean already holding the session it
+                // encodes, so this removes the reasoning rather than a way in.
+                hasher.update((name.len() as u64).to_le_bytes());
                 hasher.update(name.as_bytes());
+                hasher.update((value.len() as u64).to_le_bytes());
                 hasher.update(value.as_bytes());
                 found = true;
             }
@@ -370,6 +378,17 @@ mod tests {
     use super::*;
     use crate::policy::{Deny, Effect};
     use crate::store::audit_channel;
+
+    // The key is a hash of client-controlled bytes, so how the parts are joined
+    // is part of the key. Feeding name and value in with nothing between them
+    // makes two different cookie sets the same byte stream, and the entry a
+    // cache key names holds a verified identity.
+    #[test]
+    fn two_cookie_sets_cannot_share_one_key() {
+        let split = Key::new(Some("_oauth2_proxy_0=X; _oauth2_proxy_1=Y"), "wiki").unwrap();
+        let joined = Key::new(Some("_oauth2_proxy_0=X_oauth2_proxy_1Y"), "wiki").unwrap();
+        assert_ne!(split, joined);
+    }
 
     fn identity(sub: &str) -> Arc<Identity> {
         Arc::new(Identity {
