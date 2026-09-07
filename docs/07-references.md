@@ -3354,3 +3354,38 @@ with the thing it was measuring. And `oauth2-proxy` does not refuse a cookie the
 moment Keycloak ends the session: it revalidates on `cookie_refresh`, so the
 five minutes between step 2 and step 3 above are the configured interval, not a
 delay in the finding.
+
+## The production shape of Keycloak, tried before it was written
+
+`INSTALL.md` §5's "Keycloak in production" is not from the manual: the shape was
+built and run on the lab first, in a throwaway container against a `keycloak`
+database on the bundled Postgres, with the serving stack left alone. The
+container, the image and the database were removed afterwards and the portal
+still answers 302.
+
+- **`start --optimized` exits 2 on a build-time option supplied at runtime.**
+  `KC_HEALTH_ENABLED=true` in the environment produced one line —
+  *the following build time options have values that differ from what is
+  persisted* — and a container that was simply gone. Nothing in that output
+  reads like an error, which is why INSTALL puts the variable in the builder
+  stage.
+- **The two-stage image is enough.** `kc.sh build` with `KC_DB=postgres` in a
+  builder, `COPY --from=builder /opt/keycloak/`, then the theme on top: Keycloak
+  26.3.5 started in **30.9 s**, imported the realm — `Realm 'openberat'
+  imported`, `Import finished successfully` — and listened on 8080.
+- **The `sub` survives the container.** `labuser` read `47811b5c-…` on the first
+  boot; the container was then destroyed and recreated against the same
+  database and it read `47811b5c-…` again. That is the whole reason this section
+  exists: on the shipped H2 the same act gives every federated user a new id,
+  and `audit_event.actor_sub` keys on it.
+- **The realm is imported once.** The second boot logged `Realm 'openberat'
+  already exists. Import skipped`, so on a persistent database editing
+  `keycloak/realm/` does not reach a running installation — the operational
+  consequence INSTALL now names.
+- **`KC_HOSTNAME` is what the discovery document says.** Read from a container
+  on the same network: `"issuer": "https://auth.apps.example.local/realms/openberat"`
+  while the server itself was reachable only as `kc-prod:8080`.
+
+**Not measured:** a browser login against the optimized container. It was never
+put behind nginx — the running stack kept serving throughout — so what is proved
+is that it starts, imports, persists identities and reports the right issuer.

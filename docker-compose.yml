@@ -184,10 +184,11 @@ services:
     build:
       context: .
       dockerfile: keycloak/Dockerfile
-    # ponytail: start-dev + embedded H2 is lab-only, and the production form —
-    # `start --optimized`, KC_DB, KC_HOSTNAME — is **still unwritten**. This
-    # used to point at an INSTALL.md item; Phase 1 closed without one, so the
-    # note was the only place the gap existed. H2 deliberately gets no volume:
+    # ponytail: start-dev + embedded H2 is lab-only. The production form —
+    # `start --optimized` on an image with the vendor built in, KC_DB,
+    # KC_HOSTNAME — is INSTALL.md §5, "Keycloak in production", and it stays a
+    # documented step rather than the default because the database it needs is
+    # the operator's. H2 deliberately gets no volume:
     # the realm is reproduced by re-importing the export (keycloak/README.md),
     # so persisting a dev database would only preserve hand-made drift the
     # import is supposed to prevent. The cost of that is not only the realm —

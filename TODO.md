@@ -1866,19 +1866,31 @@ serving the person who has to run it.
       screen both say "run the kill switch (INSTALL.md §6)", and §6 did not
       document the call. It does now, with the `Origin` header the POST needs.*
 
-- [ ] **Keycloak runs in dev mode and only a comment says so** — the production
+- [x] **Keycloak runs in dev mode and only a comment says so** — the production
       form is unwritten
-      *`start-dev` with the embedded H2 database. Right for the lab, and what a
-      first corporate install inherits without being told. `docker-compose.yml`
-      used to defer this to an `INSTALL.md` item; Phase 1 closed without writing
-      one, so the note was the only place the gap existed — it now says so.
-      Two consequences, and the second is the one nobody expects: H2 has no
-      volume, so every rebuild re-imports the realm **and** re-creates the
-      federated users with fresh `sub`s. `audit_event.actor_sub` keys on that,
-      so the audit record quietly detaches from the people it names.
-      `start --optimized` with `KC_DB` and `KC_HOSTNAME` is the shape; where it
-      belongs is `INSTALL.md` §5, beside the start sequence, and the numbers it
-      needs are the operator's Postgres rather than ours.*
+      *Written now, in `INSTALL.md` §5, and **tried before it was written**: a
+      throwaway optimized container against a `keycloak` database on the bundled
+      Postgres, with the serving stack untouched and everything removed
+      afterwards (`docs/07`). Three changes an operator makes — a database of
+      its own, a two-stage image with `kc.sh build --db=postgres`, and
+      `start --optimized` with `KC_DB*`, `KC_HOSTNAME`, `KC_HTTP_ENABLED`.
+      The two things worth having tried. **A build-time option supplied at
+      runtime makes `start --optimized` exit 2** with one line that does not
+      read like an error — `KC_HEALTH_ENABLED` belongs in the builder. And the
+      claim the section exists for is now measured rather than asserted:
+      `labuser` kept the same `sub` across a destroy-and-recreate, which is what
+      the H2 default does not do and what `audit_event.actor_sub` keys on.
+      Two consequences the run surfaced and INSTALL now carries: on a persistent
+      database the realm is imported **once** (`Realm 'openberat' already
+      exists. Import skipped`), so editing the export stops reaching a running
+      installation and console drift starts to persist; and Keycloak's database
+      joins §9's list of what cannot be re-derived — the `sub`s the audit log
+      names and, since ADR-0032, the OTP credentials admins enrolled.
+      **The default is unchanged and that is deliberate**: the database it needs
+      is the operator's, and `docker compose up` has to keep starting a lab. The
+      compose note points at the section instead of saying the form is unwritten.
+      Not measured: a browser login against the optimized container — it was
+      never put behind nginx.*
 
 - [x] **The domain became one variable** — `APPS_DOMAIN`, and the note that
       deferred it was the only thing holding it

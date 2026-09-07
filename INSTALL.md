@@ -407,6 +407,78 @@ is the whole of it. If the backend will not stay up,
 `docker compose logs backend` says which of the two happened on its last line:
 it could not reach Postgres, or a migration would not apply.
 
+### Keycloak in production
+
+**The shipped compose runs `start-dev` with an embedded H2 database, and that is
+a lab configuration.** Nothing warns you at the point it matters: the stack comes
+up, users log in, and the cost only appears the first time the container is
+replaced. H2 gets no volume on purpose — the realm is reproduced by re-importing
+the export — but it holds more than the realm. **Every rebuild re-creates the
+federated users with fresh `sub`s, and `audit_event.actor_sub` keys on that**, so
+the audit record quietly detaches from the people it names. Since
+[ADR-0032](docs/adr/0032-admin-mfa.md) it also holds every admin's enrolled OTP
+credential, which is re-enrolled from scratch the same way.
+
+Three changes, and none of them is ours to decide for you — the database is
+yours. Tried on the lab (`docs/07`) rather than written from the manual.
+
+**1. A database of its own.** Keycloak does not share a schema with the backend:
+
+```sh
+docker compose exec -T postgres psql -U openberat -d postgres \
+  -c 'create database keycloak owner openberat'
+```
+
+On the bundled Postgres or on your own — the same choice §3 offers the backend,
+and the same requirement: its own database, with rights to create its schema.
+
+**2. An image that is already built.** `start --optimized` refuses to do at
+startup what a build should have done, so the database vendor is baked in:
+
+```dockerfile
+FROM quay.io/keycloak/keycloak:26.3 AS builder
+ENV KC_DB=postgres
+ENV KC_HEALTH_ENABLED=true
+RUN /opt/keycloak/bin/kc.sh build
+
+FROM quay.io/keycloak/keycloak:26.3
+COPY --from=builder /opt/keycloak/ /opt/keycloak/
+COPY keycloak/themes/ /opt/keycloak/themes/
+COPY frontend/src/logo.svg /opt/keycloak/themes/openberat/login/resources/img/logo.svg
+```
+
+`KC_HEALTH_ENABLED` belongs in the **builder** and not in the environment: a
+build-time option supplied at runtime makes `start --optimized` **exit 2** with
+one warning line and nothing that reads like an error. That is the trap this
+shape costs.
+
+**3. The command and the environment.**
+
+```yaml
+    command: ["start", "--optimized", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: openberat
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KC_HOSTNAME: https://auth.${APPS_DOMAIN}
+      KC_HTTP_ENABLED: "true"     # TLS terminates at nginx (§1)
+      KC_PROXY_HEADERS: xforwarded
+```
+
+`KC_HOSTNAME` is what the browser sees, not what the container is called: the
+issuer in the discovery document becomes exactly that, and oauth2-proxy
+validates the token's `iss` against it.
+
+**What changes once the database survives.** The realm is imported **once** —
+the second start logs `Realm 'openberat' already exists. Import skipped`, so
+editing `keycloak/realm/` no longer reaches a running installation and
+re-importing becomes a deliberate step. That cuts both ways: settings clicked
+together in the admin console now persist, which is why `keycloak/README.md`
+says to export them back into the repository. And Keycloak's database joins the
+list in §9 that cannot be re-derived — it holds the `sub`s your audit log names
+and the OTP credentials your admins enrolled.
+
 **Lab: the directory has to have something in it.** Keycloak holds no local
 users — `labuser` and everyone else come from AD through the LDAP provider, so
 a lab needs the fixture before anyone can log in:
@@ -734,13 +806,14 @@ is only ever one request.
 ## 9. Backup and restore
 
 Three things on this host cannot be re-derived, and only one of them is in a
-volume:
+volume — four once Keycloak has a database of its own (§5):
 
 | What | Where | Why it cannot be rebuilt |
 |---|---|---|
 | `application`, `entitlement`, `audit_event` | the `pg_data` volume | who may reach what, and the record of who did |
 | the wildcard certificate | `certs/` | §1 — and its expiry takes every application down at once |
 | the secrets | `.env` | §3 — the cookie secret, the two client secrets, the AD bind password |
+| Keycloak's database | only if you moved it off H2 (§5) | The `sub`s the audit log names and the OTP credentials admins enrolled (ADR-0032). On the shipped `start-dev` there is nothing to back up, which is the same sentence read the other way |
 
 Everything else comes back by itself, and backing it up would only preserve
 drift. The generated nginx blocks are a pure function of the `application`
