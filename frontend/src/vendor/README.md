@@ -3,6 +3,11 @@
 Third-party files copied into the repository by hand (ADR-0007: no npm, no
 build step, no CDN). Upgrades are manual and visible in the commit.
 
+**Nothing here is loaded by a page today.** [ADR-0024](../../../docs/adr/0024-no-admin-ui-in-v1.md)
+ships v1 with no admin screens and the portal uses no Alpine, so this file is
+kept for the one screen worth building later — with the measurement below
+already made — and goes if that screen never comes.
+
 ## alpine.js — Alpine.js **CSP build**, v3.17.1, MIT
 
 | | |
@@ -31,8 +36,9 @@ ordinary JavaScript in an ordinary `.js` file and has no restrictions at all.
 
 **Licence.** MIT, © Caleb Porzio and contributors. The published package ships
 no licence file and the minified build carries no banner, so the **notice is
-prepended here** — the file is served to every browser that opens the portal,
-and MIT asks for the notice to travel with the copy (ADR-0013). That banner is
+prepended here** — the file ships inside the nginx image and is reachable at
+`/vendor/alpine.js`, and MIT asks for the notice to travel with the copy
+(ADR-0013). That banner is
 the only difference between this file and the published one, which is why both
 checksums are above: verify the tarball against the first, add the banner, and
 the result must be the second.

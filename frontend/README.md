@@ -1,7 +1,9 @@
 # frontend
 
-The portal and admin UI. Served statically by nginx, taking its data from the
-`backend`'s `/api/*` endpoints.
+The portal. Served statically by nginx, taking its data from the `backend`'s
+`/api/*` endpoints. **There are no admin screens** — v1 administers through
+`/api/admin/*` ([ADR-0024](../docs/adr/0024-no-admin-ui-in-v1.md),
+`INSTALL.md` §6).
 
 **Screens**
 
@@ -9,9 +11,6 @@ The portal and admin UI. Served statically by nginx, taking its data from the
 |---|---|
 | Portal | The applications the user can reach per their AD `memberOf` entitlements — buttons with icons |
 | No access | The page shown when an unauthorised application is requested |
-| Admin · Applications | Defining applications (name, icon, target address) |
-| Admin · Entitlements | AD group ↔ application mapping (allow / deny) |
-| Admin · Audit | Viewing and filtering the audit log |
 | Unavailable | Served from `error_page` when the decision path does not answer |
 
 **Design.** A *berat* is a sealed warrant granting a right, which is what this
@@ -40,9 +39,10 @@ the outage page itself — bare, in exactly the outage it exists to explain.
 
 **Technology (ADR-0007):** HTML + CSS + Alpine.js — one vendored file, no build
 step, no npm, no CDN. The portal (`index.html`, `portal.js`, `portal.css`) uses
-**no Alpine**: it draws a list `/api/apps` already decided, and reactivity buys
-nothing there. Alpine is for the admin screens, and the vendored file is the
-**CSP build** — `src/vendor/alpine.js`, provenance in the README beside it. The
+**no Alpine**, and with ADR-0024 no page does: the portal draws a list
+`/api/apps` already decided, and reactivity buys nothing there. The vendored
+file is kept for the one screen worth building later (audit + `explain`) and
+is the **CSP build** — `src/vendor/alpine.js`, provenance in the README beside it. The
 standard build would cost `unsafe-eval` and was measured doing exactly that
 (`docs/07`); write expressions accordingly, no arrow functions and no template
 literals in attributes.
@@ -51,7 +51,8 @@ literals in attributes.
 step and no linter to catch a breach:
 
 1. Anything from `/api/*` is written with `textContent`, never as markup. An
-   admin types the application name and icon and nothing validates them; the
+   admin types the application name and icon through the API and nothing
+   validates them for display; the
    portal is the one host every user opens and its session cookie is valid for
    every application on `.apps.<domain>` (ADR-0015).
 2. No inline `<script>` and no inline event handlers, so a `default-src 'self'`

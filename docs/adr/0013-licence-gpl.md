@@ -66,7 +66,9 @@ installing this are exactly the organisations that run such policies.
 - Vendored third-party code has to be licence-compatible. Alpine.js (ADR-0007)
   is MIT, which is compatible. The published minified build carries **no**
   notice, so one is prepended in the vendored file rather than kept only in a
-  README: that file is served to every browser that opens the portal, and MIT
+  README: that file ships inside the nginx image and is reachable at
+  `/vendor/alpine.js` — no page loads it since
+  [ADR-0024](0024-no-admin-ui-in-v1.md), but a copy travels either way, and MIT
   asks for the notice to travel with the copy
   (`frontend/src/vendor/README.md`).
 - Every file we wrote carries an SPDX identifier, checked in CI. The exception

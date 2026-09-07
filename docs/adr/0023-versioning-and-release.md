@@ -90,6 +90,11 @@ computes the list of images to push, so it is an addition rather than a rewrite.
   only and the previous binary will not start against the newer schema, so a
   version number does not buy a rollback — the dump taken before the upgrade
   does (`INSTALL.md` §9). MAJOR is a warning, not a safety net.
+- **[ADR-0024](0024-no-admin-ui-in-v1.md) adds one more thing MAJOR covers.**
+  With no admin screens, `/api/admin/*` is the only way to administer the
+  product, so a removed field or a renamed admin endpoint is something the
+  operator must act on before upgrading — the same class as an environment
+  variable being renamed, and `INSTALL.md` §6 moves with it.
 - The tag is signed and pushed by the maintainer; nothing in CI creates one. A
   release that a script can cut by itself is a release that can be cut by
   accident.

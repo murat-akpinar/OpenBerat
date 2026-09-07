@@ -62,3 +62,8 @@ other components are affected.
   `unsafe-inline` nor `unsafe-eval`.
 - No authorisation decision is made in the UI; hiding admin screens is a
   convenience, and `/api/admin/*` is separately authorised in the backend.
+- **[ADR-0024](0024-no-admin-ui-in-v1.md) leaves this decision without its
+  subject for now:** v1 ships no admin screens, so the portal's "no Alpine at
+  all" is the whole of the frontend and the vendored build is referenced by no
+  page. Nothing here is reversed — the trigger above simply has nothing to fire
+  on until an admin screen is wanted.

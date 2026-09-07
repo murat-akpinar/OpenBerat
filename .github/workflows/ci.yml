@@ -98,8 +98,9 @@ jobs:
               want = VENDOR.get(name, OURS)
               if want not in text:
                   bad.append(f'{name}: no `{want}`')
-          # The vendored build is served to every browser that opens the portal,
-          # so the MIT notice has to be in the file and not only in a README.
+          # The vendored build ships inside the nginx image and is reachable at
+          # /vendor/alpine.js, so the MIT notice has to be in the file and not
+          # only in a README — no page loads it since ADR-0024, but it travels.
           alpine = pathlib.Path('frontend/src/vendor/alpine.js')
           if alpine.exists() and not alpine.read_text(errors='replace').startswith('/*! Alpine.js'):
               bad.append('frontend/src/vendor/alpine.js: the MIT banner is gone')

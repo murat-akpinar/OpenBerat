@@ -46,7 +46,7 @@ doctype and before anything else.
 
 Two exceptions. `frontend/src/vendor/alpine.js` is MIT and carries its own
 notice, in the file rather than only in `frontend/src/vendor/README.md`, because
-it is served to every browser that opens the portal. And `backend/migrations/`
+it ships inside the nginx image and is reachable at `/vendor/alpine.js`. And `backend/migrations/`
 carries no header at all, for the reason below.
 
 ## Before you write code

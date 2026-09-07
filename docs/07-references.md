@@ -1990,6 +1990,13 @@ is worth stating in the install document rather than only in `docs/02`: a
 curl-driven admin session hits it immediately, and the failure looks like a
 permissions problem.
 
+**Re-run on 2026-09-07 for [ADR-0024](adr/0024-no-admin-ui-in-v1.md), which
+rests on this section being an interface and not a promise.** Every row above
+still holds, `ALL OK`, against the same lab. That matters more now than when it
+was first written: with no admin screens, §6 is not documentation *of* the
+management interface, it *is* the management interface, so a regression in any
+of these rows breaks administering the product rather than one page of a guide.
+
 ### MEASURE — the decision under load, and the thing that runs out first
 
 The Phase 6 load test (`verify-load.sh` and `verify-load2.sh`, on the lab host).
@@ -2210,6 +2217,20 @@ consequence is closed: the CSP the portal is written for needs neither
 file under `vendor/` regains `eval(` or `new Function`, because swapping in the
 standard build looks like nothing but a larger file and would cost `unsafe-eval`
 on the one host every user opens.
+
+**Re-measured on 2026-09-07, when [ADR-0024](adr/0024-no-admin-ui-in-v1.md)
+decided there would be no admin screens.** The file is still served and is now
+referenced by nothing: `/vendor/alpine.js` answers **200, 71 453 bytes** to a
+`labuser` session and **302** without one, and `grep -rl alpine` inside the
+running nginx image's document root matches only the vendored file itself and
+the README beside it — no page loads it. The size differs from the 71 087 above
+because the MIT banner was prepended afterwards (ADR-0013); the bytes under the
+banner are unchanged. This is what corrected the reason given in three documents
+and a CI comment for putting that banner in the file rather than only in a
+README — it said the build "is served to every browser that opens the portal",
+which stopped being true the moment no page loaded it. The notice still belongs
+there, because the file ships inside the nginx image and is reachable at that
+path, which is a distributed copy either way.
 
 ### The login theme — where PatternFly can and cannot be repainted from `:root`
 

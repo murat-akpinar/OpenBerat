@@ -43,6 +43,10 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       product, taken from `backend/Cargo.toml`; the release artifact is one
       tarball holding the tagged source and every image, because an air-gapped
       site cannot build any of them
+- [x] ADR-0024 v1 ships no admin screens: administration is `/api/admin/*`,
+      driven the way `INSTALL.md` §6 shows — every endpoint exists, and the
+      one screen worth building (audit + `explain`) is worth building on top
+      of a v1 people already run
 
 **Phase 0 is closed.** Everything decidable from the design has been decided;
 what remains needs facts about the target environment and is tracked in
@@ -1335,23 +1339,40 @@ So the portal's data does not have to be filled in by hand with SQL.
       with 14% failures where a clean one read 750 r/s with none, and the miss
       path read 17.6 ms taken straight after a saturation run against 2.7 ms on
       a quiet host (`docs/07`).*
-- [ ] **Admin screens, or a decision that there will not be any.** Deferred
-      once, for a reason that has since run out. "Audit log viewing +
-      filtering" above closed on the API half, and its note gives the argument:
-      the two boxes after it added endpoints the same screen would have to
-      grow, so building it then meant building it twice. Those boxes are
-      closed, every endpoint exists, and the screen was never picked back up —
-      `frontend/src/` holds the portal and nothing else, and `index.html`
-      reserves the header space with a comment saying so.
-      Meanwhile `docs/02` listed "Portal + admin UI" as **Written** and both
-      READMEs said the frontend was "portal + admin". Those now say what is
-      actually there, which is why this is an open box and not a silent move to
-      *Later* — the scope call is the maintainer's.
-      What v1 has is enough to install and run: `INSTALL.md` §6 drives
-      `/api/admin/*` with curl. What it is not enough for is reading — the
-      audit endpoint has a keyset cursor, filters on six fields and no page to
-      use them from, and `explain` answers the question an admin asks most
-      often into a terminal. If only one screen is ever built, it is that one.
+- [x] **Admin screens, or a decision that there will not be any.**
+      *There will not be any: **[ADR-0024](docs/adr/0024-no-admin-ui-in-v1.md)**.
+      v1 administers through `/api/admin/*`, driven the way `INSTALL.md` §6
+      shows. Every endpoint the screens would have called already exists, and
+      the boundary was never in the screen — `ADMIN_GROUP` is checked on the
+      handler's first line independent of the cache, `explain` annotates rather
+      than decides so it cannot drift from the PEP, and admin actions are
+      already readable in the structured stdout stream. Not drawing a page
+      removes nothing from any of that.
+      **What it does cost is reading**, and the ADR says so rather than
+      pretending otherwise: the audit endpoint has a keyset cursor and six
+      filters with no page to use them from, and an operator without a terminal
+      cannot administer OpenBerat. The one screen worth building is audit +
+      `explain`, and it is worth building on top of a v1 people already run —
+      the endpoints, their authorisation and the CSP measurement behind the
+      vendored Alpine build all stay in place for it.
+      Closing this also closed four sentences that had quietly become false.
+      `frontend/README.md` listed three `Admin ·` screens that have never
+      existed and `docs/02`'s directory listing still said "portal + admin UI".
+      And the reason given in three places for prepending Alpine's MIT banner —
+      "it is served to every browser that opens the portal" — stopped being true
+      the moment no page loaded it; the notice still belongs there because the
+      file ships in the nginx image, which is a different reason and is now the
+      one written down (`CONTRIBUTING.md`, ADR-0013, CI). The file itself stays,
+      unreferenced, and the ADR names the trigger for deleting it.
+      Both claims were run on the lab rather than reasoned about.
+      `verify-install6.sh` again answers `ALL OK` — the `Origin` 403, the
+      infrastructure-upstream 400, `"nginx":"staged"`, the 302 before any
+      entitlement, 200 after one, `explain` agreeing with the PEP and refusing
+      to guess, and the delete — which is the whole basis for calling §6 an
+      interface. And `/vendor/alpine.js` answers 200 with 71 453 bytes to a
+      session, 302 without one, while `grep -rl alpine` in the running image's
+      document root matches only the vendored file and its README: served,
+      authenticated, loaded by nothing (`docs/07`).*
 
 - [ ] Backend on 2 instances + nginx health check (HA — after the first deployment)
       *Not started: N-06 puts HA outside v1 and the box waits on a first real
