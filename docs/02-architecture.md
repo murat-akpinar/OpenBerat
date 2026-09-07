@@ -518,7 +518,7 @@ is the rehearsed break-glass below, not a promise of uptime.
 |---|---|
 | `backend` stateless, horizontally scalable | **Yes**, a design constraint |
 | At least 2 instances + an upstream health check | Not in v1 — and **nginx OSS cannot be the thing that checks**: `health_check` is not a directive it has (measured, `docs/07`), only passive `max_fails`/`fail_timeout`, which ejects an instance after users have already met the failure. `/readyz` ships in v1 all the same: an operator, an orchestrator and the break-glass runbook all ask it |
-| Decision cache is instance-local; moves to Redis with multiple instances | Noted |
+| Decision cache is instance-local; a second instance gets **broadcast invalidation**, not a shared cache | Decided, not built — [ADR-0031](adr/0031-decision-cache-multi-instance.md). Only step 3 of the kill switch is process-local, so without it the switch degrades from 0.085 s to a 30 s TTL on every instance that did not handle the call. Moving the cache into Redis was measured and rejected: 0.039–0.167 ms per round trip against 11–29 µs for the whole decision (`docs/07`) |
 | Postgres unreachable → DENY; cached decisions survive for their TTL | **Yes** |
 | **Break-glass:** a second nginx config in the same image, via `docker compose --profile breakglass` — written down and **rehearsed**. Its application blocks are generated from the `application` table like the running proxy's, and it mounts that shared volume **read-only** ([ADR-0030](adr/0030-breakglass-generated-blocks.md)); the `edge`-only network rule is untouched, since a file is not a network path | **Yes**, Phase 3 exit criterion |
 | Timeout budget decreasing outward-in (`/decide` 2s → oauth2-proxy 1s → sqlx 500ms) | **Yes**, a design constraint |

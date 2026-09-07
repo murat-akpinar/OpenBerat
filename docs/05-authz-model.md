@@ -231,7 +231,12 @@ this TTL (ADR-0006, ADR-0016). **Exception:** long-lived connections such as
 WebSocket/SSE are authorised once and are not covered by either number
 (`docs/02`, "Long-lived connections").
 
-`# ponytail: in-memory cache keyed per sub, assumes a single instance. Move to Redis once there are several.`
+`# ponytail: in-memory cache keyed per sub, assumes a single instance. A second one gets the invalidations broadcast to it, not the cache moved into Redis.`
+
+Broadcast rather than shared, because the round trip a shared cache adds is
+1.5–6× the whole measured cost of a decision and the entry is the audit flush
+unit ([ADR-0031](adr/0031-decision-cache-multi-instance.md), measured in
+`docs/07`).
 
 ## Application access levels (not in v1, reserved in the design)
 

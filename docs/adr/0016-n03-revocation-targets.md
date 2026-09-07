@@ -51,6 +51,11 @@ t+300.002 s and the talking one was still trading frames at t+420 s.
 
 ## Consequences
 
+- **With more than one instance the 5 s target rests on
+  [ADR-0031](0031-decision-cache-multi-instance.md) as well.** Only one of the
+  kill switch's four steps is process-local — this user's cache entries — and
+  unbroadcast it leaves every other instance answering from its own copy for a
+  full cache TTL, which is 30 s against this row's 5 s.
 - **The 5 s target rests on [ADR-0019](0019-kill-switch-session-index.md).**
   Without a `sub → session` index there is no way to find the user's
   oauth2-proxy session, and the kill switch degrades to `cookie_refresh` —

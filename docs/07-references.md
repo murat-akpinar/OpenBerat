@@ -3124,3 +3124,57 @@ unchanged.
 prefixed comma group in AD, `labuser` a member, the claim, `/api/me` and
 `/api/admin/applications` — the way the original was measured. Two layers are
 proved off-lab; the chain between them is not.
+
+## What a second backend instance would cost the decision cache
+
+Measured for [ADR-0031](adr/0031-decision-cache-multi-instance.md), which had to
+choose between moving the cache into Redis and broadcasting its invalidations.
+Both runs are from a throwaway `redis:7-alpine` on the compose `core` network —
+the same hop a second backend instance would make — against the lab's running
+`redis` (`verify-ha-cache.sh`, `verify-ha-pubsub.sh` on the lab host).
+
+**A round trip, which is what a shared cache would add to every decision.**
+`redis-benchmark -t get -d 600`, a 600-byte value standing in for an entry
+carrying the identity and a few rules:
+
+| Connections | p50 | Throughput |
+|---|---|---|
+| 1 | **0.039 ms** | 20 555 r/s |
+| 16 | **0.167 ms** | 51 867 r/s |
+
+`redis-cli --latency` over 489 `PING` samples on one connection reads
+min 0 ms, avg 0.18 ms, max 2 ms.
+
+The figure that decides the ADR is not the 2 ms of N-01 — 0.039 ms fits inside
+it easily. It is that **the whole decision measures 11–29 µs** end to end today,
+so a round trip is 1.5–6× the cost of the thing it would be added to, and a page
+of 50 assets makes 50 of them.
+
+**Publish to delivery, which is what broadcast invalidation would add to the
+kill switch.** A subscriber and a publisher each holding an open connection, the
+subscriber's RESP frames read with shell builtins so nothing but the round trip
+is inside the window:
+
+| Cycles | Wall clock | Per publish→delivery |
+|---|---|---|
+| 5 000 | 1.38 s | 276 µs |
+| 20 000 | 5.77 s | 288 µs |
+| 20 000 | 5.63 s | 281 µs |
+
+This is an **upper bound**: the loop also pays for the shell's own `printf` and
+thirteen `read` builtins per cycle. Against ADR-0016's 5 s kill-switch target,
+of which the measured switch spends 0.085 s, the margin is four orders of
+magnitude.
+
+Two harness notes, because both produced a wrong number first. `redis-cli`
+buffers its stdout when it is not a terminal, so a subscriber writing to a file
+delivers nothing until it exits — the subscriber here is busybox `nc`, which
+does not. And busybox `date` silently drops `%N`: `date +%s%N` returns whole
+seconds, so the first run reported every delivery as 0 µs. The clock above is
+`/proc/uptime` read with the shell builtin, at 10 ms, amortised over thousands
+of cycles.
+
+**Not measured:** anything about two backend instances actually running. Nothing
+has been deployed twice; these are the two transport costs the decision turns
+on, and the ADR is explicit that its subscription-liveness rule is a design
+commitment rather than a measurement.

@@ -91,6 +91,7 @@ answered and write the decision to `docs/adr/`.
 | What a non-empty `path_pattern` means | A subtree, written `…/*`; there is no exact-path form and the spelling that reads like one is refused | [0029](adr/0029-path-pattern-is-a-subtree.md) |
 | Which applications break-glass serves | The same ones, generated from the `application` table by the same validators — not a hand-written list | [0030](adr/0030-breakglass-generated-blocks.md) |
 | `worker_shutdown_timeout` | Set to 300 s — `proxy_read_timeout`'s value — in both main configurations, to bound the worker a reload leaves behind. No periodic reload; the N-03 exclusion for upgraded connections stands | [0025](adr/0025-worker-shutdown-timeout.md) |
+| The decision cache with more than one instance | The cache stays in memory on each instance and invalidations are broadcast over the Redis that ADR-0019 already requires; an instance with no live subscription serves no cache hits | [0031](adr/0031-decision-cache-multi-instance.md) |
 | AD group strategy | `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` | `docs/03`, `docs/07` |
 
 ### 🔴 Needs an answer about the target environment
@@ -153,7 +154,9 @@ network and policy. Phase 1 exists partly to establish them.
         one user is in: the whole list travels in one header on every decision
         (`docs/07`).
       - **How many instances**, which is the HA item in `TODO.md` and the first
-        thing to add is nginx, not the backend.
+        thing to add is nginx, not the backend. What that item needed decided
+        first is now decided: the decision cache does not move to Redis, it gets
+        its invalidations broadcast ([ADR-0031](adr/0031-decision-cache-multi-instance.md)).
 
 ### 🔴 Security, still open
 

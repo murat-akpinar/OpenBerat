@@ -87,6 +87,12 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       in `.conf`: one of these blocks reaching the *running* configuration is an
       application served with no authorisation at all
 
+- [x] ADR-0031 The decision cache with more than one instance: it stays in
+      memory on each instance and its invalidations are broadcast over the Redis
+      ADR-0019 already requires — a shared cache costs 0.039–0.167 ms per
+      decision against the 11–29 µs a whole decision measures. An instance with
+      no live subscription serves no cache hits
+
 **Phase 0 is closed.** Everything decidable from the design has been decided;
 what remains needs facts about the target environment and is tracked in
 `docs/06-requirements.md`, not here. Phase 1 answers several of them by
@@ -1423,10 +1429,13 @@ So the portal's data does not have to be filled in by hand with SQL.
       upstream list, the shape ADR-0011 already uses (`docs/07`). And the load
       test says **the first instance to add is nginx, not the backend**: at 32
       connections nginx used 138% of two cores and the backend 11%.
-      The open design question is the decision cache. It is instance-local, and
-      a kill switch that clears one instance's cache leaves the other serving
-      the old answer for up to a TTL — which is ADR-0016's 5 s target, broken.
-      That needs an ADR before any second instance runs.*
+      The design question the cache raised is **answered**:
+      [ADR-0031](docs/adr/0031-decision-cache-multi-instance.md) keeps the cache
+      in memory and broadcasts its invalidations over the Redis ADR-0019 already
+      requires, both transports measured (`docs/07`). What this box still owes
+      it is the subscriber itself, the rule that an instance with no live
+      subscription serves no cache hits, and a decision about the gap that rule
+      leaves — a connection alive at TCP level with a wedged reader.*
 
 ---
 
@@ -1531,16 +1540,36 @@ serving the person who has to run it.
       of these landing there is an application served with no authorisation at
       all.*
 
-- [ ] **ADR: the decision cache with more than one instance** — the HA box's
+- [x] **ADR: the decision cache with more than one instance** — the HA box's
       prerequisite
-      *Phase 6's HA box cannot open before this one. The cache is instance-local
-      (`cache.rs`), so a kill switch that clears one instance leaves the other
-      answering from its old entry for up to `TTL` — ADR-0016's 5 s, broken. The
-      candidates are a shared cache in Redis, a broadcast invalidation, and
-      bounding the damage with a shorter TTL; each spends a different one of
-      N-01, N-03 and the Redis dependency. Nothing is measured yet. The ADR is
-      where that trade gets chosen, and it is written before any second instance
-      runs.*
+      *[ADR-0031](docs/adr/0031-decision-cache-multi-instance.md): the cache
+      stays in memory and its **invalidations** are broadcast, over the Redis
+      ADR-0019 already requires. Both transports were measured on the lab from a
+      container on the compose network rather than argued about (`docs/07`).
+      **The round trip a shared cache would add is affordable against the target
+      and not against the system:** 0.039 ms at one connection and 0.167 ms at
+      sixteen, inside N-01's 2 ms — and 1.5–6× the 11–29 µs a whole decision
+      costs today, on each of the 50 asset requests a page makes. It would also
+      take the audit design with it, because the entry carries the counters and
+      the entry is the flush unit. A publish reaches an already-connected
+      subscriber in **281–288 µs**, four orders of magnitude inside the 5 s the
+      kill switch is allowed and it spends 0.085 s of.
+      The failure being fixed is narrower than the box assumed: three of the
+      four kill-switch steps are already fleet-wide, because Keycloak
+      `logout-all` is global and both Redis structures are shared. Only step 3
+      is process-local, and without a broadcast it degrades the switch from
+      0.085 s to a full 30 s TTL on every instance that did not answer the
+      admin's POST. The AD path is untouched at any instance count.
+      **Nothing is built and nothing needed to be:** publishing to oneself is
+      the `drop_sub` the code already performs, so the mechanism is inert until
+      a second instance exists. What the ADR commits to besides the transport is
+      the fail-closed half — an instance with no live subscription serves no
+      cache hits, so a lost subscription costs N-02 latency and never a stale
+      ALLOW — and it names the one gap that rule does not close, a connection
+      alive at TCP level with a wedged reader.
+      Two sentences that said the opposite were corrected with it: `docs/05`'s
+      `ponytail:` line and `docs/02`'s availability row both promised the cache
+      would move to Redis.*
 
 - [ ] **Split `api.rs` and `admin.rs`** — both outgrew the rule they were written
       under

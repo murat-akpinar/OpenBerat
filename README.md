@@ -23,7 +23,8 @@ lab against a real AD, and N-01 to N-03 are measured rather than estimated
 builds the offline bundle, but cutting the tag stays a deliberate manual act
 ([ADR-0023](docs/adr/0023-versioning-and-release.md)). Phase 6 leaves one box
 open — running the backend on more than one instance, which N-06 puts outside
-v1 — and Phase 7 is what reading the finished code found. The first of it is
+v1, and whose one prerequisite is now decided
+([ADR-0031](docs/adr/0031-decision-cache-multi-instance.md)) — and Phase 7 is what reading the finished code found. The first of it is
 done: v1 now ships one read-only admin screen, the audit record and `explain`
 ([ADR-0026](docs/adr/0026-audit-explain-screen-in-v1.md)), written without a
 framework ([ADR-0027](docs/adr/0027-frontend-no-framework.md)).
@@ -244,7 +245,7 @@ the whole chain answering rather than one process.
 | [docs/05-authz-model.md](docs/05-authz-model.md) | The authorisation model and decision rules |
 | [docs/06-requirements.md](docs/06-requirements.md) | Requirements and **open questions** |
 | [docs/07-references.md](docs/07-references.md) | **Sources** — the basis for the technical claims, verified defaults |
-| [docs/adr/](docs/adr/) | **Decisions taken** — 30 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity, audit retention, versioning, one read-only admin screen, no frontend framework, live sessions, what a path pattern means, break-glass from the same table |
+| [docs/adr/](docs/adr/) | **Decisions taken** — 31 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity, audit retention, versioning, one read-only admin screen, no frontend framework, live sessions, what a path pattern means, break-glass from the same table, the decision cache with more than one instance |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability — channels, response times, scope, accepted limitations |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — DCO sign-off, conventions, what gets rejected |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |

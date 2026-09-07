@@ -20,7 +20,8 @@ uçtan uca çalışıyor ve N-01 ile N-03 tahmin değil, ölçüm
 çevrimdışı paketi üretiyor, ama etiketi kesmek bilerek elle yapılan bir iş olarak
 kalıyor ([ADR-0023](docs/adr/0023-versioning-and-release.md)). 6. faz tek kutu
 açık bırakıyor — backend'i birden fazla instance'ta çalıştırmak, N-06 onu v1'in
-dışında tutuyor — 7. faz ise bitmiş kodu okurken bulunanlar. İlki bitti: v1
+dışında tutuyor, tek ön koşulu ise artık karara bağlandı
+([ADR-0031](docs/adr/0031-decision-cache-multi-instance.md)) — 7. faz ise bitmiş kodu okurken bulunanlar. İlki bitti: v1
 artık salt-okunur tek bir yönetim ekranı sunuyor, denetim kaydı ve `explain`
 ([ADR-0026](docs/adr/0026-audit-explain-screen-in-v1.md)), çatı kullanmadan
 yazıldı ([ADR-0027](docs/adr/0027-frontend-no-framework.md)).
@@ -245,7 +246,7 @@ sürecin değil bütün zincirin cevabı.
 | [docs/05-authz-model.md](docs/05-authz-model.md) | Yetkilendirme modeli ve karar kuralları |
 | [docs/06-requirements.md](docs/06-requirements.md) | Gereksinimler ve **açık sorular** |
 | [docs/07-references.md](docs/07-references.md) | **Kaynaklar** — teknik iddiaların dayanağı, doğrulanmış varsayılanlar |
-| [docs/adr/](docs/adr/) | **Alınan kararlar** — 30 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği, denetim saklama süresi, sürümleme, tek bir salt-okunur yönetim ekranı, frontend'de çatı yok, canlı oturumlar, bir path deseninin anlamı, break-glass aynı tablodan |
+| [docs/adr/](docs/adr/) | **Alınan kararlar** — 31 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği, denetim saklama süresi, sürümleme, tek bir salt-okunur yönetim ekranı, frontend'de çatı yok, canlı oturumlar, bir path deseninin anlamı, break-glass aynı tablodan, birden fazla instance'ta karar cache'i |
 | [SECURITY.md](SECURITY.md) | Güvenlik açığı bildirimi — kanallar, cevap süreleri, kapsam, kabul edilmiş sınırlar |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Nasıl katkı verilir — DCO imzası, konvansiyonlar, neler reddedilir |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |

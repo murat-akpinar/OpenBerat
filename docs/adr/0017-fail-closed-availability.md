@@ -21,7 +21,7 @@ since.
 |---|---|---|
 | **Accept it, with a rehearsed break-glass** | Honest about the trade; recovery is a documented, tested procedure | Someone must actually rehearse it |
 | Fail-open on backend failure | No outage | Abandons the product's only real claim. A crashed PDP would become an access grant |
-| Full HA in v1 | No single point of failure | Multi-instance cache, session replication, Postgres HA — a different project |
+| Full HA in v1 | No single point of failure | Multi-instance cache, session replication, Postgres HA — a different project. The cache half is since decided and costs less than this row assumed: it is not replicated, only invalidated ([ADR-0031](0031-decision-cache-multi-instance.md)) |
 
 ## Decision
 

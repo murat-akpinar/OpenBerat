@@ -68,3 +68,8 @@ target is revised rather than quietly missed.
   is superseded and ADR-0016 is revised in the same commit.
 - Reversing this later costs little: option C is what remains if the index is
   deleted, at the price of the 5 s promise.
+- **Three of the four steps are already fleet-wide**; the third is not. Keycloak
+  `logout-all` is global and both Redis structures are shared, but the decision
+  cache is process-local, so on a second instance the switch would degrade to a
+  30 s TTL. [ADR-0031](0031-decision-cache-multi-instance.md) broadcasts that
+  step over this same Redis rather than moving the cache into it.
