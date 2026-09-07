@@ -570,8 +570,11 @@ moment it is read is the moment nobody has time to debug it.
 
 ### The two calls
 
-There is no admin screen yet, so these are the calls it will make. Both need a
-session whose groups include `ADMIN_GROUP`, and both need an `Origin` header
+The Applications and Access tabs of `/audit` make exactly these two calls
+([ADR-0033](docs/adr/0033-admin-write-screens.md)); they are written out here
+because this API — not the screen — is the supported management interface
+(ADR-0023), and because a site scripting its provisioning drives it directly.
+Both need a session whose groups include `ADMIN_GROUP`, and both need an `Origin` header
 naming the portal: the portal and the applications are same-site by design
 ([ADR-0015](docs/adr/0015-single-parent-domain.md)), so `SameSite` cannot tell
 them apart and a compromised application's page would otherwise be a same-site

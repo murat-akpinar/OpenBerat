@@ -1,11 +1,14 @@
 // SPDX-FileCopyrightText: 2026 OpenBerat contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The sessions and access screen (ADR-0026, ADR-0028). It decides nothing:
+// The management screen (ADR-0026, ADR-0028, ADR-0033). It decides nothing:
 // every endpoint it calls checks ADMIN_GROUP on the handler's first line,
 // independent of the decision cache, so a non-admin gets a page that says 403
-// rather than a page that hides itself. Nothing here writes — revocation is
-// POST /api/admin/kill/{sub}, run deliberately from a terminal (INSTALL.md §6).
+// rather than a page that hides itself. It validates nothing either — what a
+// slug, an upstream, a hostname and a path pattern may be is validate.rs's to
+// say, and a second copy here would drift from the one in front of the
+// database. Revocation is the one thing it does not do: POST
+// /api/admin/kill/{sub}, run deliberately from a terminal (INSTALL.md §6).
 //
 // Plain DOM, no framework (ADR-0027). Everything that came from the API is
 // written with textContent — an admin types the application name and a user
@@ -26,10 +29,14 @@ function say(text) {
 // away, and drawing the first as the second sends them to check a database
 // that is fine.
 // --- Feature End ---
-async function api(path) {
-  const response = await fetch(path, { credentials: 'same-origin' });
+async function api(path, init) {
+  const response = await fetch(path, { credentials: 'same-origin', ...init });
   if (response.status === 403) {
-    throw new Error(`You are not in the group that grants the management plane, so ${path.split('?')[0]} refused you.`);
+    // A write has two ways to earn a 403 and the guard answers both the same,
+    // so a message naming only one sends the admin to check the wrong thing.
+    throw new Error(init
+      ? `${path} refused: either you are not in the group that grants the management plane, or the request did not come from the portal's own origin.`
+      : `You are not in the group that grants the management plane, so ${path.split('?')[0]} refused you.`);
   }
   if (!response.ok) {
     let detail = '';
@@ -41,7 +48,16 @@ async function api(path) {
     }
     throw new Error(`${path.split('?')[0]} answered ${response.status}${detail}`);
   }
-  return response.json();
+  // 204 from a delete: there is no body, and asking for one throws.
+  return response.status === 204 ? null : response.json();
+}
+
+function write(method, path, body) {
+  return api(path, {
+    method,
+    headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
 }
 
 function el(tag, className, text) {
@@ -104,7 +120,7 @@ function toExplain(sub) {
 
 // --- Tabs --------------------------------------------------------------------
 
-const VIEWS = ['live', 'history', 'explain'];
+const VIEWS = ['live', 'history', 'explain', 'apps', 'access'];
 
 function show(name) {
   const view = VIEWS.includes(name) ? name : 'live';
@@ -117,6 +133,9 @@ function show(name) {
   // whenever it is shown. Deliberately not a timer: a poll left running in a
   // background tab is a SCAN of the whole Redis keyspace, for nobody.
   if (view === 'live') live();
+  // Both write tabs read the same application list — the Access table prints a
+  // slug for an id — so either one being opened loads it.
+  if (view === 'apps' || view === 'access') apps();
 }
 
 for (const name of VIEWS) {
@@ -132,7 +151,7 @@ const liveCount = document.getElementById('live-count');
 function liveRow(entry) {
   const row = document.createElement('tr');
 
-  const subject = el('td', 'path');
+  const subject = el('td', 'mono-wrap');
   subject.append(el('span', 'mono', entry.sub));
 
   // Null is not "unknown identity" — it is a session that has reached no
@@ -425,6 +444,287 @@ explainForm.addEventListener('submit', (event) => {
       explainOut.replaceChildren(el('p', 'refusal', e.message));
     });
 });
+
+// --- Applications ------------------------------------------------------------
+
+const appRows = document.getElementById('app-rows');
+const appCount = document.getElementById('app-count');
+const appForm = document.getElementById('app-form');
+const appSave = document.getElementById('app-save');
+const appCancel = document.getElementById('app-cancel');
+const appEditing = document.getElementById('app-editing');
+const appField = {
+  slug: document.getElementById('ap-slug'),
+  name: document.getElementById('ap-name'),
+  external_hostname: document.getElementById('ap-host'),
+  upstream_url: document.getElementById('ap-upstream'),
+  icon: document.getElementById('ap-icon'),
+  enabled: document.getElementById('ap-enabled'),
+};
+
+/// The application being edited, or null when the form creates. Deliberately
+/// not a hidden input: a value the form serialises is a value that can be
+/// submitted, and this one chooses which endpoint the submit reaches.
+let editing = null;
+let applications = [];
+let entitlements = [];
+
+// --- Feature Start ---
+// A write to an application re-renders the generated nginx configuration and
+// stages it (ADR-0011); the handler reports whether that worked. "Saved but not
+// published" and "saved and live" are the two states an admin has no other way
+// to tell apart, so the answer's own word for it is printed rather than
+// summarised away.
+function staging(nginx) {
+  return nginx === 'staged'
+    ? 'The generated configuration is staged; the proxy tests it and loads it.'
+    : `The row is saved, but the configuration was NOT regenerated — ${nginx}`;
+}
+// --- Feature End ---
+
+function appRow(app) {
+  const row = document.createElement('tr');
+
+  const name = el('td');
+  name.append(el('span', null, app.name));
+  if (app.icon) name.append(el('span', 'sub', app.icon));
+
+  const enabled = el('td');
+  enabled.append(el('span', `tag ${app.enabled ? 'is-allow' : 'is-deny'}`, app.enabled ? 'yes' : 'no'));
+
+  const actions = el('td', 'actions');
+  const edit = el('button', 'quiet tiny', 'Edit');
+  edit.type = 'button';
+  edit.addEventListener('click', () => startEdit(app));
+  const remove = el('button', 'quiet tiny', 'Delete');
+  remove.type = 'button';
+  remove.addEventListener('click', () => removeApp(app));
+  actions.append(edit, remove);
+
+  row.append(el('td', 'mono', app.slug), name, el('td', 'mono-wrap', app.external_hostname),
+    el('td', 'mono-wrap', app.upstream_url), enabled, actions);
+  return row;
+}
+
+/// The wildcard is an option and not a checkbox somewhere else: it is a rule
+/// that applies to every application defined now and every one defined later
+/// (docs/05 rule 4), so it belongs in the same list it competes with.
+function fillAppSelect() {
+  const select = document.getElementById('en-app');
+  const chosen = select.value;
+  const every = el('option', null, 'every application (wildcard)');
+  every.value = '';
+  select.replaceChildren(every, ...applications.map((app) => {
+    const option = el('option', null, app.slug);
+    option.value = app.id;
+    return option;
+  }));
+  select.value = chosen;
+}
+
+function apps() {
+  api('/api/admin/applications')
+    .then((found) => {
+      applications = found;
+      appRows.replaceChildren(...found.map(appRow));
+      appCount.textContent = `${found.length} application${found.length === 1 ? '' : 's'}`;
+      fillAppSelect();
+      drawEntitlements();
+      return api('/api/admin/entitlements');
+    })
+    .then((found) => {
+      entitlements = found;
+      drawEntitlements();
+    })
+    .catch((e) => {
+      console.error(e);
+      say(e.message);
+    });
+}
+
+function startEdit(app) {
+  editing = app.id;
+  appField.slug.value = app.slug;
+  appField.name.value = app.name;
+  appField.external_hostname.value = app.external_hostname;
+  appField.upstream_url.value = app.upstream_url;
+  appField.icon.value = app.icon || '';
+  appField.enabled.value = String(app.enabled);
+  // Create-only, and the API refuses them in a PATCH anyway: both are written
+  // into the generated nginx block and into every audit row that names this
+  // application, so renaming one reassigns history (ADR-0033).
+  appField.slug.disabled = true;
+  appField.external_hostname.disabled = true;
+  appSave.textContent = 'Save';
+  appCancel.hidden = false;
+  appEditing.textContent = `Editing ${app.slug} — the slug and hostname cannot change`;
+  appField.name.focus();
+}
+
+function resetApp() {
+  editing = null;
+  appForm.reset();
+  appField.slug.disabled = false;
+  appField.external_hostname.disabled = false;
+  appSave.textContent = 'Create';
+  appCancel.hidden = true;
+  appEditing.textContent = '';
+}
+
+appCancel.addEventListener('click', resetApp);
+document.getElementById('app-refresh').addEventListener('click', apps);
+
+appForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const was = editing;
+  const body = {
+    name: appField.name.value.trim(),
+    icon: appField.icon.value.trim() || null,
+    upstream_url: appField.upstream_url.value.trim(),
+    enabled: appField.enabled.value === 'true',
+  };
+  const sent = was
+    ? write('PATCH', `/api/admin/applications/${was}`, body)
+    : write('POST', '/api/admin/applications', {
+      ...body,
+      slug: appField.slug.value.trim(),
+      external_hostname: appField.external_hostname.value.trim(),
+    });
+  sent
+    .then((answer) => {
+      say(`${was ? 'Saved' : 'Created'} ${answer.application.slug}. ${staging(answer.nginx)}`);
+      resetApp();
+      apps();
+    })
+    .catch((e) => {
+      console.error(e);
+      say(e.message);
+    });
+});
+
+function removeApp(app) {
+  // --- Feature Start ---
+  // The confirmation names what goes and what stays. The entitlements are
+  // deleted with the application; the audit rows are not, because they carry
+  // the slug and no foreign key. The second half is the surprising one, and it
+  // is the reason offering the first from a screen is safe at all.
+  const gone = `Delete ${app.slug}?\n\n`
+    + `Its access rules are deleted with it. Its audit rows stay — they carry the slug, not a reference to the row.\n\n`
+    + `${app.external_hostname} stops being served as soon as the proxy reloads.`;
+  if (!confirm(gone)) return;
+  // --- Feature End ---
+  write('DELETE', `/api/admin/applications/${app.id}`)
+    .then((answer) => {
+      say(`Deleted ${app.slug}. ${staging(answer.nginx)}`);
+      resetApp();
+      apps();
+    })
+    .catch((e) => {
+      console.error(e);
+      say(e.message);
+    });
+}
+
+// --- Access ------------------------------------------------------------------
+
+const entRows = document.getElementById('ent-rows');
+const entCount = document.getElementById('ent-count');
+const entForm = document.getElementById('ent-form');
+
+/// The table stores an id and the admin reads a slug. Falling back to the id
+/// rather than to "unknown": a rule pointing at an application this list does
+/// not have is something to see, not something to smooth over.
+function slugOf(id) {
+  if (!id) return 'every application';
+  const found = applications.find((app) => app.id === id);
+  return found ? found.slug : id;
+}
+
+function entRow(rule) {
+  const row = document.createElement('tr');
+  const expired = rule.expires_at && new Date(rule.expires_at) <= new Date();
+  if (expired) row.className = 'is-expired';
+
+  const app = el('td');
+  app.append(el('span', null, slugOf(rule.application_id)));
+  if (!rule.application_id) app.append(el('span', 'sub', 'every application, present and future'));
+
+  const subject = el('td', 'mono-wrap');
+  subject.append(el('span', null, rule.subject_id));
+  subject.append(el('span', 'sub', rule.subject_type));
+  if (rule.subject_type === 'user') subject.append(toExplain(rule.subject_id));
+
+  const effect = el('td');
+  effect.append(el('span', `tag ${rule.effect === 'allow' ? 'is-allow' : 'is-deny'}`, rule.effect));
+
+  const expires = el('td');
+  expires.append(el('span', null, rule.expires_at ? when(rule.expires_at) : 'never'));
+  if (expired) expires.append(el('span', 'sub', 'expired — it no longer matches'));
+
+  const actions = el('td', 'actions');
+  const remove = el('button', 'quiet tiny', 'Delete');
+  remove.type = 'button';
+  remove.addEventListener('click', () => removeEntitlement(rule));
+  actions.append(remove);
+
+  row.append(app, subject, effect, el('td', 'mono-wrap', rule.path_pattern || 'the whole application'),
+    expires, actions);
+  return row;
+}
+
+function drawEntitlements() {
+  entRows.replaceChildren(...entitlements.map(entRow));
+  entCount.textContent = `${entitlements.length} rule${entitlements.length === 1 ? '' : 's'}`;
+}
+
+document.getElementById('ent-refresh').addEventListener('click', apps);
+
+entForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const form = new FormData(entForm);
+  const expires = form.get('expires_at');
+  const body = {
+    // Empty means the wildcard, and the endpoint reads absent and null alike.
+    application_id: form.get('application_id') || null,
+    subject_type: form.get('subject_type'),
+    subject_id: form.get('subject_id').trim(),
+    effect: form.get('effect'),
+    path_pattern: form.get('path_pattern').trim(),
+    // The field is local wall clock with no zone; the column is an instant.
+    expires_at: expires ? new Date(expires).toISOString() : null,
+  };
+  const warn = body.application_id
+    ? null
+    : `This rule applies to every application, including ones defined later.\n\nGrant ${body.effect} to ${body.subject_id || '(nothing typed)'} everywhere?`;
+  if (warn && !confirm(warn)) return;
+  write('POST', '/api/admin/entitlements', body)
+    .then((rule) => {
+      say(`${rule.effect} for ${rule.subject_id} on ${slugOf(rule.application_id)}. Check it with Explain before telling anyone it works.`);
+      entForm.reset();
+      apps();
+    })
+    .catch((e) => {
+      console.error(e);
+      say(e.message);
+    });
+});
+
+function removeEntitlement(rule) {
+  const gone = `Delete the ${rule.effect} rule for ${rule.subject_id} on ${slugOf(rule.application_id)}?\n\n`
+    + (rule.effect === 'deny'
+      ? 'It is a deny, so removing it can grant access that an allow rule was being overruled for.'
+      : 'Whoever it was granting access to loses it within one cache TTL.');
+  if (!confirm(gone)) return;
+  write('DELETE', `/api/admin/entitlements/${rule.id}`)
+    .then(() => {
+      say(`Deleted the ${rule.effect} rule for ${rule.subject_id}.`);
+      apps();
+    })
+    .catch((e) => {
+      console.error(e);
+      say(e.message);
+    });
+}
 
 // --- The header, shared with the portal --------------------------------------
 

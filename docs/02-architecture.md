@@ -28,7 +28,7 @@ Sources for the technical claims: [`docs/07-references.md`](07-references.md).
 | **nginx** | PEP. TLS, carries traffic, `auth_request`, serves static files | Configured |
 | **oauth2-proxy** | Authentication: the OIDC dance, session (Redis) | Configured |
 | **backend** | **Authorisation decision + `/api` + audit** | **Written** |
-| **frontend** | **Portal + one read-only admin screen** (buildless static, no framework — ADR-0007, [ADR-0027](adr/0027-frontend-no-framework.md)). The screen is the audit record and `explain` ([ADR-0026](adr/0026-audit-explain-screen-in-v1.md)); every write is still `/api/admin/*`, driven the way `INSTALL.md` §6 shows ([ADR-0024](adr/0024-no-admin-ui-in-v1.md)) | **Written** |
+| **frontend** | **Portal + one management screen** (buildless static, no framework — ADR-0007, [ADR-0027](adr/0027-frontend-no-framework.md)). Five tabs: the audit record and `explain` ([ADR-0026](adr/0026-audit-explain-screen-in-v1.md)), who is signed in ([ADR-0028](adr/0028-live-sessions-endpoint.md)), and application CRUD and entitlement mapping ([ADR-0033](adr/0033-admin-write-screens.md)). It decides and validates nothing — every call goes through the same guard `INSTALL.md` §6 uses. Revocation stays a terminal call | **Written** |
 | **Postgres** | application / entitlement / audit_event | Deployed |
 | **Redis** | oauth2-proxy session store — mandatory for the kill switch **and** for the 4 KB cookie limit. Also holds the backend's `sub → session` index (ADR-0019) | Deployed |
 

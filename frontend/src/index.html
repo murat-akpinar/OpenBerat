@@ -19,8 +19,10 @@
       <!-- Revealed by portal.js when /api/me answers `admin`. Hiding it is a
            convenience and nothing else: /api/admin/* checks ADMIN_GROUP on the
            handler's first line, so a user who types the URL gets a page that
-           says 403 rather than a page with data on it (ADR-0026). -->
-      <a class="signout" id="admin-link" href="/audit" hidden>Audit</a>
+           says 403 rather than a page with data on it (ADR-0026). The path
+           stays /audit — it is a link people have; the label does not, because
+           the page stopped being only the audit record (ADR-0033). -->
+      <a class="signout" id="admin-link" href="/audit" hidden>Admin</a>
       <p class="identity" id="whoami"></p>
       <!-- The href is the fallback, not decoration: /oauth2/sign_out is steps
            1 and 2 on its own (oauth2-proxy.cfg, backend_logout_url), so a

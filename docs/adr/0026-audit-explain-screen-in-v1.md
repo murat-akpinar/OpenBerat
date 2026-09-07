@@ -3,7 +3,9 @@
 - **Status:** Accepted
 - **Date:** 2026-09-07
 - **Supersedes in part:** [0024](0024-no-admin-ui-in-v1.md) — the reading half.
-  Application CRUD and entitlement mapping stay curl-driven, as it decided.
+  Application CRUD and entitlement mapping stay curl-driven, as it decided —
+  **until [0033](0033-admin-write-screens.md)**, which took that half too, on
+  this ADR's own argument applied to writing.
 
 ## Context
 

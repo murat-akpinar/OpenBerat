@@ -1,17 +1,20 @@
 # frontend
 
-The portal, and one read-only admin screen. Served statically by nginx, taking
-its data from the `backend`'s `/api/*` endpoints. **Nothing here is written
-through a form**: every state-changing admin call is `/api/admin/*` driven the
-way `INSTALL.md` §6 shows ([ADR-0024](../docs/adr/0024-no-admin-ui-in-v1.md),
-[ADR-0026](../docs/adr/0026-audit-explain-screen-in-v1.md)).
+The portal, and one management screen. Served statically by nginx, taking its
+data from the `backend`'s `/api/*` endpoints. **It decides nothing and validates
+nothing**: every call goes to a handler that checks `ADMIN_GROUP` on its first
+line and re-checks the `Origin`, and what a slug or an upstream may be is
+`validate.rs`'s to say. A form that duplicated those rules would drift from the
+copy in front of the database ([ADR-0026](../docs/adr/0026-audit-explain-screen-in-v1.md),
+[ADR-0033](../docs/adr/0033-admin-write-screens.md)). Revocation is the one
+thing no page does: `INSTALL.md` §6 ([ADR-0028](../docs/adr/0028-live-sessions-endpoint.md)).
 
 **Screens**
 
 | Screen | Contents |
 |---|---|
 | Portal | The applications the user can reach per their AD `memberOf` entitlements — buttons with icons |
-| Sessions and access | `/audit`, three tabs behind a URL fragment. **Live** — everyone with a session that still exists, read out of the kill-switch index ([ADR-0028](../docs/adr/0028-live-sessions-endpoint.md)), which is the only thing that sees a user who signed in and opened nothing. **History** — the audit record with its six filters and keyset paging, opening on today because the table is kept for a year. **Explain** — the decision the proxy would reach for a given user, host and path, with every rule it walked. Read-only throughout; linked from the header only when `/api/me` answers `admin`, which is a convenience — the endpoints authorise themselves |
+| Administration | `/audit`, five tabs behind a URL fragment. **Live** — everyone with a session that still exists, read out of the kill-switch index ([ADR-0028](../docs/adr/0028-live-sessions-endpoint.md)), which is the only thing that sees a user who signed in and opened nothing. **History** — the audit record with its six filters and keyset paging, opening on today because the table is kept for a year. **Explain** — the decision the proxy would reach for a given user, host and path, with every rule it walked. **Applications** — application CRUD, where a save re-renders the generated nginx configuration and the answer says whether it staged; the slug and the external hostname are create-only, because both are written into that block and into every audit row naming the application. **Access** — entitlement mapping, where the wildcard is an option in the same list it competes with and the confirmation for it says so ([ADR-0033](../docs/adr/0033-admin-write-screens.md)). Linked from the header only when `/api/me` answers `admin`, which is a convenience — the endpoints authorise themselves |
 | No access | The page shown when an unauthorised application is requested |
 | Unavailable | Served from `error_page` when the decision path does not answer |
 

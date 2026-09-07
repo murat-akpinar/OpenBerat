@@ -426,6 +426,16 @@ td:not(.path) { white-space: nowrap; }
 tr.is-matched td { background: rgba(217, 168, 66, 0.08); }
 tr.is-expired td { background: rgba(239, 138, 132, 0.08); }
 
+/* A row's actions are the one cell that may not end up off the right edge of a
+   scrolling table, because the destructive one is in it. Opaque and after the
+   expired tint on purpose: it slides over the cells it is pinned above. */
+tr td.actions, tr th.actions {
+  position: sticky;
+  right: 0;
+  background: var(--ground);
+  border-left: 1px solid var(--line);
+}
+
 .controls { display: flex; align-items: center; gap: 0.875rem; margin: 1.25rem 0 0; }
 
 /* The tab is in the URL fragment, so these are buttons that look like a rail
@@ -454,6 +464,17 @@ tr.is-expired td { background: rgba(239, 138, 132, 0.08); }
 
 /* A subject is a UUID that gets compared against another UUID by eye. */
 .mono { font-family: ui-monospace, monospace; font-size: 0.8125rem; }
+
+/* Monospace that is allowed to wrap. A UUID subject, a hostname and an upstream
+   are identifiers, but none of them is the one column its table is built
+   around, so they wrap instead of taking `.path`'s 14rem floor — three of those
+   in a row is a table wider than the page, with its Delete button outside. */
+td.mono-wrap {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8125rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 
 .tiny {
   padding: 0.1rem 0.45rem;

@@ -4,6 +4,9 @@
 - **Date:** 2026-09-07
 - **Amends:** [0026](0026-audit-explain-screen-in-v1.md) — its "no new endpoint"
   consequence. The screen stays read-only, which was the load-bearing half.
+  **Half of that premise fell with [0033](0033-admin-write-screens.md)** — the
+  screen writes now — but the no-kill-button decision below stands on the
+  mis-click argument, which that ADR does not touch.
 
 ## Context
 

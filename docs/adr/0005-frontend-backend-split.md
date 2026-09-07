@@ -58,10 +58,12 @@ separately in [ADR-0007](0007-frontend-buildless-static.md).
   system cannot drift.
 - ~~One more build chain (Node) enters CI.~~ **Invalidated by ADR-0007:** a
   buildless static UI was chosen, so there is no Node step in CI.
-- ~~`frontend/` is portal **+ admin UI**.~~ **Amended by
-  [ADR-0024](0024-no-admin-ui-in-v1.md):** v1 ships no admin screens;
-  administration is `/api/admin/*`. The listing above is left as the record of
-  what was decided here.
+- `frontend/` is portal **+ admin UI**. Denied by
+  [ADR-0024](0024-no-admin-ui-in-v1.md) and granted back in two steps —
+  [ADR-0026](0026-audit-explain-screen-in-v1.md) for reading,
+  [ADR-0033](0033-admin-write-screens.md) for writing — so the listing above is
+  the record of what was decided here *and* what v1 ships. What it is not is
+  the shape: one page with tabs, not a screen per thing.
 - **Amended by [ADR-0020](0020-frontend-in-nginx-image.md):** the frontend keeps
   its directory but not its own container — a named-volume handoff serves stale
   files after the first deploy, so the static files are copied into the nginx

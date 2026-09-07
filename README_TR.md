@@ -24,9 +24,12 @@ elle yapılan bir iş olarak kalıyor
 açık — backend'i birden fazla instance'ta çalıştırmak, N-06 onu v1'in dışında
 tutuyor, tek ön koşulu ise artık karara bağlandı
 ([ADR-0031](docs/adr/0031-decision-cache-multi-instance.md)). 7. faz bitmiş kodu
-okurken bulunanlardı: v1 salt-okunur tek bir yönetim ekranı sunuyor, denetim
-kaydı ve `explain` ([ADR-0026](docs/adr/0026-audit-explain-screen-in-v1.md)),
-çatı kullanmadan yazıldı ([ADR-0027](docs/adr/0027-frontend-no-framework.md)).
+okurken bulunanlardı: v1 tek bir yönetim ekranı sunuyor — denetim kaydı ve
+`explain` ([ADR-0026](docs/adr/0026-audit-explain-screen-in-v1.md)), kim girmiş
+([ADR-0028](docs/adr/0028-live-sessions-endpoint.md)), uygulama ve erişim
+yönetimi ([ADR-0033](docs/adr/0033-admin-write-screens.md)) — çatı kullanmadan
+yazıldı ([ADR-0027](docs/adr/0027-frontend-no-framework.md)). Yetki kesme
+dışında her şey, terminal gerekmeden.
 
 **Lisans:** [GPL-3.0-or-later](LICENSE). Kendi ortamına kurup bedava
 kullanabilirsin; ücretli sürüm yok. Katkılar [DCO](CONTRIBUTING.md) ile alınır,
@@ -230,7 +233,7 @@ sürecin değil bütün zincirin cevabı.
 | Dizin | İçerik |
 |---|---|
 | `backend/` | Rust: `/decide`, `/api`, yetki kararı, audit |
-| `frontend/` | Portal (AD `memberOf` yetkilerine göre butonlar). Derleme adımı yok, v1'de admin ekranı da yok — yönetim `/api/admin/*` üzerinden ([INSTALL.md](INSTALL.md) §6). |
+| `frontend/` | Portal (AD `memberOf` yetkilerine göre butonlar) ve tek bir yönetim ekranı. Derleme adımı yok. Karar da vermez, doğrulama da yapmaz — her çağrı `/api/admin/*`'a gider ([INSTALL.md](INSTALL.md) §6), desteklenen arayüz hâlâ o. |
 | `nginx/` | PEP yapılandırması + statik servis |
 | `keycloak/` | Realm dışa aktarımı (LDAP federation, grup mapper) + kendi giriş temamız |
 | `samba-ad/` | Laboratuvar dizin fixture'ı — Dockerfile yok, hazır imaj |
@@ -250,7 +253,7 @@ sürecin değil bütün zincirin cevabı.
 | [docs/07-references.md](docs/07-references.md) | **Kaynaklar** — teknik iddiaların dayanağı, doğrulanmış varsayılanlar |
 | [docs/08-breakglass.md](docs/08-breakglass.md) | Proxy'nin kendisi kesinti olduğunda prova edilmiş dönüş yolu (ADR-0017) |
 | [docs/09-history.md](docs/09-history.md) | **Yapım kaydı** — 0–7. fazlar nasıl kapandı, her kutu neye mal oldu |
-| [docs/adr/](docs/adr/) | **Alınan kararlar** — 32 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği, denetim saklama süresi, sürümleme, tek bir salt-okunur yönetim ekranı, frontend'de çatı yok, canlı oturumlar, bir path deseninin anlamı, break-glass aynı tablodan, birden fazla instance'ta karar cache'i, yönetim düzleminde MFA |
+| [docs/adr/](docs/adr/) | **Alınan kararlar** — 33 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği, denetim saklama süresi, sürümleme, frontend'de çatı yok, canlı oturumlar, bir path deseninin anlamı, break-glass aynı tablodan, birden fazla instance'ta karar cache'i, yönetim düzleminde MFA, ve yönetim ekranı iki adımda — önce okuma, sonra yazma |
 | [SECURITY.md](SECURITY.md) | Güvenlik açığı bildirimi — kanallar, cevap süreleri, kapsam, kabul edilmiş sınırlar |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Nasıl katkı verilir — DCO imzası, konvansiyonlar, neler reddedilir |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |

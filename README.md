@@ -26,9 +26,13 @@ manual act ([ADR-0023](docs/adr/0023-versioning-and-release.md)). One box is
 open anywhere — running the backend on more than one instance, which N-06 puts
 outside v1, and whose one prerequisite is now decided
 ([ADR-0031](docs/adr/0031-decision-cache-multi-instance.md)). Phase 7 was what
-reading the finished code found: v1 ships one read-only admin screen, the audit
+reading the finished code found: v1 ships one management screen — the audit
 record and `explain` ([ADR-0026](docs/adr/0026-audit-explain-screen-in-v1.md)),
-written without a framework ([ADR-0027](docs/adr/0027-frontend-no-framework.md)).
+who is signed in ([ADR-0028](docs/adr/0028-live-sessions-endpoint.md)), and
+application and access management
+([ADR-0033](docs/adr/0033-admin-write-screens.md)) — written without a framework
+([ADR-0027](docs/adr/0027-frontend-no-framework.md)). Everything except
+revocation, without a terminal.
 
 **Licence:** [GPL-3.0-or-later](LICENSE). Free to install and run in your own
 environment; there is no paid edition. Patches welcome under
@@ -228,7 +232,7 @@ the whole chain answering rather than one process.
 | Directory | Contents |
 |---|---|
 | `backend/` | Rust: `/decide`, `/api`, the authorisation decision, audit |
-| `frontend/` | Portal (buttons driven by AD `memberOf` entitlements). No build step, and no admin screens in v1 — administration is `/api/admin/*` ([INSTALL.md](INSTALL.md) §6). |
+| `frontend/` | Portal (buttons driven by AD `memberOf` entitlements) and one management screen. No build step. It decides and validates nothing — every call goes to `/api/admin/*` ([INSTALL.md](INSTALL.md) §6), which is still the supported interface. |
 | `nginx/` | PEP configuration + static serving |
 | `keycloak/` | Realm export (LDAP federation, group mapper) + our login theme |
 | `samba-ad/` | Lab directory fixture — no Dockerfile, a stock image |
@@ -248,7 +252,7 @@ the whole chain answering rather than one process.
 | [docs/07-references.md](docs/07-references.md) | **Sources** — the basis for the technical claims, verified defaults |
 | [docs/08-breakglass.md](docs/08-breakglass.md) | The rehearsed way back when the proxy is the outage (ADR-0017) |
 | [docs/09-history.md](docs/09-history.md) | **Build log** — how phases 0–7 closed, and what each box actually cost |
-| [docs/adr/](docs/adr/) | **Decisions taken** — 32 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity, audit retention, versioning, one read-only admin screen, no frontend framework, live sessions, what a path pattern means, break-glass from the same table, the decision cache with more than one instance, MFA on the management plane |
+| [docs/adr/](docs/adr/) | **Decisions taken** — 33 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity, audit retention, versioning, no frontend framework, live sessions, what a path pattern means, break-glass from the same table, the decision cache with more than one instance, MFA on the management plane, and the management screen in two steps — reading, then writing |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability — channels, response times, scope, accepted limitations |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — DCO sign-off, conventions, what gets rejected |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |

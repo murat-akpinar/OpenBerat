@@ -155,7 +155,7 @@ Cutting access matters more than granting it. Three scenarios:
 |---|---|---|
 | Account disabled in AD | AD refuses the bind and the `userAccountControl` filter hides the account; the session dies at the next refresh | `cookie_refresh` + cache TTL — **measured 282 s**, worst case 330 s (`docs/07`) |
 | Removed from a group in AD | The refreshed session carries the new `memberOf` | `cookie_refresh` + cache TTL |
-| Emergency revocation (incident response) | Kill switch from the admin UI | **Immediate** (ADR-0016: ≤ 5 s) |
+| Emergency revocation (incident response) | Kill switch — `POST /api/admin/kill/{sub}`, deliberately a terminal call and not a button ([ADR-0028](adr/0028-live-sessions-endpoint.md)) | **Immediate** (ADR-0016: ≤ 5 s) |
 | Active WebSocket/SSE connection | Not cut — authorised once at the upgrade | **Outside the guarantee** (`docs/02`) |
 
 An earlier version of this table gave the account-disabled row a delay of only
@@ -210,5 +210,5 @@ access for Ahmet"):
 - Expired records are automatically invalid (`expires_at > now()` in the query)
 - This is the simple form of **JIT access** from the PAM world
 
-**Not in v1** — F-20, v2. The `known_user` table and person selection in the
-admin UI arrive with it. Approval workflow comes later still.
+**Not in v1** — F-20, v2. The `known_user` table and person selection on the
+Access tab arrive with it. Approval workflow comes later still.

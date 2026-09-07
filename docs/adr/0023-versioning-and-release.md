@@ -91,8 +91,11 @@ computes the list of images to push, so it is an addition rather than a rewrite.
   version number does not buy a rollback — the dump taken before the upgrade
   does (`INSTALL.md` §9). MAJOR is a warning, not a safety net.
 - **[ADR-0024](0024-no-admin-ui-in-v1.md) adds one more thing MAJOR covers.**
-  With no admin screens, `/api/admin/*` is the only way to administer the
-  product, so a removed field or a renamed admin endpoint is something the
+  It said so when `/api/admin/*` was the only way to administer the product,
+  and it still holds now that screens drive it
+  ([ADR-0033](0033-admin-write-screens.md)): the screen is a client of the API,
+  not a replacement for it. A removed field or a renamed admin endpoint is
+  something the
   operator must act on before upgrading — the same class as an environment
   variable being renamed, and `INSTALL.md` §6 moves with it.
 - The tag is signed and pushed by the maintainer; nothing in CI creates one. A

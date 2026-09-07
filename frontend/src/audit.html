@@ -5,7 +5,7 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sessions — OpenBerat</title>
+<title>Administration — OpenBerat</title>
 <link rel="icon" href="/logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/portal.css">
 <body>
@@ -22,7 +22,7 @@
   </div>
 </header>
 <main>
-  <h1><span class="accent">Sessions</span> and access</h1>
+  <h1><span class="accent">Administration</span></h1>
   <p id="notice" class="prose notice" role="status" hidden></p>
 
   <!-- The tab is in the URL fragment, so a tab is a link somebody can send. -->
@@ -30,6 +30,8 @@
     <button role="tab" id="tab-live" aria-controls="view-live" aria-selected="true">Live</button>
     <button role="tab" id="tab-history" aria-controls="view-history" aria-selected="false">History</button>
     <button role="tab" id="tab-explain" aria-controls="view-explain" aria-selected="false">Explain</button>
+    <button role="tab" id="tab-apps" aria-controls="view-apps" aria-selected="false">Applications</button>
+    <button role="tab" id="tab-access" aria-controls="view-access" aria-selected="false">Access</button>
   </div>
 
   <section id="view-live" role="tabpanel" aria-labelledby="tab-live">
@@ -165,6 +167,149 @@
       <button type="submit">Explain</button>
     </form>
     <div id="explain-out"></div>
+  </section>
+
+  <section id="view-apps" role="tabpanel" aria-labelledby="tab-apps" hidden>
+    <p class="prose">
+      A row here is a real nginx <code>server</code> block: saving one re-renders
+      the generated configuration and stages it for the proxy to test and load
+      (ADR-0011), and the result of that staging is reported on every save. A row
+      the proxy has not taken up yet is reachable by nobody, which is the right
+      direction to fail in but not one to be surprised by.
+    </p>
+    <p class="prose">
+      <strong>The slug and the external hostname cannot be changed after
+      creation.</strong> Both are written into the generated block and into every
+      audit row that names this application, so renaming one would silently
+      reassign history. Delete and recreate instead, knowing what the delete
+      takes with it.
+    </p>
+    <form id="app-form">
+      <div class="fields">
+        <p class="field">
+          <label for="ap-slug">Slug <span class="hint">lower-case letters and digits, single hyphens; create-only</span></label>
+          <input id="ap-slug" name="slug" required autocomplete="off" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="ap-name">Name <span class="hint">what the portal shows</span></label>
+          <input id="ap-name" name="name" required autocomplete="off">
+        </p>
+        <p class="field">
+          <label for="ap-host">External hostname <span class="hint">under the portal's parent domain; create-only</span></label>
+          <input id="ap-host" name="external_hostname" required autocomplete="off" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="ap-upstream">Upstream <span class="hint"><code>scheme://host:port</code>, no path, no credentials</span></label>
+          <input id="ap-upstream" name="upstream_url" required autocomplete="off" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="ap-icon">Icon <span class="hint">optional; text the portal renders beside the name</span></label>
+          <input id="ap-icon" name="icon" autocomplete="off">
+        </p>
+        <p class="field">
+          <label for="ap-enabled">Enabled</label>
+          <select id="ap-enabled" name="enabled">
+            <option value="true">yes</option>
+            <option value="false">no</option>
+          </select>
+        </p>
+      </div>
+      <button type="submit" id="app-save">Create</button>
+      <button type="button" id="app-cancel" class="quiet" hidden>Cancel edit</button>
+      <span id="app-editing" class="hint"></span>
+    </form>
+
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Slug</th>
+            <th scope="col">Name</th>
+            <th scope="col">External hostname</th>
+            <th scope="col">Upstream</th>
+            <th scope="col">Enabled</th>
+            <th scope="col" class="actions"></th>
+          </tr>
+        </thead>
+        <tbody id="app-rows"></tbody>
+      </table>
+    </div>
+    <p class="controls">
+      <button id="app-refresh" type="button">Refresh</button>
+      <span id="app-count" class="hint"></span>
+    </p>
+  </section>
+
+  <section id="view-access" role="tabpanel" aria-labelledby="tab-access" hidden>
+    <p class="prose">
+      One row is one rule. <strong>A deny that matches beats any allow</strong>,
+      and a user no rule matches is denied — an absent rule is a decision, not a
+      gap. The path is a subtree: <code>/admin/*</code> covers
+      <code>/admin/</code> and everything under it, and a pattern without the
+      trailing <code>*</code> is refused rather than quietly narrowed
+      (ADR-0029). Leave it empty for the whole application.
+    </p>
+    <p class="prose">
+      <strong>An application of <em>every application</em> is a wildcard</strong>
+      that applies to every application defined now and every one defined later
+      (<code>docs/05</code>, rule 4). It is logged as its own action for that
+      reason. Use <em>Explain</em> before telling a user a rule works.
+    </p>
+    <form id="ent-form">
+      <div class="fields">
+        <p class="field">
+          <label for="en-app">Application</label>
+          <select id="en-app" name="application_id"></select>
+        </p>
+        <p class="field">
+          <label for="en-type">Subject</label>
+          <select id="en-type" name="subject_type">
+            <option value="ad_group">AD group</option>
+            <option value="user">user</option>
+          </select>
+        </p>
+        <p class="field">
+          <label for="en-subject">Subject id <span class="hint">the group name as the token carries it, or the Keycloak <code>sub</code></span></label>
+          <input id="en-subject" name="subject_id" required autocomplete="off" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="en-effect">Effect</label>
+          <select id="en-effect" name="effect">
+            <option value="allow">allow</option>
+            <option value="deny">deny</option>
+          </select>
+        </p>
+        <p class="field">
+          <label for="en-path">Path <span class="hint">e.g. <code>/admin/*</code>; empty for the whole application</span></label>
+          <input id="en-path" name="path_pattern" autocomplete="off" spellcheck="false">
+        </p>
+        <p class="field">
+          <label for="en-expires">Expires <span class="hint">optional; the rule stops matching at this moment</span></label>
+          <input id="en-expires" name="expires_at" type="datetime-local">
+        </p>
+      </div>
+      <button type="submit">Grant</button>
+    </form>
+
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Application</th>
+            <th scope="col">Subject</th>
+            <th scope="col">Effect</th>
+            <th scope="col">Path</th>
+            <th scope="col">Expires</th>
+            <th scope="col" class="actions"></th>
+          </tr>
+        </thead>
+        <tbody id="ent-rows"></tbody>
+      </table>
+    </div>
+    <p class="controls">
+      <button id="ent-refresh" type="button">Refresh</button>
+      <span id="ent-count" class="hint"></span>
+    </p>
   </section>
 </main>
 <script src="/audit.js"></script>

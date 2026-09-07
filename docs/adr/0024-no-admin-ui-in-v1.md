@@ -1,9 +1,10 @@
 # 0024 — v1 ships no admin screens; administration is the API
 
-- **Status:** Accepted; superseded in part by
-  [0026](0026-audit-explain-screen-in-v1.md) — the reading half. The case
-  against option C (application CRUD, entitlement mapping and the kill switch
-  as screens) is untouched and still holds.
+- **Status:** Superseded. [0026](0026-audit-explain-screen-in-v1.md) took the
+  reading half and [0033](0033-admin-write-screens.md) took the writing half,
+  so nothing of the decision below is still in force. The one part of option C
+  that was not taken is the kill switch, refused separately and on its own
+  grounds by [0028](0028-live-sessions-endpoint.md).
 - **Date:** 2026-09-07
 
 ## Context
