@@ -18,8 +18,11 @@ girişten korumalı uygulamaya kadar olan zincir, gerçek bir AD'ye karşı labo
 uçtan uca çalışıyor ve N-01 ile N-03 tahmin değil, ölçüm
 ([docs/07](docs/07-references.md)). **Henüz sürüm etiketi atılmadı** — `release.sh`
 çevrimdışı paketi üretiyor, ama etiketi kesmek bilerek elle yapılan bir iş olarak
-kalıyor ([ADR-0023](docs/adr/0023-versioning-and-release.md)). Açık kalan tek kutu,
-backend'i birden fazla instance'ta çalıştırmak; N-06 onu v1'in dışında bırakıyor.
+kalıyor ([ADR-0023](docs/adr/0023-versioning-and-release.md)). 6. faz tek kutu
+açık bırakıyor — backend'i birden fazla instance'ta çalıştırmak, N-06 onu v1'in
+dışında tutuyor — 7. faz ise bitmiş kodu okurken bulunanlar; içinde
+[ADR-0024](docs/adr/0024-no-admin-ui-in-v1.md)'ün ertelediği yönetim ekranı da
+var.
 
 **Lisans:** [GPL-3.0-or-later](LICENSE). Kendi ortamına kurup bedava
 kullanabilirsin; ücretli sürüm yok. Katkılar [DCO](CONTRIBUTING.md) ile alınır,

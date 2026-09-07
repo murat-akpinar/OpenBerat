@@ -21,8 +21,10 @@ closed: the chain from login to a protected application works end to end on a
 lab against a real AD, and N-01 to N-03 are measured rather than estimated
 ([docs/07](docs/07-references.md)). **No version is tagged yet** — `release.sh`
 builds the offline bundle, but cutting the tag stays a deliberate manual act
-([ADR-0023](docs/adr/0023-versioning-and-release.md)). The one box still open is
-running the backend on more than one instance, which N-06 puts outside v1.
+([ADR-0023](docs/adr/0023-versioning-and-release.md)). Phase 6 leaves one box
+open — running the backend on more than one instance, which N-06 puts outside
+v1 — and Phase 7 is what reading the finished code found, the admin screen
+[ADR-0024](docs/adr/0024-no-admin-ui-in-v1.md) deferred among it.
 
 **Licence:** [GPL-3.0-or-later](LICENSE). Free to install and run in your own
 environment; there is no paid edition. Patches welcome under

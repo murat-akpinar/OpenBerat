@@ -1,7 +1,9 @@
 # TODO
 
-Status: **Phases 0–6 are closed; nothing is tagged.** The only box left open is
-HA, which N-06 puts outside v1.
+Status: **Phases 0–6 are closed; nothing is tagged.** Phase 6 leaves HA open,
+which N-06 puts outside v1. Phase 7 is the work reading the finished code found
+— an admin screen the endpoints already answer for, one ADR, and three smaller
+things.
 Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
 
 ---
@@ -1393,6 +1395,70 @@ So the portal's data does not have to be filled in by hand with SQL.
       a kill switch that clears one instance's cache leaves the other serving
       the old answer for up to a TTL — which is ADR-0016's 5 s target, broken.
       That needs an ADR before any second instance runs.*
+
+---
+
+## Phase 7 — After v1: what reading the finished code found
+
+Nothing here was found by a failing test. The chain works and is measured; these
+are the places where the code, the compose file or a sentence in a comment stops
+serving the person who has to run it.
+
+- [ ] **The audit + `explain` screen** — the one admin page ADR-0024 left to build
+      *`/api/admin/audit` has a keyset cursor and six filters, `/api/admin/explain`
+      annotates a decision against the rules it walked, and **no page uses
+      either**: an operator without a terminal cannot administer OpenBerat.
+      ADR-0024 deferred the admin UI and named the trigger for coming back —
+      a v1 people already run — while keeping the endpoints, their `ADMIN_GROUP`
+      check and the CSP measurement behind the vendored Alpine build in place
+      for exactly this. Two pages, no new endpoint. It also turns
+      `frontend/src/vendor/alpine.js` from shipped-but-loaded-by-nothing into
+      the thing the CI rule about `unsafe-eval` was written to protect.*
+
+- [ ] **ADR: the decision cache with more than one instance** — the HA box's
+      prerequisite
+      *Phase 6's HA box cannot open before this one. The cache is instance-local
+      (`cache.rs`), so a kill switch that clears one instance leaves the other
+      answering from its old entry for up to `TTL` — ADR-0016's 5 s, broken. The
+      candidates are a shared cache in Redis, a broadcast invalidation, and
+      bounding the damage with a shorter TTL; each spends a different one of
+      N-01, N-03 and the Redis dependency. Nothing is measured yet. The ADR is
+      where that trade gets chosen, and it is written before any second instance
+      runs.*
+
+- [ ] **Split `api.rs` and `admin.rs`** — both outgrew the rule they were written
+      under
+      *A file carrying more than three or four `Feature` blocks is doing too
+      much. `api.rs` carries 10 in 737 lines, `admin.rs` 9 in 1144. The cut with
+      no behaviour in it is `admin.rs`'s second half: `validate_path_pattern`,
+      `validate_upstream`, `reject_reserved`, `validate_hostname` and
+      `render_apps_conf` are nginx configuration generation (ADR-0011), not HTTP
+      handlers, and they move with their tests. `api.rs` separates along the same
+      seam — `/decide` is the PEP, `/api/me`, `/apps` and `/logout` are the
+      portal's.*
+
+- [ ] **`DATABASE_URL` an override rather than a literal** — for the site that
+      already has a database
+      *It is written into `docker-compose.yml` as a constant, so an operator with
+      a central Postgres has to edit a committed file to point at it. The
+      `postgres` service stays where it is — an install that starts nothing
+      extra is what N-05 and the offline bundle both assume — but the variable
+      becomes the operator's. Most of what this owes them is documentation, not
+      code: the backend applies its own migrations at startup and `audit_event`
+      is range-partitioned, so it needs its own database and DDL rights, not a
+      schema borrowed inside somebody else's.*
+
+- [ ] **Two sentences the code does not keep** — found by reading, not by failing
+      *`main.rs` says the retention job gives a fresh install "its partitions
+      before the first decision is written". It is `tokio::spawn`ed and never
+      awaited, so the listener can bind first. The consequence is bounded — that
+      month's rows land in `audit_event_default` and `maintain_audit`'s `delete`
+      half still removes them — but the sentence promises an order the code does
+      not impose: await the first pass, or write down what is true.
+      The second one **cannot be fixed**, and is recorded here so that nobody
+      trusts it: `0001_init.sql`'s comment still says monthly partitions "are the
+      N-04 retention job", which Phase 6 then wrote. An applied migration is
+      byte-immutable (`docs/07`), so that comment stays wrong on purpose.*
 
 ---
 
