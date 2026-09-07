@@ -71,6 +71,10 @@
 
 - Fill in the docker skeleton: compose stack, backend and nginx images ([4291470](https://github.com/murat-akpinar/OpenBerat/commit/4291470b4328df11cda31dc3e10ab166b556d38e)) — The comment-only compose file becomes the full docs/02 lab stack on the edge/core network split, and both Dockerfiles now build: a 25 MB multi-stage backend image and an nginx image with the configuration and frontend baked in (ADR-0020), logging one readable line per request to stdout.
 
+### 🚜 Refactor
+
+- *(backend)* Seven files where two were doing too much ([4b0ca1d](https://github.com/murat-akpinar/OpenBerat/commit/4b0ca1d9f2fb43037a81318c10bc2c4ad1ffe9c2)) — `api.rs` carried 10 `Feature` blocks in 749 lines and `admin.rs` 14 in 1514; the rule is three or four. Not one line of logic changed — the multiset of lines in the two old files was compared against the seven new ones, so every line that left one arrived in another. What is new is imports, `pub(crate)` on the items that now cross a module boundary, and four file headers.
+
 ### 📚 Documentation
 
 - Mfa intent recorded — totp through keycloak, configuration not code ([555f44e](https://github.com/murat-akpinar/OpenBerat/commit/555f44e3590006b3e4884f3da37105907178a5b4)) — The maintainer wants 2FA (phone TOTP, Google Authenticator style). In this architecture that is Keycloak realm configuration, not code: authentication is delegated (ADR-0003) and Keycloak's OTP is standard TOTP. The docs/06 open question now records the intent and what remains open — for everyone at login, or per application via acr (F-21, v2), which is the only form that touches our code.
