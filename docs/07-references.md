@@ -2992,3 +2992,78 @@ handler runs. Fail-closed, and it means the management plane cannot be reached
 by a caller holding identity headers but no session at all, which is a stronger
 statement than the `403`s above.
 
+## A second security read, and what it measured
+
+Same method as the read above and the same kind of finding: a rule the
+repository already writes down, applied to a file that did not follow it. The
+first two are one omission read twice — `protected.inc` pinned four headers, and
+nginx forwards every header no directive overwrites.
+
+### The `X-Forwarded-*` family the proxy did not write
+
+Measured against the **break-glass** configuration, which needs no identity
+chain: a generated block pointing at `traefik/whoami`, which echoes the request
+headers back. nginx images built from the commit before the fix and from the
+commit after, one request each, carrying six forged headers.
+
+| Header sent by the client | Before | After |
+|---|---|---|
+| `X-Forwarded-Host: evil.attacker.tld` | **`evil.attacker.tld`** | `app.apps.example.local` |
+| `X-Forwarded-Port: 1337` | **`1337`** | `443` |
+| `X-Forwarded-For: 203.0.113.9` | **`203.0.113.9, 172.19.0.1`** | `172.19.0.1` |
+| `X-Forwarded-Prefix: /pwn` | **`/pwn`** | absent |
+| `X-Original-URL: /admin` | **`/admin`** | absent |
+| `X-Rewrite-URL: /admin` | **`/admin`** | absent |
+
+The `X-Forwarded-For` row is the whole argument against
+`$proxy_add_x_forwarded_for`: it did not replace the client's value, it appended
+the real address *after* it, so the leftmost entry — the one every reader and
+every framework takes as the client — was the forged one. Keycloak reads exactly
+that entry (`KC_PROXY_HEADERS=xforwarded`), which is why `keycloak.inc` carried
+the same line and every login event the realm recorded named an address the
+client chose. `limit_req` was never affected: it keys on `$binary_remote_addr`.
+
+The other three rows are absent rather than corrected, and that is the
+difference between the two halves of the fix: `X-Forwarded-Host` and `-Port`
+are values this proxy owes the upstream, and `X-Forwarded-Prefix`,
+`X-Original-URL` and `X-Rewrite-URL` are values it has nothing to say about — a
+framework that honours one re-routes off a client header, which is the PEP
+deciding one path and the upstream serving another.
+
+Both configurations still pass `nginx -t`, and the CI check that found them is
+mutation-tested: dropping one `proxy_set_header` line back out turns it red.
+
+### `$portal_origin` renders what the literal did
+
+`nginx -t` proves the syntax of `return 302 $portal_origin/denied?app=$host;`
+and nothing about the value, so the map and the return were run together on a
+throwaway configuration and the answer read off the wire:
+
+```
+Location: https://portal.apps.example.local/denied?app=wiki.apps.example.local
+```
+
+Byte-identical to what the hardcoded form produced. The point of the change is
+not the value but where it is written: `errors.inc` is included by every block
+`render_apps_conf` generates, so a hostname in it is the deployment's hostname
+inside the one file that is meant to be identical everywhere.
+
+### The build context was 2.5 GB
+
+Read off the nginx build, which uses the repository root as its context:
+
+| | Context sent to the daemon |
+|---|---|
+| Before | **2.526 GB** |
+| After | **171.6 kB** |
+
+`backend/.dockerignore` lists `target/`, and it applies only to the backend's
+own build, whose context is `./backend`. The nginx and keycloak builds start a
+level up, where nothing excluded it. `certs/` was in the same position: no
+`COPY` reaches it, so the private key was in no layer — it was simply handed to
+the daemon on every build.
+
+**The `**/` is load-bearing and was measured wrong once.** A Docker ignore
+pattern is matched against the whole path, not segment by segment, so a bare
+`target/` matches a top-level directory and misses `backend/target/`. The first
+attempt used it and the context did not move.

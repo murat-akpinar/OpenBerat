@@ -1,6 +1,31 @@
+# Two images build from the repository root — nginx (conf.d + frontend/src) and
+# keycloak (the theme + the mark) — so this file is what they are handed. It is
+# not the same list as .gitignore: that one is about what a commit carries, this
+# one about what the daemon receives.
+
+# --- Feature Start ---
+# The certificate is the operator's, mounted at /etc/nginx/certs and never baked
+# (INSTALL.md §1). No COPY reaches it, so it was in no layer — but "secrets are
+# never in the image" is a weaker rule than "the private key is not handed to
+# the build", and the second one is the one worth keeping.
+.env
+certs/
+# --- Feature End ---
+
+# Measured on the nginx build: 2.526 GB of context before this line, 171.6 kB
+# after, and almost all of it was one directory no Dockerfile reads.
+# `backend/.dockerignore` covers `target/` only for the backend's own build,
+# whose context is ./backend — these two start a level up and were shipping
+# every Rust artifact on the disk to the daemon. The `**/` is load-bearing: a
+# Docker pattern is matched against the whole path, so a bare `target/` misses
+# `backend/target/` and the measurement stayed where it was (docs/07).
+**/target/
+# A cut release: the saved images of the previous one, ~400 MB, never an input.
+dist/
+.git/
+
 docs/
 tmp/
 .rules/
 .github/
 *.md
-.env
