@@ -17,7 +17,7 @@ use axum::http::HeaderValue;
 use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
@@ -156,9 +156,6 @@ struct Entry {
 #[derive(Default)]
 struct Inner {
     entries: HashMap<Key, Entry>,
-    /// Insertion order, for the capacity bound. Keys removed from `entries`
-    /// are left here and skipped when they surface.
-    order: VecDeque<Key>,
     /// Which keys belong to whom, so logout and the kill switch drop one user's
     /// entries rather than the whole cache — which would be self-DoS (docs/05).
     by_sub: HashMap<String, HashSet<Key>>,
@@ -213,7 +210,6 @@ impl Cache {
             .entry(sub.clone())
             .or_default()
             .insert(key.clone());
-        inner.order.push_back(key.clone());
         inner.entries.insert(
             key,
             Entry {
@@ -224,14 +220,30 @@ impl Cache {
                 counters: HashMap::new(),
             },
         );
+        // --- Feature Start ---
+        // The oldest entry is read off the entries themselves rather than kept
+        // in a queue beside them. The queue was the bug: `insert` pushed to it
+        // and only this bound ever popped, so on a cache that stays *under*
+        // capacity — the normal one — nothing drained it, and every refill of
+        // every session left a dead key behind for the life of the process.
+        // Under one uniform TTL oldest-inserted is still the eviction order;
+        // the scan runs only while the cache is over its bound, and the
+        // structure that could go stale is gone.
+        // --- Feature End ---
         while inner.entries.len() > CAPACITY {
-            let Some(oldest) = inner.order.pop_front() else {
+            let Some(oldest) = inner
+                .entries
+                .iter()
+                .min_by_key(|(_, entry)| entry.inserted)
+                .map(|(key, _)| key.clone())
+            else {
                 break;
             };
-            if let Some(entry) = inner.entries.remove(&oldest) {
-                forget_sub(&mut inner, &entry.sub, &oldest);
-                self.flush(entry);
-            }
+            let Some(entry) = inner.entries.remove(&oldest) else {
+                break;
+            };
+            forget_sub(&mut inner, &entry.sub, &oldest);
+            self.flush(entry);
         }
     }
 
@@ -328,6 +340,14 @@ impl Cache {
             entry
         };
         self.flush(entry);
+    }
+
+    /// Every `Key` the cache is still holding on to, in any of its three
+    /// structures. An entry that has left has to leave all of them.
+    #[cfg(test)]
+    pub fn tracked(&self) -> usize {
+        let inner = self.inner.lock().unwrap();
+        inner.entries.len() + inner.by_sub.values().map(HashSet::len).sum::<usize>()
     }
 
     /// Ages an entry past its TTL without a 30-second sleep in the test suite.
@@ -530,6 +550,40 @@ mod tests {
         );
         cache.sweep();
         assert_eq!(queue.try_recv().unwrap().count, 1);
+    }
+
+    // --- Feature Start ---
+    // The cache is a process that runs for months, so a structure that only
+    // grows is an outage with a long fuse. Every fill pushes a key, and the
+    // road a key normally leaves by is the sweep — which removes it from
+    // `entries` and from `by_sub` and from nothing else.
+    // --- Feature End ---
+    #[test]
+    fn a_key_that_has_left_is_held_nowhere() {
+        let (audit, mut queue) = audit_channel(4096);
+        let cache = Cache::new(audit);
+        let k = key("_oauth2_proxy=abc", "finance");
+        // One user, one application, one session: the smallest possible cache,
+        // refilled every TTL the way a signed-in browser refills it.
+        for _ in 0..500 {
+            cache.insert(k.clone(), "sub-labuser".to_string(), cached());
+            cache.expire_for_test(&k);
+            cache.sweep();
+            while queue.try_recv().is_ok() {}
+        }
+        assert_eq!(cache.tracked(), 0, "swept 500 times, and holds nothing");
+
+        // And the other refill road: an entry replaced while it is still live,
+        // which never reaches the sweep at all.
+        for _ in 0..500 {
+            cache.insert(k.clone(), "sub-labuser".to_string(), cached());
+            while queue.try_recv().is_ok() {}
+        }
+        assert_eq!(
+            cache.tracked(),
+            2,
+            "one live entry is one entry and one owner"
+        );
     }
 
     #[test]

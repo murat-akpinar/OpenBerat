@@ -1624,6 +1624,26 @@ serving the person who has to run it.
          pattern is matched against the whole path, so a bare `target/` misses
          `backend/target/` and the first attempt did not move the number.*
 
+- [x] **The decision cache leaked a key per fill** — found by reading `cache.rs`
+      for something else
+      *`Inner` kept a `VecDeque<Key>` beside the entries for the capacity bound.
+      `insert` pushed to it on every fill; the only thing that ever popped was
+      the bound itself, `while entries.len() > CAPACITY`. On a cache that stays
+      **under** capacity — which is every cache that is working — that loop never
+      runs, so nothing drained the queue and every refill of every session left a
+      dead key in it for the life of the process. The field's own comment said
+      stale keys are "skipped when they surface", and the measurement is that
+      they never surface: a red test refilled one key for one user 500 times,
+      swept each one, and the cache was still holding 500 keys.
+      Fixed by deletion rather than by cleanup: the oldest entry is read off
+      `entries` with `min_by_key(inserted)`, which under one uniform TTL is the
+      same eviction order, runs only while the cache is over its bound, and
+      leaves no second structure to go stale. Compacting the queue instead would
+      not have been enough — a key replaced while still live keeps its old
+      position, so the duplicate survives any `retain` on liveness.
+      The test asserts on every structure that holds a `Key`, not on the one
+      that was wrong, so the next side index is caught too.*
+
 ---
 
 ## Later
