@@ -2089,6 +2089,42 @@ an operator who wants the redirect. Publishing it by default was not decided
 here: it widens the only published surface the design currently claims, which
 is the operator's call and not a documentation fix.
 
+### TEST — the deny rule that was accepted and could never fire
+
+`policy::normalise` percent-decodes the request path and folds `\` into `/`.
+`matches` does neither to the stored `path_pattern` — it resolves `.`/`..` and
+lower-cases, and that is all. The two sides were therefore not normalised the
+same way, and `create_entitlement` checked only that the pattern was empty or
+began with `/`.
+
+Proven through the endpoint rather than argued, by taking the new guard out and
+running the integration test against Postgres:
+
+| Pattern, `effect: deny` | Without the guard | With it |
+|---|---|---|
+| `/%61dmin/*` | **201 Created** | 400 |
+| `/x\admin/*` | 201 | 400 |
+| `/ADMIN/*` | 201 | 400 |
+| `/x/../admin/*` | 201 | 400 |
+| `/admin/*` | 201 | 201 |
+
+The 201 is the whole finding. Nothing downstream would ever have caught it:
+the rule is stored, the admin reads it back exactly as typed, `/api/admin/explain`
+walks the same matcher and also reports no match, and the request reaches the
+upstream under whatever allow rule covers it. **A deny rule that never fires
+looks identical to one that was never needed.**
+
+The guard is `validate_path_pattern`, and it asks one question — does the
+pattern survive `normalise` unchanged — because that is the property `matches`
+actually depends on, so a sixth normalisation step later cannot open the gap
+again. It is the judgement the comma guard already makes about group names,
+applied to the other half of the same row.
+
+Not fixed in `matches`: decoding the pattern there has a failure mode (a
+pattern that will not decode) whose only fail-closed answer is to match
+everything, which is an outage. The boundary has no such problem — it can
+refuse. Nothing is released yet, so there are no stored rows to migrate.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is

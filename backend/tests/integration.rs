@@ -1429,6 +1429,38 @@ async fn decide_section(pool: &PgPool) {
         );
     }
 
+    // A deny rule the matcher could never meet is the failure this endpoint has
+    // to catch, because nothing downstream ever will: stored, it reads back as
+    // typed and refuses nothing. `/%61dmin/*` is the request-side bypass of
+    // docs/05 turned around and aimed at the pattern.
+    for pattern in ["/%61dmin/*", "/x\\admin/*", "/ADMIN/*", "/x/../admin/*"] {
+        let response = post(
+            "/api/admin/entitlements",
+            serde_json::json!({
+                "application_id": wiki,
+                "subject_type": "ad_group",
+                "subject_id": "OpenBerat-Wiki",
+                "effect": "deny",
+                "path_pattern": pattern,
+            }),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "{pattern}");
+    }
+    // And the ordinary one still lands.
+    let response = post(
+        "/api/admin/entitlements",
+        serde_json::json!({
+            "application_id": wiki,
+            "subject_type": "ad_group",
+            "subject_id": "OpenBerat-Wiki",
+            "effect": "deny",
+            "path_pattern": "/admin/*",
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+
     // A slug the schema would refuse is refused before it gets there, and the
     // caller is told rather than seeing a 500.
     let send = async |method: &str, path: String, body: serde_json::Value| {

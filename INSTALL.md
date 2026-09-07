@@ -420,7 +420,7 @@ curl -sk -X POST "$PORTAL/api/admin/entitlements" \
 | `subject_type` | `ad_group`. The only kind in v1 — entitlements *are* AD groups ([ADR-0008](docs/adr/0008-group-identity-name.md)) |
 | `subject_id` | the group name exactly as it arrives in the claim, `OpenBerat-` prefix included |
 | `effect` | `allow` or `deny`. A deny wins over an allow whatever the paths, so a narrow deny does not need a narrower allow beside it |
-| `path_pattern` | empty is the whole application. `/admin/*` binds one path to its own rule, matched on the normalised path and at segment boundaries |
+| `path_pattern` | empty is the whole application. `/admin/*` binds one path to its own rule, matched on the normalised path and at segment boundaries. It must be written the way it is matched — lower-case, no `%` escape, no `\`, no `.`/`..`, `*` only at the end — or the call is a 400 naming the form it wants. A pattern that needed normalising would be a rule no request can equal, which for a `deny` is a rule that protects nothing |
 | `application_id` | leave it out and the rule covers **every** application — the wildcard of `docs/05`. Deliberate, rarely what you want |
 | `expires_at` | optional RFC 3339 timestamp; the row stops counting after it |
 

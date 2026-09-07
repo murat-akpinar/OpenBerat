@@ -85,6 +85,27 @@ A single normalisation function runs before the decision:
 This function lives in `policy.rs`, is pure and is tested. Every row of the table
 above is a test case.
 
+### The same table, aimed at the pattern
+
+The five steps run on the **request**. The matcher resolves `.`/`..` in the
+stored `path_pattern` and lower-cases it, and does neither of the other two — so
+a pattern is not automatically something a normalised path can equal. Turn the
+table around and it is the same bypass with the sides swapped:
+
+| Stored `path_pattern` | What it matches | What the admin believes |
+|---|---|---|
+| `/%61dmin/*` | nothing — no normalised path contains `%` | `/admin/` is denied |
+| `/x\admin/*` | nothing — the request folded the `\`, the pattern kept it | `/x/admin/` is denied |
+| `/ADMIN/*` | `/admin/` — the matcher lower-cased it | that case is significant |
+
+The first two are the dangerous shape: a **deny** rule that never fires, read
+back by the admin exactly as they typed it. So the pattern is refused at the
+management plane rather than stored — `validate_path_pattern` in `admin.rs`
+requires that it survive `normalise` unchanged, which is the one condition that
+covers every row above and anything later added to the five steps. It is the
+same judgement the comma guard makes about group names: a rule that silently
+never fires is worse than one that was never accepted (`docs/07`).
+
 ## Management plane authority
 
 `/api/admin/*` is not protected by this table; it requires `ADMIN_GROUP`

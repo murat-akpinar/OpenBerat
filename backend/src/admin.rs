@@ -463,8 +463,8 @@ async fn create_entitlement(
         return bad_request("an AD group name cannot contain a comma");
     }
     // --- Feature End ---
-    if !new.path_pattern.is_empty() && !new.path_pattern.starts_with('/') {
-        return bad_request("path_pattern must be empty or start with /");
+    if let Err(why) = validate_path_pattern(&new.path_pattern) {
+        return bad_request(why);
     }
 
     let created: Result<Entitlement, _> = sqlx::query_as(
@@ -766,6 +766,31 @@ async fn explain(State(ctx): State<Arc<Ctx>>, Query(q): Query<ExplainQuery>) -> 
 // metadata endpoint. Private ranges are deliberately allowed — every real
 // upstream is on one.
 // --- Feature End ---
+// --- Feature Start ---
+// `matches` lower-cases the pattern and resolves `.`/`..`, but it does not
+// percent-decode it and does not fold `\` — `policy::normalise` does both to
+// the request path. A pattern that changes under normalisation is therefore one
+// no request can ever equal, and the dangerous half is the deny rule: it never
+// fires, the admin reads back what they typed and believes the path is closed.
+// Refused rather than stored, for the reason the comma guard above gives.
+// --- Feature End ---
+pub fn validate_path_pattern(raw: &str) -> Result<(), String> {
+    if raw.is_empty() {
+        return Ok(());
+    }
+    let probe = raw.strip_suffix('*').unwrap_or(raw);
+    if probe.contains('*') {
+        return Err("path_pattern may only use * as its last character".into());
+    }
+    match policy::normalise(probe) {
+        Ok(seen) if seen == probe => Ok(()),
+        Ok(seen) => Err(format!(
+            "path_pattern must be written the way it is matched: {seen}"
+        )),
+        Err(_) => Err("path_pattern must be empty or start with /".into()),
+    }
+}
+
 pub fn validate_upstream(raw: &str) -> Result<(), String> {
     let url = Url::parse(raw).map_err(|_| "upstream_url is not a URL".to_string())?;
     if !matches!(url.scheme(), "http" | "https") {
@@ -914,6 +939,40 @@ mod tests {
     use super::*;
 
     const PORTAL: &str = "https://portal.apps.example.local";
+
+    // A deny rule that can never fire is the one bug this file already refuses
+    // for group names (the comma guard): the admin reads the rule back, sees
+    // what they typed, and believes the path is closed.
+    #[test]
+    fn a_pattern_the_matcher_could_never_meet_is_refused() {
+        // `policy::normalise` percent-decodes the request path and folds `\`
+        // into `/`; the matcher does neither to the pattern. So each of these
+        // is a rule no normalised path can equal.
+        for bad in [
+            "/%61dmin/*",  // decodes to /admin/ on the path side, stays literal here
+            "/x\\admin/*", // a Windows upstream serves this as /x/admin/
+            "/admin/%2e%2e/*",
+            "/ADMIN/*", // the matcher lower-cases; stored as typed it reads as case-sensitive
+            "/a//b",
+            "/x/../admin/*",
+        ] {
+            assert!(
+                validate_path_pattern(bad).is_err(),
+                "{bad} should be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn an_ordinary_pattern_is_accepted() {
+        for good in ["", "/", "/*", "/admin", "/admin/*", "/a/b/c/*"] {
+            assert!(
+                validate_path_pattern(good).is_ok(),
+                "{good}: {:?}",
+                validate_path_pattern(good)
+            );
+        }
+    }
 
     #[test]
     fn an_upstream_may_be_an_ordinary_private_address() {
