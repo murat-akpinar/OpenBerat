@@ -4,10 +4,10 @@
 // Entry point. Reads configuration from the environment, applies the schema and
 // serves /decide on the core network — see TODO.md.
 
-use openberat::admin;
 use openberat::api::{self, Ctx};
 use openberat::cache::Cache;
 use openberat::keycloak::Keycloak;
+use openberat::nginx;
 use openberat::session::Index;
 use openberat::store;
 use std::sync::Arc;
@@ -162,7 +162,7 @@ async fn main() {
     // this writes a file for nginx, it does not decide anything.
     // --- Feature End ---
     if let Some(dir) = &ctx.nginx_conf_dir
-        && let Err(e) = admin::publish_conf(&ctx.pool, dir, &ctx.portal_origin).await
+        && let Err(e) = nginx::publish_conf(&ctx.pool, dir, &ctx.portal_origin).await
     {
         tracing::error!("generating nginx configuration at startup failed: {e}");
     }

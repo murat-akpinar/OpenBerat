@@ -836,19 +836,19 @@ So the portal's data does not have to be filled in by hand with SQL.
 - [x] Application CRUD + `upstream_url` validation (scheme/host/port; loopback,
       link-local and infrastructure services rejected); `external_hostname`
       must not collide with the reserved `portal` / `auth` hosts (ADR-0011)
-      *`admin.rs`. The validation is a trust boundary, so it uses the `url`
-      crate rather than a hand-rolled parser, and it refuses on **three** axes
-      rather than the two the ADR lists: the service names, the reserved
-      addresses, and the **ports**. An admin typing `http://10.1.2.3:5432`
-      walks straight past a name check, and nothing legitimate behind this
-      proxy speaks Postgres, Redis or LDAP over HTTP — so 5432, 6379, 389, 636,
-      3268 and 3269 are refused whatever the host. Private ranges are
-      deliberately allowed: every real upstream is on one. Credentials, paths
-      and query strings in `upstream_url` are refused too — it becomes a
-      `proxy_pass`, and a path there silently rewrites every request. `slug`
-      and `external_hostname` are **not patchable**: both are written into
-      generated nginx blocks and into every audit row naming the application,
-      so renaming one silently reassigns history.*
+      *`validate.rs`, called from `admin.rs`. The validation is a trust
+      boundary, so it uses the `url` crate rather than a hand-rolled parser,
+      and it refuses on **three** axes rather than the two the ADR lists: the
+      service names, the reserved addresses, and the **ports**. An admin
+      typing `http://10.1.2.3:5432` walks straight past a name check, and
+      nothing legitimate behind this proxy speaks Postgres, Redis or LDAP over
+      HTTP — so 5432, 6379, 389, 636, 3268 and 3269 are refused whatever the
+      host. Private ranges are deliberately allowed: every real upstream is on
+      one. Credentials, paths and query strings in `upstream_url` are refused
+      too — it becomes a `proxy_pass`, and a path there silently rewrites every
+      request. `slug` and `external_hostname` are **not patchable**: both are
+      written into generated nginx blocks and into every audit row naming the
+      application, so renaming one silently reassigns history.*
 - [x] AD group ↔ application mapping (allow/deny)
       *`/api/admin/entitlements`, with the four field checks duplicated from the
       schema so a typo comes back as a sentence rather than a 503 with a
@@ -1571,16 +1571,54 @@ serving the person who has to run it.
       `ponytail:` line and `docs/02`'s availability row both promised the cache
       would move to Redis.*
 
-- [ ] **Split `api.rs` and `admin.rs`** — both outgrew the rule they were written
+- [x] **Split `api.rs` and `admin.rs`** — both outgrew the rule they were written
       under
-      *A file carrying more than three or four `Feature` blocks is doing too
-      much. `api.rs` carries 10 in 737 lines, `admin.rs` 9 in 1144. The cut with
-      no behaviour in it is `admin.rs`'s second half: `validate_path_pattern`,
-      `validate_upstream`, `reject_reserved`, `validate_hostname` and
-      `render_apps_conf` are nginx configuration generation (ADR-0011), not HTTP
-      handlers, and they move with their tests. `api.rs` separates along the same
-      seam — `/decide` is the PEP, `/api/me`, `/apps` and `/logout` are the
-      portal's.*
+      *Seven files where there were two, and **not one line of logic changed**.
+      That is the claim the box rests on, so it was checked rather than
+      asserted: the multiset of lines in the two old files was compared against
+      the seven new ones, and every line that left one arrived in another. What
+      is genuinely new is import lines, `pub(crate)` on the items that now
+      cross a module boundary, and four file headers.
+      **Counted before and after** (lines / `Feature` blocks). `api.rs`
+      749/10 and `admin.rs` 1514/14 — the box was written when `admin.rs` was
+      1144/9, and it grew while the phases after it closed — became `api.rs`
+      266/3 (the context, the router, the session-index middleware, `Caller`,
+      and the three endpoints that answer without an identity), `decide.rs`
+      366/5, `portal.rs` 167/2, `admin.rs` 506/4, `audit.rs` 334/3,
+      `validate.rs` 381/4 and `nginx.rs` 368/3. The endpoint table stays in
+      `api.rs` next to the router that mounts it: the change-propagation rule
+      names that file, and it is the only one that lists every endpoint.
+      Two things the move found. A `Feature` block explaining `upstream_url`
+      sat above `validate_path_pattern`, three blocks deep with no code between
+      them — which is exactly how a comment ends up over the wrong function; it
+      now sits over `validate_upstream`. And `store.rs` breaks the same rule at
+      6 blocks in 423 lines. It was not in this box and is not touched.
+      `decide.rs`'s 5 are the one exception kept on purpose: they are five
+      separate claims on one request path, and splitting `/decide` in half
+      would put its fail-closed branches in a different file from the answer
+      they produce.
+      Green locally — 43 unit tests, and the integration suite against a real
+      Postgres and Redis — and **rebuilt and run on the lab**, where the whole
+      chain still answers: `verify-install6.sh` `ALL OK` (the `Origin` 403, the
+      infrastructure-upstream refusal, `"nginx":"staged"`, 302 before an
+      entitlement and 200 after one, `explain`, the delete),
+      `verify-pattern.sh` `PASS`, `verify-audit.sh` `ALL PASS`,
+      `verify-kill.sh` (access gone 0.134 s after the button) and
+      `verify-logout.sh`. `/api/me`, `/api/apps`, `/readyz` and `/metrics`
+      answered directly.
+      The move is visible in one place at runtime: `tracing`'s target is the
+      module path, so the logout lines now read `openberat::portal` where they
+      read `openberat::api`. Nothing in `docs/` quoted one of those — the three
+      log lines `docs/07` does quote are `admin::guard` and `store`, both
+      unmoved.
+      Three assertions in `verify-audit.sh` failed and none of them was this
+      change: it compared `?decision=allow` + `?decision=deny` against an
+      unfiltered **default page**, so the identity stopped holding the moment
+      the lab's record passed 100 rows, and it asserted that `malformed_uri`
+      appears nowhere while six rows from 2026-09-06's double-encoding probes
+      were sitting there. Fixed on the lab — the counts now pass `limit=1000`
+      and the never-used reason is one the enum cannot produce — and it reads
+      `ALL PASS`.*
 
 - [ ] **`DATABASE_URL` an override rather than a literal** — for the site that
       already has a database
@@ -1711,7 +1749,7 @@ serving the person who has to run it.
 - [x] **The audit page and the endpoint each held the page size** — one number,
       two files
       *`audit.js` sent no `limit` and tested `list.length < 100` against the
-      endpoint's own default, which `admin.rs` writes as `unwrap_or(100)`. The
+      endpoint's own default, which `audit.rs` writes as `unwrap_or(100)`. The
       day one of them moves, the "load more" button hides itself with rows still
       behind it, or offers a page that comes back empty — and neither file is
       wrong on its own, which is the failure mode the change-propagation rule

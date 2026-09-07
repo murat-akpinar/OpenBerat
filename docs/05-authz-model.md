@@ -106,7 +106,7 @@ table around and it is the same bypass with the sides swapped:
 
 The first two are the dangerous shape: a **deny** rule that never fires, read
 back by the admin exactly as they typed it. So the pattern is refused at the
-management plane rather than stored — `validate_path_pattern` in `admin.rs`
+management plane rather than stored — `validate_path_pattern` in `validate.rs`
 requires that it survive `normalise` unchanged, which is the one condition that
 covers every row above and anything later added to the five steps. It is the
 same judgement the comma guard makes about group names: a rule that silently

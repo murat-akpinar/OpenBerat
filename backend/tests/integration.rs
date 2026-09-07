@@ -472,7 +472,7 @@ async fn publish_section(pool: &PgPool) {
     insert_app(pool, "wiki").await;
     let crm = insert_app(pool, "crm").await;
 
-    openberat::admin::publish_conf(pool, &dir, PORTAL)
+    openberat::nginx::publish_conf(pool, &dir, PORTAL)
         .await
         .expect("a restored database publishes without an admin editing a row");
     let rendered = std::fs::read_to_string(&staged).expect("staged file");
@@ -502,7 +502,7 @@ async fn publish_section(pool: &PgPool) {
         .execute(pool)
         .await
         .expect("delete an application behind the API's back");
-    openberat::admin::publish_conf(pool, &dir, PORTAL)
+    openberat::nginx::publish_conf(pool, &dir, PORTAL)
         .await
         .expect("republish");
     let rendered = std::fs::read_to_string(&staged).expect("staged file");

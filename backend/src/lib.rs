@@ -6,9 +6,14 @@
 
 pub mod admin;
 pub mod api;
+pub mod audit;
 pub mod cache;
+pub mod decide;
 pub mod keycloak;
 pub mod metrics;
+pub mod nginx;
 pub mod policy;
+pub mod portal;
 pub mod session;
 pub mod store;
+pub mod validate;
