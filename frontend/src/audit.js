@@ -58,6 +58,20 @@ function when(iso) {
   return Number.isNaN(at.getTime()) ? iso : at.toLocaleString();
 }
 
+/// Relative, and only on the Live tab. There the question is how stale a row
+/// is, not which log line it matches — "4 h ago" answers it at a glance where
+/// a timestamp has to be subtracted from now by hand. The absolute time is
+/// still one hover away.
+function ago(iso) {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return iso;
+  const seconds = Math.max(0, (Date.now() - at.getTime()) / 1000);
+  if (seconds < 90) return 'just now';
+  if (seconds < 3600) return `${Math.round(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)} h ago`;
+  return `${Math.round(seconds / 86400)} d ago`;
+}
+
 /// What `<input type="datetime-local">` reads and writes: local wall clock, no
 /// zone. `toISOString` is UTC, so the offset has to come off first or "today"
 /// starts at the wrong hour for everyone east or west of Greenwich.
@@ -133,8 +147,19 @@ function liveRow(entry) {
   const sessions = el('td');
   sessions.append(el('span', 'tag is-allow', String(entry.sessions)));
 
+  // The only staleness signal there is, and it is per subject rather than per
+  // session: it comes from the audit record, so it is empty both for a session
+  // minted a second ago and for one nobody has touched since Tuesday. Shown as
+  // it is, without a threshold and without calling any row "stale" — there is
+  // no data here that would justify either.
   const activity = el('td');
-  activity.append(el('span', null, entry.last_activity ? when(entry.last_activity) : '—'));
+  if (entry.last_activity) {
+    const stamp = el('span', null, ago(entry.last_activity));
+    stamp.title = when(entry.last_activity);
+    activity.append(stamp);
+  } else {
+    activity.append(el('span', 'sub', 'no request recorded'));
+  }
 
   const action = el('td');
   action.append(toExplain(entry.sub));
@@ -151,8 +176,8 @@ function live() {
       liveRows.replaceChildren(...list.map(liveRow));
       const total = list.reduce((n, entry) => n + entry.sessions, 0);
       liveCount.textContent = list.length === 0
-        ? 'Nobody has a live session.'
-        : `${list.length} subject${list.length === 1 ? '' : 's'}, ${total} session${total === 1 ? '' : 's'}`;
+        ? 'No session would authenticate right now.'
+        : `${total} session${total === 1 ? '' : 's'} across ${list.length} subject${list.length === 1 ? '' : 's'}`;
     })
     .catch((e) => {
       console.error(e);

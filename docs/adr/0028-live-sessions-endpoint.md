@@ -74,6 +74,18 @@ keeping, and it is why that ADR is amended rather than superseded.
   when. **What it cannot say:** when the session started, from where, or through
   which browser. None of that is in the index, and the options that would put it
   there are refused above.
+- **A row is a session that would still authenticate, not a user who is
+  active.** This is the sentence the screen has to carry, because the two read
+  alike and only one of them is true. A session exists in Redis until it is
+  signed out or `cookie_expire` passes — 168 h in the shipped configuration —
+  and nothing requires anybody to still hold its cookie. A closed laptop, a
+  cleared browser and a CI job that logged in and exited all leave one behind,
+  and it stays a working credential for a week. For a console whose purpose is
+  revocation that is the **right** thing to count: what matters is what would
+  still let somebody in, not who happens to be clicking. Counting only recent
+  traffic would hide exactly the credentials worth revoking.
+  Measured on the lab (`docs/07`): 60 sessions across 8 subjects, for a
+  directory with two users.
 - **`SCAN`, not `KEYS`,** and it runs on an admin request only. This is the
   first endpoint whose cost grows with the Redis keyspace rather than with the
   answer, and that keyspace is mostly oauth2-proxy's own sessions.
@@ -84,6 +96,13 @@ keeping, and it is why that ADR is amended rather than superseded.
   be a write endpoint. They cost a `EXISTS` each and expire with the set.
 - **`/api/admin/*` grew, and it is a supported interface** (ADR-0024, ADR-0023):
   this route is now something an upgrade has to respect.
+- **`last_activity` is the only staleness signal there is, and it is
+  per-subject rather than per-session.** It comes from the audit record, so it
+  is empty both for a session minted a second ago and for one idle since
+  Tuesday. The screen shows it relative — "4 h ago" — because on this tab the
+  question is how stale a row is, where on the history tab an absolute time is
+  what gets compared against an nginx log line. Neither tab invents a threshold
+  and neither labels a row "stale": there is no data that would justify it.
 - **The guard enumeration in `tests/integration.rs` covers it.** That list is
   the only thing standing between "the guard is a `route_layer`" and a handler
   registered somewhere else, and writing this ADR found that

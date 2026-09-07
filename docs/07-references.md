@@ -2760,6 +2760,58 @@ The tab bar itself is checked as six ids in the served HTML (`view-live`,
 the only thing standing between three views and one page that shows all of them
 at once.
 
+### What the Live tab found on its first day
+
+Opened against the lab, it showed **60 sessions across 8 subjects** for a
+directory with two users. Every one of them was real — the keys existed and each
+would still have authenticated — and the pile is what the tab is for. Two
+separate causes, and only one of them is a lab artifact:
+
+- **42 of the 60 named subjects Keycloak no longer had.** Its H2 database
+  deliberately gets no volume (`docker-compose.yml`), so every
+  `docker compose build keycloak` re-creates the federated users with fresh ids,
+  while Redis keeps the sessions minted under the old ones. `kcadm get users`
+  knew 3 ids; the index held 8. This does not happen to an installation that
+  follows `INSTALL.md`, which gives Keycloak a real database — but it is worth
+  recording that **an oauth2-proxy session outlives the IdP forgetting the user
+  it names**, and keeps authenticating until `cookie_expire`.
+- **The rest are sessions nobody signed out of.** Every harness run in this
+  document logged in and deleted its cookie jar. That leaves a working
+  credential for 168 h, which is what a closed laptop, a cleared browser and a
+  finished CI job also leave. `verify-auditscreen.sh` now signs out at the end.
+
+Pruning the 6 subjects Keycloak did not have took the lab to **3 subjects and 22
+sessions** — one of them a `labnested` session with no audit row at all, drawn
+as "not seen at an application yet", which is the portal-only case ADR-0019
+exists for, on screen.
+
+### Logout removes the key and the index entry — and two ways to measure it wrong
+
+Chasing the count above produced a phantom bug worth writing down, because both
+mistakes are easy to repeat.
+
+**`POST /api/logout` answers 403 without an `Origin` header** (docs/02). A curl
+that omits it gets a refusal the session survives, which reads exactly like a
+logout that ran and did nothing. The backend says so — `logout refused: wrong or
+missing Origin` — and that line is the only thing that separates the two.
+
+**A count cannot see this working.** `ob-login.sh` never calls `/api`, so a
+freshly minted session is **not in the index** until its first request there —
+that is the `indexed` middleware doing what it was written for. On the logout
+call itself the middleware adds the key one instruction before the handler
+removes it, so the set's cardinality does not move while exactly the right thing
+happens. Measured on the key instead, with the derivation from VERIFY (4)
+(`ob-session-key.sh`):
+
+| | `EXISTS key` | `SISMEMBER index key` | `GET /api/me` |
+|---|---|---|---|
+| signed in, one `/api` call | 1 | 1 | 200 |
+| `POST /api/logout`, no `Origin` | 1 | 1 | 200 — **403, nothing happened** |
+| `POST /api/logout` with `Origin` | **0** | **0** | **302** |
+
+Neither Redis `DEL` nor `SREM` errors on a key that is not there, so the
+handler's `204` is not evidence either. Only the key is.
+
 **Not measured: what the page looks like.** Every assertion above is a status
 code, a header or a JSON field. The layout reuses the panel, table and contrast
 tokens `portal.css` already carries, and no ratio in that file's table changed —
