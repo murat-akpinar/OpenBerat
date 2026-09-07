@@ -56,7 +56,7 @@ flowchart LR
 
     subgraph host["Docker host — dışarı açılan tek port 443"]
         direction LR
-        nginx["nginx · PEP<br>443 · 80 yönlendirir"]
+        nginx["nginx · PEP<br>443"]
         frontend["frontend<br>statik dosyalar"]
         backend["backend · PDP<br>8081"]
         o2p["oauth2-proxy<br>4180"]
@@ -108,7 +108,7 @@ Tam akış, arıza modları ve karar cache'i:
 
 | Bileşen | Port | Dışarı açık mı? |
 |---|---|---|
-| nginx | 443 (80 buraya yönlendirir) | **Evet — tek açık port** |
+| nginx | 443 | **Evet — tek açık port.** 80 dışarı *açılmıyor*, yani `http://` yönlendirilmez, reddedilir; yönlendirme bloğu imajda duruyor, açmak isteyen operatör için |
 | backend | 8081 | Hayır |
 | oauth2-proxy | 4180 | Hayır |
 | Keycloak | 8080 | Hayır — nginx üzerinden `auth.apps.<domain>` adresiyle erişilir |

@@ -56,7 +56,7 @@ flowchart LR
 
     subgraph host["Docker host — 443 is the only published port"]
         direction LR
-        nginx["nginx · PEP<br>443 · 80 redirects"]
+        nginx["nginx · PEP<br>443"]
         frontend["frontend<br>static files"]
         backend["backend · PDP<br>8081"]
         o2p["oauth2-proxy<br>4180"]
@@ -108,7 +108,7 @@ The full sequence, the failure modes and the decision cache are in
 
 | Component | Port | Published? |
 |---|---|---|
-| nginx | 443 (80 redirects to it) | **Yes — the only one** |
+| nginx | 443 | **Yes — the only one.** 80 is *not* published, so `http://` is refused rather than redirected; the redirect block is in the image for an operator who chooses to publish it |
 | backend | 8081 | No |
 | oauth2-proxy | 4180 | No |
 | Keycloak | 8080 | No — reached through nginx at `auth.apps.<domain>` |

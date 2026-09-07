@@ -519,7 +519,7 @@ is the rehearsed break-glass below, not a promise of uptime.
                              │ https://*.apps.example.local
                        ┌─────▼──────────┐
                        │  nginx    :443 │ ── frontend (static files)
-                       └──┬─────────────┘    :80 redirects to :443
+                       └──┬─────────────┘    :80 listens but is not published
                           │ auth_request /decide
                     ┌─────▼──────────┐
                     │  backend  :8081│──► Postgres :5432

@@ -117,6 +117,12 @@ machine whose browser you test from:
 
 (On the Docker host, `127.0.0.1` works.)
 
+Every address is `https://`. **Port 80 is not published**, so a user who types
+the hostname without a scheme and whose browser tries HTTP first gets a refused
+connection, not a redirect — nginx carries the redirect block, but nothing on
+the host forwards 80 to it. If you want the redirect, add `"80:80"` to the
+nginx `ports:` in `docker-compose.yml`; it answers a 301 and nothing else.
+
 ## 3. Environment
 
 Create `.env` next to `docker-compose.yml` (gitignored). Generate the

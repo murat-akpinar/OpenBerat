@@ -2064,6 +2064,31 @@ that saturation run: repeated on a quiet host it is 2.7–4.7 ms, and the load
 average falling from 2.47 to 0.59 across the sweep is visible in the means.
 Neither figure was a property of the product.
 
+### TEST — port 80, which four documents said redirected and nothing published
+
+`nginx/conf.d/openberat.conf` carries a `listen 80` server that answers
+`301 https://$host$request_uri`, and its own comment says the port "is not
+published on the host". Four places said otherwise: both README mermaid
+diagrams and the README port table (`443 (80 redirects to it)`) and the
+`docs/02` deployment diagram (`:80 redirects to :443`). `docker compose config`
+renders one published port, `443`.
+
+Both halves run against the `openberat-nginx` image rather than reasoned about:
+
+| Case | Result |
+|---|---|
+| The image run with `-p 18080:80` | `HTTP/1.1 301 Moved Permanently` |
+| Nothing bound to the port | `curl: (7) Failed to connect ... Could not connect to server` |
+
+So the redirect works and is unreachable — the block is correct and the
+publication is missing, which is why nobody noticed. **What an operator meets
+is a refused connection**, not a redirect, the first time a user types a
+hostname and the browser tries HTTP. The documents now say that, and
+`INSTALL.md` §2 names the one-line change (`"80:80"` in the nginx `ports:`) for
+an operator who wants the redirect. Publishing it by default was not decided
+here: it widens the only published surface the design currently claims, which
+is the operator's call and not a documentation fix.
+
 ## Measured in the browser
 
 The lab stack is not the system under test here: a Content-Security-Policy is
