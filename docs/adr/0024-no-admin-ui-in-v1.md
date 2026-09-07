@@ -1,6 +1,9 @@
 # 0024 — v1 ships no admin screens; administration is the API
 
-- **Status:** Accepted
+- **Status:** Accepted; superseded in part by
+  [0026](0026-audit-explain-screen-in-v1.md) — the reading half. The case
+  against option C (application CRUD, entitlement mapping and the kill switch
+  as screens) is untouched and still holds.
 - **Date:** 2026-09-07
 
 ## Context
@@ -93,12 +96,17 @@ Three things make A a defensible interface rather than an absence:
   product that argues about `unsafe-eval` is a wart, and deleting it costs one
   commit across CI, `CONTRIBUTING.md`, ADR-0013 and the two frontend READMEs.
   The measurement in `docs/07` survives it either way.
-- **ADR-0007 keeps its reversal trigger and loses its subject for now.** It
-  chose Alpine "for the admin screens"; with none, the portal's "no Alpine at
-  all" is the whole of the frontend. The trigger — open a build chain inside
-  `frontend/` if the admin UI genuinely gets complex — is unchanged and simply
-  has nothing to fire on yet.
+  **Answered the other way round by [ADR-0027](0027-frontend-no-framework.md):**
+  option B was taken and the screen did not want a framework, so the file goes
+  anyway. The paragraph above is what it cost, and the estimate was right.
+- ~~**ADR-0007 keeps its reversal trigger and loses its subject for now.**~~
+  It kept the trigger and lost the subject for good
+  ([ADR-0027](0027-frontend-no-framework.md)): "no Alpine at all" is the whole
+  of the frontend, permanently. The trigger — open a build chain inside
+  `frontend/` if the admin UI genuinely gets complex — is inherited unchanged.
 - **An operator without a terminal cannot administer OpenBerat.** That is the
   real cost and it is not hidden: `INSTALL.md` §6 is a prerequisite for running
   the product, not an appendix. A site that needs a delegated, non-technical
-  administrator needs option B first.
+  administrator needs option B first — which is what
+  [ADR-0026](0026-audit-explain-screen-in-v1.md) then built, before the tag
+  rather than after it. This bullet is the reason it was reversed.

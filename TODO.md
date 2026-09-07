@@ -54,6 +54,15 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       behind for as long as an upgraded connection lives, and unset there is no
       bound at all. No periodic reload: it would not deliver N-03 for those
       connections anyway, so the exclusion stands
+- [x] ADR-0026 The audit + `explain` screen ships in v1 — ADR-0024's trigger was
+      "a v1 people already run" and no tag exists, so taken literally it could
+      only ever fire *after* the release that ships without it. Reverses the
+      reading half; writes stay curl-driven
+- [x] ADR-0027 The frontend carries no framework and `frontend/src/vendor/` is
+      deleted — the text-only rule is enforced by a CI grep and nothing else
+      (ADR-0007 bought no build step), and that grep is exact against plain DOM
+      calls and blind to `x-html`. Supersedes ADR-0007's framework half; its
+      buildless, no-npm, no-CDN half stands
 
 **Phase 0 is closed.** Everything decidable from the design has been decided;
 what remains needs facts about the target environment and is tracked in

@@ -72,8 +72,9 @@ jobs:
           python3 - <<'EOF'
           import pathlib, subprocess, sys
 
+          # No VENDOR map: ADR-0027 deleted the one third-party file, so every
+          # file in the tree is ours and under one licence (ADR-0013).
           OURS = 'SPDX-License-Identifier: GPL-3.0-or-later'
-          VENDOR = {'frontend/src/vendor/alpine.js': 'SPDX-License-Identifier: MIT'}
           # Images carry no comments, and the documents are covered by LICENSE
           # at the root rather than one notice per paragraph.
           CODE = {'.rs', '.js', '.html', '.css', '.sql', '.sh', '.conf', '.inc',
@@ -94,16 +95,8 @@ jobs:
                   continue
               if path.suffix not in CODE and path.name not in NAMED:
                   continue
-              text = path.read_text(errors='replace')
-              want = VENDOR.get(name, OURS)
-              if want not in text:
-                  bad.append(f'{name}: no `{want}`')
-          # The vendored build ships inside the nginx image and is reachable at
-          # /vendor/alpine.js, so the MIT notice has to be in the file and not
-          # only in a README — no page loads it since ADR-0024, but it travels.
-          alpine = pathlib.Path('frontend/src/vendor/alpine.js')
-          if alpine.exists() and not alpine.read_text(errors='replace').startswith('/*! Alpine.js'):
-              bad.append('frontend/src/vendor/alpine.js: the MIT banner is gone')
+              if OURS not in path.read_text(errors='replace'):
+                  bad.append(f'{name}: no `{OURS}`')
           print('\n'.join(bad) if bad else 'every file says what licence it is under')
           sys.exit(1 if bad else 0)
           EOF
@@ -197,7 +190,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # There is no build step to catch this and no linter in the repository
-      # (ADR-0007), so the three rules the frontend lives by are checked here.
+      # (ADR-0007), so the two rules the frontend lives by are checked here.
       - run: |
           python3 - <<'EOF'
           # The portal renders strings an admin typed (application name, icon) on the
@@ -207,22 +200,17 @@ jobs:
           # lets a `default-src 'self'` CSP land without `unsafe-inline`.
           import pathlib, re, sys
 
+          # No exception for a vendor directory: ADR-0027 removed the only file that
+          # had one, so this runs over every page the image serves. The rule it
+          # enforces is guarded by this grep and nothing else — ADR-0007 bought no
+          # build step — which is also the reason no templating syntax was adopted:
+          # `x-html` is an attribute and matches none of these.
           SINKS = r'innerHTML|outerHTML|insertAdjacentHTML|document\.write|eval\s*\(|new\s+Function'
-          # Vendored third-party code writes markup by design (Alpine's x-html) and is
-          # not held to the first rule. It is held to a stricter one: it may not compile
-          # expressions, because compiling them is the `unsafe-eval` the vendored CSP
-          # build exists to avoid, and an upgrade to the standard build would look like
-          # nothing but a bigger file (frontend/src/vendor/README.md, docs/07).
-          COMPILES = r'eval\s*\(|new\s+Function'
           bad = []
           for path in sorted(pathlib.Path('frontend/src').rglob('*')):
               if path.suffix not in ('.html', '.js'):
                   continue
               text = path.read_text()
-              if 'vendor' in path.parts:
-                  for m in re.finditer(COMPILES, text):
-                      bad.append(f'{path}: compiles expressions ({m.group(0)}), so the CSP needs unsafe-eval')
-                  continue
               for m in re.finditer(SINKS, text):
                   bad.append(f'{path}: writes markup instead of text ({m.group(0)})')
               if path.suffix == '.html':
@@ -230,7 +218,7 @@ jobs:
                       bad.append(f'{path}: inline <script> needs unsafe-inline in the CSP')
                   if re.search(r'<[^>]*?\son[a-z]+\s*=', text):
                       bad.append(f'{path}: inline event handler needs unsafe-inline in the CSP')
-          print('\n'.join(bad) if bad else 'text only, no inline script, nothing vendored that compiles expressions')
+          print('\n'.join(bad) if bad else 'text only, no inline script, nothing vendored at all')
           sys.exit(1 if bad else 0)
           EOF
 

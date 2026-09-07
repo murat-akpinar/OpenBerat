@@ -68,7 +68,7 @@ answered and write the decision to `docs/adr/`.
 | Backend language | Rust (axum + sqlx) | [0004](adr/0004-stack-rust.md) |
 | Structure | Separate frontend, one directory per container, Docker | [0005](adr/0005-frontend-backend-split.md) |
 | Group membership source | oauth2-proxy header + mandatory `cookie_refresh` | [0006](adr/0006-group-membership-source.md) |
-| Frontend | Buildless static (HTML + Alpine.js), no npm | [0007](adr/0007-frontend-buildless-static.md) |
+| Frontend | Buildless static (HTML + CSS), no npm | [0007](adr/0007-frontend-buildless-static.md), [0027](adr/0027-frontend-no-framework.md) |
 | Group identity, prefix, `ADMIN_GROUP` | Match by name; `OpenBerat-` prefix; `ADMIN_GROUP` defaults to `OpenBerat-Admins` | [0008](adr/0008-group-identity-name.md) |
 | Policy engine | Our own code in `policy.rs`, with a written reversal trigger | [0009](adr/0009-policy-engine-own-code.md) |
 | Lab AD | Samba AD DC, with Windows Server as the escalation path | [0010](adr/0010-lab-ad-samba.md) |
@@ -85,7 +85,8 @@ answered and write the decision to `docs/adr/`.
 | How a protected application learns who the user is | Trusted `X-Auth-*` headers; isolating the upstream becomes a requirement, not a deployment default | [0021](adr/0021-application-identity-trusted-headers.md) |
 | Audit retention | The operator sets `AUDIT_RETENTION_MONTHS` (default 12); a month is dropped whole | [0022](adr/0022-audit-retention.md) |
 | Versioning and what a release is | One semver for the whole product, from `backend/Cargo.toml`; the release is one tarball holding the tagged source and every image | [0023](adr/0023-versioning-and-release.md) |
-| Admin screens | None in v1 — administration is `/api/admin/*`, driven the way `INSTALL.md` §6 shows | [0024](adr/0024-no-admin-ui-in-v1.md) |
+| Admin screens | Writes are `/api/admin/*`, driven the way `INSTALL.md` §6 shows; reading is one screen — the audit list and `explain` | [0024](adr/0024-no-admin-ui-in-v1.md), [0026](adr/0026-audit-explain-screen-in-v1.md) |
+| Frontend framework | None. Plain DOM, and the vendored Alpine build is deleted | [0027](adr/0027-frontend-no-framework.md) |
 | `worker_shutdown_timeout` | Set to 300 s — `proxy_read_timeout`'s value — in both main configurations, to bound the worker a reload leaves behind. No periodic reload; the N-03 exclusion for upgraded connections stands | [0025](adr/0025-worker-shutdown-timeout.md) |
 | AD group strategy | `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` | `docs/03`, `docs/07` |
 

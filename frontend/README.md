@@ -59,18 +59,18 @@ what CI's licence job and the release bundle read.
 would hit the same failing subrequest the page is reporting and come back as
 the outage page itself — bare, in exactly the outage it exists to explain.
 
-**Technology (ADR-0007):** HTML + CSS + Alpine.js — one vendored file, no build
-step, no npm, no CDN. The portal (`index.html`, `portal.js`, `portal.css`) uses
-**no Alpine**, and with ADR-0024 no page does: the portal draws a list
-`/api/apps` already decided, and reactivity buys nothing there. The vendored
-file is kept for the one screen worth building later (audit + `explain`) and
-is the **CSP build** — `src/vendor/alpine.js`, provenance in the README beside it. The
-standard build would cost `unsafe-eval` and was measured doing exactly that
-(`docs/07`); write expressions accordingly, no arrow functions and no template
-literals in attributes.
+**Technology (ADR-0007, [ADR-0027](../docs/adr/0027-frontend-no-framework.md)):**
+HTML + CSS, no build step, no npm, no CDN — and **no framework**. Every page is
+plain DOM calls: `createElement`, `textContent`, `append`. There is nothing
+vendored; `src/vendor/` held the Alpine CSP build until the one screen it was
+kept for turned out not to want it.
 
-**Three rules, checked by the `frontend` job in CI** because there is no build
-step and no linter to catch a breach:
+The reason is rule 1 below. It is enforced by a CI grep and nothing else,
+because ADR-0007 bought no build step to catch a breach — and that grep is exact
+against `innerHTML` and its family, and blind to a templating attribute like
+`x-html`. One rule guarded by two greps is how a rule ends up half-guarded.
+
+**Two rules, checked by the `frontend` job in CI:**
 
 1. Anything from `/api/*` is written with `textContent`, never as markup. An
    admin types the application name and icon through the API and nothing
@@ -79,11 +79,6 @@ step and no linter to catch a breach:
    every application on `.apps.<domain>` (ADR-0015).
 2. No inline `<script>` and no inline event handlers, so a `default-src 'self'`
    CSP needs no `unsafe-inline`.
-3. Nothing under `src/vendor/` compiles expressions — no `eval(`, no
-   `new Function`. Rule 1 does not apply there (Alpine writes markup for
-   `x-html` by design); this one replaces it, because upgrading to the standard
-   Alpine build would look like nothing but a larger file and would cost
-   `unsafe-eval`.
 
 **Packaging (ADR-0020):** no Dockerfile and no container here — the nginx image
 copies `frontend/src/` at build time.

@@ -2388,6 +2388,18 @@ which stopped being true the moment no page loaded it. The notice still belongs
 there, because the file ships inside the nginx image and is reachable at that
 path, which is a distributed copy either way.
 
+**The file is gone as of 2026-09-07**
+([ADR-0027](adr/0027-frontend-no-framework.md)). The screen it was kept for was
+built ([ADR-0026](adr/0026-audit-explain-screen-in-v1.md)) in plain DOM calls,
+so `frontend/src/vendor/` is deleted and `/vendor/alpine.js` is no longer a URL
+the nginx image serves. **The measurement above stands** — it is a fact about
+Alpine under a `default-src 'self'` policy, not about this repository, and it is
+what the next person reaching for a framework here has to read before vendoring
+the standard build. The two CI checks it produced (`eval(`/`new Function` under
+`vendor/`, and the MIT banner) are gone with their subject; the text-only rule
+they sat beside now runs over every file under `frontend/src/` with no exception
+carved out.
+
 ### The login theme — where PatternFly can and cannot be repainted from `:root`
 
 The theme is a child of `keycloak.v2` that overrides no template, only the

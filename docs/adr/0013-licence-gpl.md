@@ -63,14 +63,15 @@ installing this are exactly the organisations that run such policies.
   patch, and are essentially free today.
 - A company installing OpenBerat for its own staff, modified or not, takes on no
   obligation at all as long as it does not pass copies outside the company.
-- Vendored third-party code has to be licence-compatible. Alpine.js (ADR-0007)
-  is MIT, which is compatible. The published minified build carries **no**
-  notice, so one is prepended in the vendored file rather than kept only in a
-  README: that file ships inside the nginx image and is reachable at
-  `/vendor/alpine.js` — no page loads it since
-  [ADR-0024](0024-no-admin-ui-in-v1.md), but a copy travels either way, and MIT
-  asks for the notice to travel with the copy
-  (`frontend/src/vendor/README.md`).
+- Vendored third-party code has to be licence-compatible, and there is none
+  left. Alpine.js (ADR-0007) was MIT and compatible, and carried a prepended
+  notice because the published minified build has none;
+  [ADR-0027](0027-frontend-no-framework.md) deleted the file, so the `VENDOR`
+  exception in the `licence` CI job goes with it. **Every file in the tree is
+  now ours and under GPL-3.0-or-later** — which is what this ADR wanted and had
+  to make one exception for. The rule stands for the next vendored file: a
+  notice in the file, not only in a README, because the copy travels inside the
+  nginx image whether or not a page loads it.
 - Every file we wrote carries an SPDX identifier, checked in CI. The exception
   is `backend/migrations/`: sqlx checksums an applied migration and refuses to
   start when one changes, so a licence header there is an upgrade that breaks

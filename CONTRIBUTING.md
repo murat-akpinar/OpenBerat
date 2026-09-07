@@ -44,10 +44,12 @@ GPL-3.0-or-later`, with a copyright line above it — and CI fails on a file
 without one. New files need both lines; the header goes after a shebang or a
 doctype and before anything else.
 
-Two exceptions. `frontend/src/vendor/alpine.js` is MIT and carries its own
-notice, in the file rather than only in `frontend/src/vendor/README.md`, because
-it ships inside the nginx image and is reachable at `/vendor/alpine.js`. And `backend/migrations/`
-carries no header at all, for the reason below.
+One exception: `backend/migrations/` carries no header at all, for the reason
+below. There is no vendored third-party file — the frontend has no framework
+and nothing under `frontend/src/` came from anywhere else
+([ADR-0027](docs/adr/0027-frontend-no-framework.md)). If one is ever added, its
+own notice goes **in the file** and not only in a README beside it: the copy
+ships inside the nginx image whether or not a page loads it.
 
 ## Before you write code
 

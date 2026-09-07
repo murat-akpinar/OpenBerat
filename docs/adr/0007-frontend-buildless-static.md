@@ -1,6 +1,8 @@
 # 0007 — Frontend: a static UI with no build step
 
-- **Status:** Accepted
+- **Status:** Accepted; superseded in part by
+  [0027](0027-frontend-no-framework.md) — the framework half. "Buildless
+  static, no npm, no CDN" is unchanged and is the whole of the decision now.
 - **Date:** 2026-09-05
 
 ## Context
@@ -62,8 +64,11 @@ other components are affected.
   `unsafe-inline` nor `unsafe-eval`.
 - No authorisation decision is made in the UI; hiding admin screens is a
   convenience, and `/api/admin/*` is separately authorised in the backend.
-- **[ADR-0024](0024-no-admin-ui-in-v1.md) leaves this decision without its
-  subject for now:** v1 ships no admin screens, so the portal's "no Alpine at
-  all" is the whole of the frontend and the vendored build is referenced by no
-  page. Nothing here is reversed — the trigger above simply has nothing to fire
-  on until an admin screen is wanted.
+- ~~**[ADR-0024](0024-no-admin-ui-in-v1.md) leaves this decision without its
+  subject for now:** v1 ships no admin screens, so the vendored build is
+  referenced by no page.~~ **Answered by
+  [ADR-0027](0027-frontend-no-framework.md):** the screen was built
+  ([ADR-0026](0026-audit-explain-screen-in-v1.md)) and did not want a
+  framework, so the vendored file is deleted rather than picked up. The portal's
+  "no Alpine at all" is now the whole of the frontend permanently. The reversal
+  trigger above is inherited unchanged.
