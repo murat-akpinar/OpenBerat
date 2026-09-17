@@ -246,8 +246,16 @@ pub fn explain(app_enabled: bool, rules: &[Rule], raw_uri: &str, now: DateTime<U
     }
 }
 
-pub fn is_admin(groups: &[String], admin_group: &str) -> bool {
-    groups.iter().any(|g| g == admin_group)
+/// An empty name is nobody's group: an emptied variable must not match a list
+/// that somehow carries an empty entry.
+pub fn in_group(groups: &[String], group: &str) -> bool {
+    !group.is_empty() && groups.iter().any(|g| g == group)
+}
+
+/// The management plane's whole authorisation (ADR-0034): `ADMIN_GROUP`
+/// reaches all of it, `AUDITOR_GROUP` only what reads.
+pub fn may_manage(groups: &[String], admin_group: &str, auditor_group: &str, reads: bool) -> bool {
+    in_group(groups, admin_group) || (reads && in_group(groups, auditor_group))
 }
 
 #[cfg(test)]
@@ -475,8 +483,8 @@ mod tests {
     #[test]
     fn admin_group_membership_is_an_exact_match() {
         let groups = |names: &[&str]| names.iter().map(|s| s.to_string()).collect::<Vec<_>>();
-        assert!(is_admin(&groups(&["OpenBerat-Admins"]), "OpenBerat-Admins"));
-        assert!(is_admin(
+        assert!(in_group(&groups(&["OpenBerat-Admins"]), "OpenBerat-Admins"));
+        assert!(in_group(
             &groups(&["OpenBerat-Finance", "OpenBerat-Admins"]),
             "OpenBerat-Admins"
         ));
@@ -490,8 +498,42 @@ mod tests {
             groups(&["OpenBerat-Admins-Readonly"]),
             groups(&["Domain Admins"]),
         ] {
-            assert!(!is_admin(&not_admin, "OpenBerat-Admins"));
+            assert!(!in_group(&not_admin, "OpenBerat-Admins"));
         }
+    }
+
+    #[test]
+    fn the_auditor_group_reads_the_management_plane_and_writes_nothing() {
+        let groups = |names: &[&str]| names.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let may = |names: &[&str], reads| {
+            may_manage(
+                &groups(names),
+                "OpenBerat-Admins",
+                "OpenBerat-Auditors",
+                reads,
+            )
+        };
+        assert!(may(&["OpenBerat-Auditors"], true));
+        assert!(!may(&["OpenBerat-Auditors"], false), "ADR-0034: reads only");
+        assert!(may(&["OpenBerat-Admins"], true));
+        assert!(may(&["OpenBerat-Admins"], false));
+        assert!(
+            may(&["OpenBerat-Auditors", "OpenBerat-Admins"], false),
+            "the admin group is a superset"
+        );
+        for pretender in [
+            &[][..],
+            &["OpenBerat-Finance"],
+            &["openberat-auditors"],
+            &["OpenBerat-Auditors-Write"],
+        ] {
+            assert!(!may(pretender, true), "{pretender:?}");
+            assert!(!may(pretender, false), "{pretender:?}");
+        }
+        // An unset or emptied variable grants nothing, even to a caller whose
+        // list somehow carries an empty name.
+        assert!(!may_manage(&groups(&[""]), "", "", true));
+        assert!(!may_manage(&groups(&[""]), "OpenBerat-Admins", "", true));
     }
 
     #[test]

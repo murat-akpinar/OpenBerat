@@ -20,7 +20,7 @@
     "realm": [
       {
         "name": "openberat-mfa",
-        "description": "Carried by ADMIN_GROUP, not by users: the browser flow asks its holders for OTP (ADR-0032)."
+        "description": "Carried by ADMIN_GROUP and AUDITOR_GROUP, not by users: the browser flow asks its holders for OTP (ADR-0032, ADR-0034)."
       }
     ]
   },
@@ -31,12 +31,19 @@
       "realmRoles": [
         "openberat-mfa"
       ]
+    },
+    {
+      "name": "OpenBerat-Auditors",
+      "path": "/OpenBerat-Auditors",
+      "realmRoles": [
+        "openberat-mfa"
+      ]
     }
   ],
   "authenticationFlows": [
     {
       "alias": "openberat-browser",
-      "description": "Browser login. Everything is stock except the last sub-flow: members of ADMIN_GROUP carry the openberat-mfa role and are asked for a second factor (ADR-0032).",
+      "description": "Browser login. Everything is stock except the last sub-flow: members of ADMIN_GROUP and AUDITOR_GROUP carry the openberat-mfa role and are asked for a second factor (ADR-0032, ADR-0034).",
       "providerId": "basic-flow",
       "topLevel": true,
       "builtIn": false,

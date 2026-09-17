@@ -100,5 +100,9 @@ Four things this decision explicitly does **not** change:
   still written with `textContent`; what is new is values read back out of
   forms, which the same grep covers because the rule it enforces is about the
   sink and not about the source.
+- **Reading and writing are separable grants since
+  [ADR-0034](0034-read-only-management-group.md).** `AUDITOR_GROUP` sees these
+  two tabs and every other one, and the guard refuses its saves; the forms stay
+  drawn for it, on this ADR's rule that the page hides nothing.
 - **`frontend/README.md` and `docs/02` regain screen rows ADR-0024 deleted** —
   not the rows it deleted. Three admin screens came back as two tabs.

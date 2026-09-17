@@ -13,7 +13,8 @@
 //                     nginx can lift the identity from to rewrite the upstream
 //                     headers (docs/02, response contract).
 //   GET /api/apps     the applications the portal lists (called by the frontend)
-//   GET /api/me       the signed-in user: name, email, groups, admin flag
+//   GET /api/me       the signed-in user: name, email, groups, admin and
+//                     auditor flags
 //   POST /api/logout  the caller's own kill switch, run BEFORE the sign-out
 //                     redirect: session key (derived from the cookie it holds),
 //                     cache entries, this session's index membership —
@@ -30,9 +31,9 @@
 //                     report an outage (a dead DB looks like a denied user), so
 //                     this is the only outage signal the operator has.
 //   /api/admin/*      application and entitlement management, audit viewing —
-//                     requires ADMIN_GROUP
-//                     membership, never cached, Origin checked on state-changing
-//                     endpoints
+//                     requires ADMIN_GROUP membership, or AUDITOR_GROUP for GET
+//                     and HEAD (ADR-0034); never cached, Origin checked on
+//                     state-changing endpoints
 //   GET /api/admin/audit
 //                     the audit record, filtered by actor / app / decision /
 //                     reason / since / until and paged with a
@@ -118,6 +119,9 @@ pub struct Ctx {
     /// the environment and never from the database: in a fail-closed system the
     /// first admin cannot come from a table nobody can write to yet.
     pub admin_group: String,
+    /// The AD group that reads the management plane and writes nothing
+    /// (ADR-0034). From the environment, for the same reason as the one above.
+    pub auditor_group: String,
     /// The origin state-changing admin calls must come from (docs/02).
     pub portal_origin: String,
     /// Where generated application blocks are staged for nginx (ADR-0011).

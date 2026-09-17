@@ -145,15 +145,15 @@ updated together.
 | Endpoint | Caller | Function |
 |---|---|---|
 | `GET /decide` | **nginx** (`auth_request`) | 200 / 401 / 403. No body. |
-| `GET /api/me` | frontend | The signed-in user: name, email, groups, admin flag |
+| `GET /api/me` | frontend | The signed-in user: name, email, groups, `admin` and `auditor` flags |
 | `GET /api/apps` | frontend | Applications the user can reach (portal buttons) |
 | `POST /api/logout` | frontend | The caller's own kill switch, run **before** the sign-out redirect: session key (derived from the cookie it holds), cache entries, this session's index membership ("Logout" below). 204, or 503 if a step fails — the browser walks the other two either way |
-| `GET /api/admin/applications` | admin | Application list |
+| `GET /api/admin/applications` | admin, auditor | Application list |
 | `POST/PATCH/DELETE /api/admin/applications` | admin | Defining applications |
-| `GET/POST/DELETE /api/admin/entitlements` | admin | AD group ↔ application mapping. A `path_pattern` that would change under normalisation is a **400**: stored, it would be a rule no request can equal, and for a `deny` that is a rule protecting nothing (`docs/05`) |
-| `GET /api/admin/audit` | admin | Audit record, filtered by `actor` / `app` / `decision` / `reason` / `since` / `until`, paged with a `(before_ts, before_id)` keyset cursor. A filter it cannot honour is a 400, never ignored |
-| `GET /api/admin/explain` | admin | Why a request would be decided as it is: `user` (the Keycloak `sub`), `groups` (comma-separated, **required** — the backend holds no directory and guessing drops every group rule), `host`, `path`. Read-only: no cache entry, no audit row. Answers from the entitlement table, so for up to one cache TTL after a rule change it is ahead of the PEP |
-| `GET /api/admin/sessions` | admin | Who is signed in: every subject with at least one session key that **still exists** in Redis, with how many. Read out of the kill-switch index (ADR-0019), so it sees the user who signed in at the portal and opened nothing — the one the audit record never sees. `last_seen_as` and `last_activity` come from the audit record and are null for such a subject; the index holds a `sub` and nothing else, and what is inside a session is behind the cookie secret the backend never holds. Reports dead members away rather than pruning them ([ADR-0028](adr/0028-live-sessions-endpoint.md)) |
+| `GET/POST/DELETE /api/admin/entitlements` | admin; auditor `GET` only | AD group ↔ application mapping. A `path_pattern` that would change under normalisation is a **400**: stored, it would be a rule no request can equal, and for a `deny` that is a rule protecting nothing (`docs/05`) |
+| `GET /api/admin/audit` | admin, auditor | Audit record, filtered by `actor` / `app` / `decision` / `reason` / `since` / `until`, paged with a `(before_ts, before_id)` keyset cursor. A filter it cannot honour is a 400, never ignored |
+| `GET /api/admin/explain` | admin, auditor | Why a request would be decided as it is: `user` (the Keycloak `sub`), `groups` (comma-separated, **required** — the backend holds no directory and guessing drops every group rule), `host`, `path`. Read-only: no cache entry, no audit row. Answers from the entitlement table, so for up to one cache TTL after a rule change it is ahead of the PEP |
+| `GET /api/admin/sessions` | admin, auditor | Who is signed in: every subject with at least one session key that **still exists** in Redis, with how many. Read out of the kill-switch index (ADR-0019), so it sees the user who signed in at the portal and opened nothing — the one the audit record never sees. `last_seen_as` and `last_activity` come from the audit record and are null for such a subject; the index holds a `sub` and nothing else, and what is inside a session is behind the cookie secret the backend never holds. Reports dead members away rather than pruning them ([ADR-0028](adr/0028-live-sessions-endpoint.md)) |
 | `POST /api/admin/kill/{sub}` | admin | Kill switch: Keycloak `logout-all` → the session keys from the index → that user's cache entries → the index entry (ADR-0019). `sub` is the Keycloak user id and is parsed as a UUID — it is interpolated into an Admin API path. A failed step stops the ones after it and answers 503 naming which, rather than reporting a kill that did not happen; a `sub` no user has is a 404, not an outage |
 | `GET /metrics` | operator, Prometheus | Decision latency, decisions by outcome and reason, cache hit rate, audit rows lost. Prometheus text format. Counters only: no user, no `sub`, no application in a label |
 | `GET /healthz` | operator, compose | The process is alive. No dependencies checked, no body |
@@ -261,8 +261,8 @@ sit behind the login flow.
   them later.
 
 The portal being open does **not** open the admin endpoints: `/api/admin/*`
-separately requires `ADMIN_GROUP` membership and is not cached (see "Management
-plane").
+separately requires `ADMIN_GROUP` membership — or `AUDITOR_GROUP` for a read —
+and is not cached (see "Management plane").
 
 ## Management plane
 
@@ -270,8 +270,12 @@ plane").
 is open to every user, if the admin endpoints sat under the portal's path anyone
 who could reach the portal could grant themselves entitlements.
 
-- Source of authority: a single `ADMIN_GROUP` from the environment (e.g. `OpenBerat-Admins`).
-  If it is not in the user's group list, 403.
+- Source of authority: two groups from the environment. `ADMIN_GROUP` (e.g.
+  `OpenBerat-Admins`) reaches all of it; `AUDITOR_GROUP` (e.g.
+  `OpenBerat-Auditors`) reaches every `GET` and `HEAD` and nothing else, the
+  kill switch included ([ADR-0034](adr/0034-read-only-management-group.md)).
+  Neither in the user's group list, or an auditor's write: 403. Both carry the
+  second factor (ADR-0032).
 - The list arrives as **`X-Auth-Groups`**, not `X-Auth-Request-Groups`: the
   backend is an upstream on this path like any other, and the shared strip
   clears the `X-Auth-Request-*` family before proxying anywhere. Reading the
@@ -286,8 +290,8 @@ who could reach the portal could grant themselves entitlements.
 - On every state-changing admin endpoint the `Origin` header must equal the
   expected portal origin. Because the portal and the protected applications live
   under the same registrable domain, `SameSite` does not block this request.
-- This is the source of the `admin` field returned by `GET /api/me`; hiding
-  things in the frontend is only a convenience (ADR-0007).
+- This is the source of the `admin` and `auditor` fields returned by
+  `GET /api/me`; hiding things in the frontend is only a convenience (ADR-0007).
 
 Every state-changing admin call and every kill switch invocation is recorded —
 actor, action, target, outcome — in the structured stdout stream, the same

@@ -116,8 +116,9 @@ never fires is worse than one that was never accepted (`docs/07`).
 
 `/api/admin/*` is not protected by this table; it requires `ADMIN_GROUP`
 membership and is **not cached** (`docs/02`, "Management plane"). The decision
-function is separate and two lines long: is `ADMIN_GROUP` in the group list or
-not.
+function is separate and one line long: `ADMIN_GROUP` is in the group list, or
+the request is a `GET`/`HEAD` and `AUDITOR_GROUP` is
+([ADR-0034](adr/0034-read-only-management-group.md)).
 
 **Where that group list comes from is the weak part, and the comma is why.**
 Groups arrive joined with commas into one header and are split back apart here,
@@ -352,6 +353,7 @@ without a test is visible as a gap rather than an omission.
 | `/adminx` slipping into a `/admin/*` rule | Matching at a **segment boundary**, not a raw prefix | Phase 2 test |
 | An entitlement whose `expires_at` has passed still granting | `expires_at` is part of the decision, and the cached rule list carries it | Phase 2 test |
 | A portal user calling `/api/admin/*` | `ADMIN_GROUP` check on the handler's first line, **never cached** | Phase 2 test |
+| A member of the read-only `AUDITOR_GROUP` writing — creating an entitlement, deleting an application, running the kill switch | The same check, keyed on the method: `AUDITOR_GROUP` passes `GET`/`HEAD` only, and a valid `Origin` does not change that. Every management route is enumerated for the auditor, so a new one has to state its answer ([ADR-0034](adr/0034-read-only-management-group.md)) | Test + measured, `docs/07` |
 | A compromised protected application posting to `/api/admin/*` | `Origin` check on state-changing admin endpoints — `SameSite` cannot help, the hosts are same-site (ADR-0015) | Phase 3 test |
 | Client's query string injected into `/oauth2/start` through the login redirect | The return address travels in `X-Auth-Request-Redirect`; nginx never builds a query string out of `$request_uri`, which it cannot percent-encode. `whitelist_domains` is the second line, not the first | Measured, `docs/07` |
 | A request in the gap after a kill switch refilling the cache with a fresh ALLOW | The four-step order is fixed: Keycloak → session keys → cache → index (ADR-0019) | Phase 5 test |

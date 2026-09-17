@@ -253,7 +253,7 @@ sürecin değil bütün zincirin cevabı.
 | [docs/07-references.md](docs/07-references.md) | **Kaynaklar** — teknik iddiaların dayanağı, doğrulanmış varsayılanlar |
 | [docs/08-breakglass.md](docs/08-breakglass.md) | Proxy'nin kendisi kesinti olduğunda prova edilmiş dönüş yolu (ADR-0017) |
 | [docs/09-history.md](docs/09-history.md) | **Yapım kaydı** — 0–7. fazlar nasıl kapandı, her kutu neye mal oldu |
-| [docs/adr/](docs/adr/) | **Alınan kararlar** — 33 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği, denetim saklama süresi, sürümleme, frontend'de çatı yok, canlı oturumlar, bir path deseninin anlamı, break-glass aynı tablodan, birden fazla instance'ta karar cache'i, yönetim düzleminde MFA, ve yönetim ekranı iki adımda — önce okuma, sonra yazma |
+| [docs/adr/](docs/adr/) | **Alınan kararlar** — 34 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği, denetim saklama süresi, sürümleme, frontend'de çatı yok, canlı oturumlar, bir path deseninin anlamı, break-glass aynı tablodan, birden fazla instance'ta karar cache'i, yönetim düzleminde MFA, yönetim ekranı iki adımda — önce okuma, sonra yazma — ve onun için salt okunur bir grup |
 | [SECURITY.md](SECURITY.md) | Güvenlik açığı bildirimi — kanallar, cevap süreleri, kapsam, kabul edilmiş sınırlar |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Nasıl katkı verilir — DCO imzası, konvansiyonlar, neler reddedilir |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |

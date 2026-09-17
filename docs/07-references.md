@@ -3498,3 +3498,41 @@ only oauth2-proxy, handed the cookie, decrypts. Rotation defends against a
 token presented twice; nothing here presents one but oauth2-proxy. The
 reasoning, and why it would cost an N-03 re-measurement to turn on anyway, is in
 `docs/04`, "How long a session lasts".
+
+## A read-only group for the management plane
+
+[ADR-0034](adr/0034-read-only-management-group.md) adds `AUDITOR_GROUP`, which
+reaches every `GET`/`HEAD` under `/api/admin/*` and nothing else. Tested first in
+the integration suite — every management route enumerated for the auditor with
+a valid `Origin`, reads required to succeed and writes to answer 403, the row
+count unchanged after — and then through the real proxy. On the lab: the AD
+fixture's new `OpenBerat-Auditors` group with `labauditor` in it, the backend,
+nginx and Keycloak rebuilt from the tree, so the realm export's new group-role
+mapping was imported rather than set by hand. Harness `verify-auditor.sh`.
+
+| As | Call | Answer |
+|---|---|---|
+| `labauditor`, after the password | — | **OTP enrolment page** — the role reaches the member through the group |
+| `labnested`, after the password (control) | — | no form, logged in |
+| `labauditor` | `GET /api/me` | 200, `"admin":false,"auditor":true` |
+| `labauditor` | `GET` applications, entitlements, audit, sessions, explain; `HEAD` audit | **200** each |
+| `labauditor`, `Origin` = the portal | `POST` application · `PATCH` a real application with `{}` · `DELETE` application · `POST` a wildcard entitlement · `DELETE` entitlement · `POST` kill | **403** each |
+| `labauditor`, same `POST`, plus a forged `X-Auth-Groups` and `X-Auth-Request-Groups` naming `OpenBerat-Admins` | `POST` application | **403** — the strip include ran |
+| `labadmin` (control) | the same `PATCH {}` · `DELETE` of an entitlement that does not exist | **200** · **404** |
+| `labnested` (control) | the five reads | **403** each |
+
+Counts and an `md5` of both tables were identical before the auditor's writes,
+after them and after the admin's no-op `PATCH`. The two controls are what make
+the 403s mean something: the same `PATCH` body answers an admin 200, so the
+auditor's refusal is the group and not a request that could never have worked,
+and the non-existent ids answer an admin 404 rather than 403. The backend's F-14
+stream names the method for each refusal —
+`admin refused: not in ADMIN_GROUP, nor a read by AUDITOR_GROUP actor=labauditor
+method=POST path=/api/admin/kill/…`.
+
+One thing the run showed that the ADR did not need but a reader of `/api/me`
+will meet: the auditor's `groups` carries `role:openberat-mfa` beside
+`OpenBerat-Auditors`, the realm role inherited through the group mapping. It
+grants nothing here — both group checks are exact name matches (ADR-0021 on the
+`role:` prefix) — and it is the direct evidence that the mapping reached the
+member.

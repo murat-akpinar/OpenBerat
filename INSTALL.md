@@ -226,6 +226,10 @@ LAB_USER_PASSWORD=…
 # default. Whatever it names has to match the group mapper's filter, or the
 # management plane is unreachable — §4, "The groups".
 ADMIN_GROUP=OpenBerat-Admins
+# Optional: the AD group that reads /api/admin/* — every tab of the admin
+# screen — and changes nothing (ADR-0034). Same filter and same second factor
+# as the one above — §4, "The groups".
+AUDITOR_GROUP=OpenBerat-Auditors
 # Optional: how long the audit log is kept, in whole months. Empty takes the
 # backend's 12. Set it to your own retention policy — KVKK asks for a stated
 # period and this is where it is stated. A month is dropped whole, so the
@@ -340,6 +344,16 @@ are:
   A lost phone is not a lockout — Keycloak's own admin console
   (`KC_ADMIN_PASSWORD`) deletes the user's OTP credential and the next login
   enrols again.
+- **A read-only group is optional, and it has the same two traps.**
+  `AUDITOR_GROUP`, default `OpenBerat-Auditors`, reads every tab of the
+  management screen — the audit record, `explain`, who is signed in, the
+  application and entitlement lists — and every write answers it 403, the kill
+  switch included ([ADR-0034](docs/adr/0034-read-only-management-group.md)).
+  Create the AD group only if you want the role; nobody holds it until you do.
+  Its name has to pass the filter like `ADMIN_GROUP`'s, and it carries
+  `openberat-mfa` too — the export maps the role onto `OpenBerat-Auditors`, so
+  point the variable elsewhere and map the role onto that group as well, or the
+  audit record is one password deep. A member of both groups is an admin.
 - **Never delete and recreate a prefixed group.** Entitlements match on the name
   (ADR-0008), so a group recreated later under an old name inherits that name's
   entitlements and hands them to everyone in the new group. Renaming is safe; it
@@ -649,7 +663,7 @@ something already gone is a 404 rather than a silent success.
 
 **There is a screen for this one.** `https://portal.apps.example.local/audit`
 draws both `explain` and the audit record, and the header links it when you are
-in `ADMIN_GROUP` (ADR-0026). It is read-only — everything above stays curl —
+in `ADMIN_GROUP` or `AUDITOR_GROUP` (ADR-0026, ADR-0034). It is read-only — everything above stays curl —
 but it is the better way to answer "why was this denied", because it prints
 every rule the decision walked beside the verdict instead of into `jq`. The
 curl form below is the same call and is what the screen sends.

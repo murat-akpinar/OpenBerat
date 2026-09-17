@@ -53,7 +53,7 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       in `docs/06`, "Security, still open", because the only place they could
       live is a decision-time input nothing supplies yet.
 
-- [ ] **`/api/admin/*` is all-or-nothing, and the roadmap wants an auditor.**
+- [x] **`/api/admin/*` is all-or-nothing, and the roadmap wants an auditor.**
       F-12 binds the whole management plane to one group; §14.1 splits it six
       ways (Realm Admin, Client Admin, User Admin, Auditor, Security Admin,
       Integration Admin) and §14.2 asks for least privilege. Most of that split
@@ -67,6 +67,19 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       *Needs an ADR before code: a second group means a second name in
       `.env.example`, and [ADR-0008](docs/adr/0008-group-identity-name.md) owns
       how group names are matched. It also owes a requirement ID in `docs/06`.*
+      **Closed: [ADR-0034](docs/adr/0034-read-only-management-group.md), F-15.**
+      `AUDITOR_GROUP` (default `OpenBerat-Auditors`) reaches every `GET`/`HEAD`
+      under `/api/admin/*` and nothing else, decided by method in the one guard
+      every management route passes — the split the `Origin` check already
+      relied on — rather than by a second route list that would drift.
+      `ADMIN_GROUP` stays a superset. The group carries `openberat-mfa` too, so
+      ADR-0032's "nobody else" is superseded in part: what an auditor reads is
+      every user's access history, the whole `explain` map and who is signed in.
+      Tested red first (`policy.rs`, and the integration suite's route
+      enumeration now asserts the auditor's answer for every route), then on the
+      lab (`verify-auditor.sh`, `docs/07`): OTP enrolment after the password,
+      five reads 200, six writes and a forged-header write 403 with both tables
+      byte-identical, and an admin's identical write answering 200.
 
 - [ ] **Configuration-as-Code is asserted and nothing verifies it.**
       §24's success criterion is "the configuration can be re-installed from

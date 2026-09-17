@@ -105,10 +105,11 @@ services:
       # KEYCLOAK_REALM and KEYCLOAK_CLIENT_ID default to the realm export's own.
       KEYCLOAK_URL: http://keycloak:8080
       KEYCLOAK_CLIENT_SECRET: ${OPENBERAT_BACKEND_SECRET}
-      # The management plane. ADMIN_GROUP has a default (ADR-0008);
-      # PORTAL_ORIGIN deliberately does not — a default would be an Origin
-      # check that passes for somebody else's portal.
+      # The management plane. ADMIN_GROUP and AUDITOR_GROUP have defaults
+      # (ADR-0008, ADR-0034); PORTAL_ORIGIN deliberately does not — a default
+      # would be an Origin check that passes for somebody else's portal.
       ADMIN_GROUP: ${ADMIN_GROUP:-OpenBerat-Admins}
+      AUDITOR_GROUP: ${AUDITOR_GROUP:-OpenBerat-Auditors}
       PORTAL_ORIGIN: https://portal.${APPS_DOMAIN}
       # How long the audit log is kept (ADR-0022). Deliberately passed through
       # with no default of its own: the backend holds the 12, and a second copy

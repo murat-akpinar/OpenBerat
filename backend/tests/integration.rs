@@ -962,6 +962,7 @@ async fn decide_section(pool: &PgPool) {
                 "test-secret",
             ),
             admin_group: "OpenBerat-Admins".to_string(),
+            auditor_group: "OpenBerat-Auditors".to_string(),
             portal_origin: "https://portal.apps.example.local".to_string(),
             nginx_conf_dir: None,
         })
@@ -1149,6 +1150,7 @@ async fn decide_section(pool: &PgPool) {
             "test-secret",
         ),
         admin_group: "OpenBerat-Admins".to_string(),
+        auditor_group: "OpenBerat-Auditors".to_string(),
         portal_origin: "https://portal.apps.example.local".to_string(),
         nginx_conf_dir: None,
     });
@@ -1282,6 +1284,16 @@ async fn decide_section(pool: &PgPool) {
     let me: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(me["username"], "labuser");
     assert_eq!(me["admin"], false);
+    assert_eq!(me["auditor"], false);
+    let response = call("GET", "/api/me", identity("OpenBerat-Auditors")).await;
+    let body = axum::body::to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
+    let me: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        (&me["admin"], &me["auditor"]),
+        (&false.into(), &true.into())
+    );
     let response = call(
         "GET",
         "/api/me",
@@ -1684,13 +1696,13 @@ async fn decide_section(pool: &PgPool) {
         )
     };
     let before = rows().await;
-    let sneak = async |method: &str, path: String, body: serde_json::Value| {
+    let sneak = async |groups: &str, method: &str, path: String, body: serde_json::Value| {
         let mut request = Request::builder()
             .method(method)
             .uri(path)
             .header("content-type", "application/json")
             .header("origin", "https://portal.apps.example.local");
-        for (name, value) in identity("OpenBerat-Finance") {
+        for (name, value) in identity(groups) {
             request = request.header(name, value);
         }
         router(shared.clone())
@@ -1766,12 +1778,33 @@ async fn decide_section(pool: &PgPool) {
         ),
     ];
     for (method, path, body) in &plane {
-        let response = sneak(method, path.clone(), body.clone()).await;
+        let response = sneak("OpenBerat-Finance", method, path.clone(), body.clone()).await;
         assert_eq!(
             response.status(),
             StatusCode::FORBIDDEN,
             "a portal user reached {method} {path}"
         );
+    }
+    // The read-only group over the same list (ADR-0034). The Origin is valid,
+    // so the method is the only thing left to tell a read from a write — and a
+    // route added to the list has to earn one of these two answers. The row
+    // count after the sessions block below covers this loop too.
+    for (method, path, body) in &plane {
+        let status = sneak("OpenBerat-Auditors", method, path.clone(), body.clone())
+            .await
+            .status();
+        if *method == "GET" {
+            assert!(
+                status.is_success(),
+                "an auditor was refused {method} {path}: {status}"
+            );
+        } else {
+            assert_eq!(
+                status,
+                StatusCode::FORBIDDEN,
+                "an auditor reached {method} {path}"
+            );
+        }
     }
     // --- who is signed in (ADR-0028) ---
     // Two subjects of this test's own, because the `indexed` middleware records
@@ -1877,7 +1910,7 @@ async fn decide_section(pool: &PgPool) {
     assert_eq!(
         rows().await,
         before,
-        "a refused portal user still changed something"
+        "a refused portal user or auditor still changed something"
     );
     // The same eight with the admin group, and this is what stops the loop
     // above from being vacuous: a mistyped path answers 404 and a wrong method

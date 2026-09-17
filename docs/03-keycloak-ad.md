@@ -156,7 +156,9 @@ enrols them on their first login, and leaves everyone else exactly as a stock
 realm behaves ([ADR-0032](adr/0032-admin-mfa.md)). Keycloak's conditional step
 keys on a **role** and `ADMIN_GROUP` arrives as a **group**, so the export maps
 one realm role, `openberat-mfa`, onto the group; membership stays the only thing
-an operator manages and it stays in AD. MFA for ordinary users is still the
+an operator manages and it stays in AD. The read-only `AUDITOR_GROUP` carries
+the same role, and so the same second factor
+([ADR-0034](adr/0034-read-only-management-group.md)). MFA for ordinary users is still the
 open, environment-dependent question (`docs/06`).
 
 Keycloak's OTP is standard TOTP: Google Authenticator, FreeOTP, Aegis and the

@@ -39,7 +39,7 @@ try samba-tool user create svc-keycloak "$AD_BIND_PASSWORD" \
   --userou="OU=Service Accounts" --description="Keycloak LDAP bind (read-only)"
 samba-tool user setexpiry svc-keycloak --noexpiry
 
-for g in OpenBerat-Admins OpenBerat-Finance Finance-All; do
+for g in OpenBerat-Admins OpenBerat-Auditors OpenBerat-Finance Finance-All; do
   try samba-tool group add "$g" --groupou="OU=Groups"
 done
 
@@ -51,6 +51,7 @@ user() {
 
 user labuser     Lab User
 user labadmin    Lab Admin
+user labauditor  Lab Auditor
 user labnested   Lab Nested
 user labdisabled Lab Disabled
 
@@ -64,6 +65,7 @@ member() { try samba-tool group addmembers "$1" "$2"; }
 member OpenBerat-Finance labuser
 member OpenBerat-Admins  labadmin
 member OpenBerat-Finance labadmin
+member OpenBerat-Auditors labauditor
 member OpenBerat-Finance labdisabled
 
 # Nested: labnested is in Finance-All, and Finance-All is a member of

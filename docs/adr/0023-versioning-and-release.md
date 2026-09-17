@@ -55,7 +55,7 @@ What the parts mean here, since there is no public API to break:
 
 | Part | Changes when |
 |---|---|
-| MAJOR | the operator must do something before upgrading: an environment variable removed or renamed, the `audit_event` row format changed, the `/decide` header contract changed, or `ADMIN_GROUP` semantics changed |
+| MAJOR | the operator must do something before upgrading: an environment variable removed or renamed, the `audit_event` row format changed, the `/decide` header contract changed, or `ADMIN_GROUP` or `AUDITOR_GROUP` semantics changed ([0034](0034-read-only-management-group.md)) |
 | MINOR | a capability arrives and the existing configuration keeps working |
 | PATCH | fixes only, no new configuration |
 

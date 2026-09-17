@@ -147,6 +147,7 @@ struct Me {
     email: String,
     groups: Vec<String>,
     admin: bool,
+    auditor: bool,
 }
 
 pub(crate) async fn me(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Response {
@@ -155,13 +156,13 @@ pub(crate) async fn me(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> Respo
     };
     // The frontend uses this to hide things. Hiding is a convenience; the
     // refusal is the guard in admin.rs (ADR-0007).
-    let admin = policy::is_admin(&caller.groups, &ctx.admin_group);
     Json(Me {
+        admin: policy::in_group(&caller.groups, &ctx.admin_group),
+        auditor: policy::in_group(&caller.groups, &ctx.auditor_group),
         sub: caller.sub,
         username: caller.username,
         email: caller.email,
         groups: caller.groups,
-        admin,
     })
     .into_response()
 }

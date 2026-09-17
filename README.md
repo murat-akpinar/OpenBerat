@@ -252,7 +252,7 @@ the whole chain answering rather than one process.
 | [docs/07-references.md](docs/07-references.md) | **Sources** — the basis for the technical claims, verified defaults |
 | [docs/08-breakglass.md](docs/08-breakglass.md) | The rehearsed way back when the proxy is the outage (ADR-0017) |
 | [docs/09-history.md](docs/09-history.md) | **Build log** — how phases 0–7 closed, and what each box actually cost |
-| [docs/adr/](docs/adr/) | **Decisions taken** — 33 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity, audit retention, versioning, no frontend framework, live sessions, what a path pattern means, break-glass from the same table, the decision cache with more than one instance, MFA on the management plane, and the management screen in two steps — reading, then writing |
+| [docs/adr/](docs/adr/) | **Decisions taken** — 34 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity, audit retention, versioning, no frontend framework, live sessions, what a path pattern means, break-glass from the same table, the decision cache with more than one instance, MFA on the management plane, the management screen in two steps — reading, then writing — and a read-only group for it |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability — channels, response times, scope, accepted limitations |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — DCO sign-off, conventions, what gets rejected |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |

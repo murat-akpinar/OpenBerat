@@ -1,6 +1,9 @@
 # 0032 — MFA is required for `ADMIN_GROUP` and for nobody else
 
-- **Status:** Accepted
+- **Status:** Accepted; superseded in part by
+  [0034](0034-read-only-management-group.md) — "and for nobody else" now leaves
+  out `AUDITOR_GROUP`, which carries the same role and the same flow. Nothing
+  below the title changes otherwise.
 - **Date:** 2026-09-07
 - **Relates to:** [0008](0008-group-identity-name.md) — `ADMIN_GROUP` is the
   grant this protects, and the group the bridging role hangs on.

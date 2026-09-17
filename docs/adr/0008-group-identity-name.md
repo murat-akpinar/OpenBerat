@@ -82,7 +82,9 @@ carries no SID column. A nullable column that nothing ever writes is exactly the
 3. **`ADMIN_GROUP` defaults to `OpenBerat-Admins`** and is supplied through the
    environment (`docs/02`, "Management plane"). It follows the same convention
    but is deliberately a separate variable, so a customer with a fixed AD naming
-   policy can point it anywhere.
+   policy can point it anywhere. The read-only `AUDITOR_GROUP` of
+   [ADR-0034](0034-read-only-management-group.md) is matched the same way and
+   inherits both mitigations above.
 
 ## Consequences
 

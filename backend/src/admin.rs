@@ -5,8 +5,9 @@
 // the portal is open to every authenticated user, so if reaching it were enough
 // then anyone could grant themselves entitlements (docs/02, "Management plane").
 //
-// Two guards, both in `guard` below rather than on each handler: ADMIN_GROUP
-// membership, and an Origin check on anything state-changing. Every route the
+// Two guards, both in `guard` below rather than on each handler: group
+// membership — ADMIN_GROUP for everything, AUDITOR_GROUP for GET and HEAD only
+// (ADR-0034) — and an Origin check on anything state-changing. Every route the
 // management plane has is mounted here, including the read-only screens whose
 // handlers live in `audit.rs`, so there is one list to read the guard against.
 //
@@ -70,14 +71,14 @@ async fn guard(
     };
     // Never cached and never derived from the decision path: losing ADMIN_GROUP
     // in AD must not wait out a cache TTL before it takes effect.
-    if !policy::is_admin(&caller.groups, &ctx.admin_group) {
-        tracing::warn!(actor = %caller.username, path = %request.uri().path(),
-            "admin refused: not in ADMIN_GROUP");
+    let reads = matches!(*request.method(), Method::GET | Method::HEAD);
+    if !policy::may_manage(&caller.groups, &ctx.admin_group, &ctx.auditor_group, reads) {
+        tracing::warn!(actor = %caller.username, method = %request.method(),
+            path = %request.uri().path(),
+            "admin refused: not in ADMIN_GROUP, nor a read by AUDITOR_GROUP");
         return StatusCode::FORBIDDEN.into_response();
     }
-    if !matches!(*request.method(), Method::GET | Method::HEAD)
-        && !crate::api::from_portal(&headers, &ctx.portal_origin)
-    {
+    if !reads && !crate::api::from_portal(&headers, &ctx.portal_origin) {
         tracing::warn!(actor = %caller.username, path = %request.uri().path(),
             "admin refused: wrong or missing Origin");
         return StatusCode::FORBIDDEN.into_response();

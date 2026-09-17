@@ -4,11 +4,13 @@
 // The management screen (ADR-0026, ADR-0028, ADR-0033). It decides nothing:
 // every endpoint it calls checks ADMIN_GROUP on the handler's first line,
 // independent of the decision cache, so a non-admin gets a page that says 403
-// rather than a page that hides itself. It validates nothing either — what a
-// slug, an upstream, a hostname and a path pattern may be is validate.rs's to
-// say, and a second copy here would drift from the one in front of the
-// database. Revocation is the one thing it does not do: POST
-// /api/admin/kill/{sub}, run deliberately from a terminal (INSTALL.md §6).
+// rather than a page that hides itself. AUDITOR_GROUP reads every tab and is
+// refused every write the same way (ADR-0034); the forms stay drawn for it.
+// It validates nothing either — what a slug, an upstream, a hostname and a
+// path pattern may be is validate.rs's to say, and a second copy here would
+// drift from the one in front of the database. Revocation is the one thing it
+// does not do: POST /api/admin/kill/{sub}, run deliberately from a terminal
+// (INSTALL.md §6).
 //
 // Plain DOM, no framework (ADR-0027). Everything that came from the API is
 // written with textContent — an admin types the application name and a user
@@ -24,18 +26,19 @@ function say(text) {
 
 // --- Feature Start ---
 // 403 and an outage must not read alike. The admin endpoints answer 403 to a
-// user outside ADMIN_GROUP and 503 when Postgres or Redis is unreachable;
-// drawing the second as the first tells an operator their access was taken
-// away, and drawing the first as the second sends them to check a database
-// that is fine.
+// user outside ADMIN_GROUP — or to a write from AUDITOR_GROUP — and 503 when
+// Postgres or Redis is unreachable; drawing the second as the first tells an
+// operator their access was taken away, and drawing the first as the second
+// sends them to check a database that is fine.
 // --- Feature End ---
 async function api(path, init) {
   const response = await fetch(path, { credentials: 'same-origin', ...init });
   if (response.status === 403) {
-    // A write has two ways to earn a 403 and the guard answers both the same,
-    // so a message naming only one sends the admin to check the wrong thing.
+    // A write has three ways to earn a 403 and the guard answers them all the
+    // same, so a message naming only one sends the admin to check the wrong
+    // thing.
     throw new Error(init
-      ? `${path} refused: either you are not in the group that grants the management plane, or the request did not come from the portal's own origin.`
+      ? `${path} refused: you are not in the group that grants writes to the management plane — the read-only group reaches the tabs but changes nothing — or the request did not come from the portal's own origin.`
       : `You are not in the group that grants the management plane, so ${path.split('?')[0]} refused you.`);
   }
   if (!response.ok) {
