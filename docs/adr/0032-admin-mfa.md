@@ -1,9 +1,14 @@
 # 0032 — MFA is required for `ADMIN_GROUP` and for nobody else
 
-- **Status:** Accepted; superseded in part by
-  [0034](0034-read-only-management-group.md) — "and for nobody else" now leaves
-  out `AUDITOR_GROUP`, which carries the same role and the same flow. Nothing
-  below the title changes otherwise.
+- **Status:** **Superseded by [0035](0035-mfa-for-every-user.md)**, which asks
+  every user for a second factor and so deletes the role, both conditional
+  sub-flows and the negated condition described below. Kept, and not only for
+  the record: an installation that wants MFA on the management plane alone has
+  its flow written out here, execution by execution, and the reasoning for each
+  requirement.
+  Earlier, superseded in part by
+  [0034](0034-read-only-management-group.md) — "and for nobody else" left
+  out `AUDITOR_GROUP`, which carried the same role and the same flow.
 - **Date:** 2026-09-07
 - **Relates to:** [0008](0008-group-identity-name.md) — `ADMIN_GROUP` is the
   grant this protects, and the group the bridging role hangs on.

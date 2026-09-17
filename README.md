@@ -222,12 +222,15 @@ the whole chain answering rather than one process.
   an AD change, seconds for the kill switch
   ([ADR-0016](docs/adr/0016-n03-revocation-targets.md)). A long-lived connection
   is not ([INSTALL.md](INSTALL.md) §8).
-- **MFA protects the management plane and nobody else.** TOTP is required for
-  `ADMIN_GROUP` and `AUDITOR_GROUP`, as realm configuration
-  ([ADR-0032](docs/adr/0032-admin-mfa.md),
-  [ADR-0034](docs/adr/0034-read-only-management-group.md)). Whether ordinary
-  users get a second factor — at login or per application — is a decision about
-  somebody else's deployment and stays open ([docs/06](docs/06-requirements.md)).
+- **Every login carries a second factor.** The browser flow is password and
+  TOTP, both required, and a user with no credential is enrolled on first login
+  — realm configuration, no code
+  ([ADR-0035](docs/adr/0035-mfa-for-every-user.md), superseding
+  [ADR-0032](docs/adr/0032-admin-mfa.md), which kept it to the management plane
+  and is the flow to go back to if that is what an installation wants). Nothing
+  on the decision path reads it: a second factor is a property of the login, and
+  `/decide` answers the same either way. Per-application step-up is a different
+  thing and stays F-21 ([docs/06](docs/06-requirements.md)).
 - **Keycloak runs in dev mode with the embedded database in the lab** —
   deliberately, so the realm is reproduced from the export on every start. An
   install that has to survive a rebuild uses the production form in
@@ -261,7 +264,7 @@ the whole chain answering rather than one process.
 | [docs/07-references.md](docs/07-references.md) | **Sources** — the basis for the technical claims, verified defaults |
 | [docs/08-breakglass.md](docs/08-breakglass.md) | The rehearsed way back when the proxy is the outage (ADR-0017) |
 | [docs/09-history.md](docs/09-history.md) | **Build log** — how phases 0–7 and the roadmap backlog closed, and what each of the 156 boxes actually cost |
-| [docs/adr/](docs/adr/) | **Decisions taken** — 34 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity, audit retention, versioning, no frontend framework, live sessions, what a path pattern means, break-glass from the same table, the decision cache with more than one instance, MFA on the management plane, the management screen in two steps — reading, then writing — and a read-only group for it |
+| [docs/adr/](docs/adr/) | **Decisions taken** — 35 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity, audit retention, versioning, no frontend framework, live sessions, what a path pattern means, break-glass from the same table, the decision cache with more than one instance, the management screen in two steps — reading, then writing — a read-only group for it, and a second factor on every login |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability — channels, response times, scope, accepted limitations |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — DCO sign-off, conventions, what gets rejected |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |

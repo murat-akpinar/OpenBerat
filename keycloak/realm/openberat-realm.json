@@ -16,34 +16,20 @@
   "ssoSessionIdleTimeout": 1800,
   "ssoSessionMaxLifespan": 36000,
   "browserFlow": "openberat-browser",
-  "roles": {
-    "realm": [
-      {
-        "name": "openberat-mfa",
-        "description": "Carried by ADMIN_GROUP and AUDITOR_GROUP, not by users: the browser flow asks its holders for OTP (ADR-0032, ADR-0034)."
-      }
-    ]
-  },
   "groups": [
     {
       "name": "OpenBerat-Admins",
-      "path": "/OpenBerat-Admins",
-      "realmRoles": [
-        "openberat-mfa"
-      ]
+      "path": "/OpenBerat-Admins"
     },
     {
       "name": "OpenBerat-Auditors",
-      "path": "/OpenBerat-Auditors",
-      "realmRoles": [
-        "openberat-mfa"
-      ]
+      "path": "/OpenBerat-Auditors"
     }
   ],
   "authenticationFlows": [
     {
       "alias": "openberat-browser",
-      "description": "Browser login. Everything is stock except the last sub-flow: members of ADMIN_GROUP and AUDITOR_GROUP carry the openberat-mfa role and are asked for a second factor (ADR-0032, ADR-0034).",
+      "description": "Browser login. Everything is stock except the forms sub-flow: every user is asked for a second factor after the password and is enrolled on first login (ADR-0035).",
       "providerId": "basic-flow",
       "topLevel": true,
       "builtIn": false,
@@ -73,7 +59,7 @@
     },
     {
       "alias": "openberat-forms",
-      "description": "Username and password, then whichever second factor applies.",
+      "description": "Password, then OTP, both REQUIRED. REQUIRED rather than ALTERNATIVE on the OTP form is what sends a user with no credential to enrolment instead of past it (ADR-0035).",
       "providerId": "basic-flow",
       "topLevel": false,
       "builtIn": false,
@@ -86,68 +72,6 @@
           "userSetupAllowed": false
         },
         {
-          "flowAlias": "openberat-2fa-optional",
-          "requirement": "CONDITIONAL",
-          "priority": 20,
-          "autheticatorFlow": true,
-          "userSetupAllowed": false
-        },
-        {
-          "flowAlias": "openberat-admin-otp",
-          "requirement": "CONDITIONAL",
-          "priority": 30,
-          "autheticatorFlow": true,
-          "userSetupAllowed": false
-        }
-      ]
-    },
-    {
-      "alias": "openberat-2fa-optional",
-      "description": "Everyone who is not an admin, exactly as a stock realm behaves: OTP is asked for only if the user has enrolled one. The negated role condition is what keeps an admin from being asked twice.",
-      "providerId": "basic-flow",
-      "topLevel": false,
-      "builtIn": false,
-      "authenticationExecutions": [
-        {
-          "authenticator": "conditional-user-role",
-          "authenticatorConfig": "not-an-admin",
-          "requirement": "REQUIRED",
-          "priority": 10,
-          "autheticatorFlow": false,
-          "userSetupAllowed": false
-        },
-        {
-          "authenticator": "conditional-user-configured",
-          "requirement": "REQUIRED",
-          "priority": 20,
-          "autheticatorFlow": false,
-          "userSetupAllowed": false
-        },
-        {
-          "authenticator": "auth-otp-form",
-          "requirement": "ALTERNATIVE",
-          "priority": 30,
-          "autheticatorFlow": false,
-          "userSetupAllowed": false
-        }
-      ]
-    },
-    {
-      "alias": "openberat-admin-otp",
-      "description": "The management plane's second factor. REQUIRED rather than ALTERNATIVE: an admin with no OTP credential is sent to enrolment instead of past it.",
-      "providerId": "basic-flow",
-      "topLevel": false,
-      "builtIn": false,
-      "authenticationExecutions": [
-        {
-          "authenticator": "conditional-user-role",
-          "authenticatorConfig": "admins-otp",
-          "requirement": "REQUIRED",
-          "priority": 10,
-          "autheticatorFlow": false,
-          "userSetupAllowed": false
-        },
-        {
           "authenticator": "auth-otp-form",
           "requirement": "REQUIRED",
           "priority": 20,
@@ -155,21 +79,6 @@
           "userSetupAllowed": false
         }
       ]
-    }
-  ],
-  "authenticatorConfig": [
-    {
-      "alias": "admins-otp",
-      "config": {
-        "condUserRole": "openberat-mfa"
-      }
-    },
-    {
-      "alias": "not-an-admin",
-      "config": {
-        "condUserRole": "openberat-mfa",
-        "negate": "true"
-      }
     }
   ],
   "clients": [

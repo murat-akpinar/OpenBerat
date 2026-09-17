@@ -4036,3 +4036,70 @@ sustained load — the load figures in this file are all single-instance, and
 `vaultscan` runs the generator itself. Nothing here changes an installation that
 has one instance: with one subscriber the publish is delivered to the process
 that sent it, which is the `drop_sub` the kill switch already performed.
+
+## The second factor stops being the management plane's
+
+[ADR-0035](adr/0035-mfa-for-every-user.md) answers `docs/06`'s last question
+about MFA — for everyone, at login — and the interesting part of the change is
+how much of [ADR-0032](adr/0032-admin-mfa.md) it deletes. The realm role
+`openberat-mfa`, its two group mappings, both conditional sub-flows, both
+`conditional-user-role` executions, the `negate` configuration and
+`conditional-user-configured` all go. Eight executions become two, and the
+export diff is **four lines in, ninety-five out**.
+
+```
+openberat-forms                  ALTERNATIVE
+├── auth-username-password-form  REQUIRED
+└── auth-otp-form                REQUIRED
+```
+
+The running realm was read back after the rebuild to confirm the import
+produced that and not something that merely parses: the flow shows those two
+executions at level 1 and `GET roles` no longer lists `openberat-mfa`.
+
+`verify-mfaall.sh`, four stages per user, each a real portal login driven with
+curl, run for three users with different group membership:
+
+| User | Groups | Enrolment offered | Challenged, correct code | Wrong code | The application |
+|---|---|---|---|---|---|
+| `labuser` | `OpenBerat-Finance` | yes, `/api/me` **200** | **200** | `/api/me` **302** | **200** |
+| `labadmin` | `Finance`, `Admins` | yes, **200** | **200** | **302** | **200** |
+| `labauditor` | `Auditors` | yes, **200** | **200** | **302** | **302** |
+
+The last column is the control that matters: **the decision path did not
+move.** `labauditor`'s 302 is not a regression — the only entitlement row is
+`jenkins → ad_group OpenBerat-Finance allow`, and an auditor is not in that
+group, so a refusal is the right answer before and after. `labuser`'s 200 on
+the same request is what proves a second factor changed nothing about
+authorisation. The management plane agrees: after the change `/api/admin/applications`
+still answers 403 to `labuser`, 200 to `labadmin` and 200 to `labauditor`
+(ADR-0034's read-only grant), all three keyed on group names in the header and
+none of them on a role.
+
+**Three things the run cost, and only one of them was the product.**
+
+- **Nothing.** No product defect appeared. That is worth writing down, because
+  the change touches the login of every user and the temptation is to assume a
+  clean run means a shallow test; the wrong-code stage is what makes it not
+  shallow — `/api/me` and the application both answer 302, so a refused code
+  leaves no session at all rather than a lesser one.
+- **A harness that enrolled a new credential without telling the other
+  thirty-eight.** `ob-login.sh` answers the challenge from `/root/<user>.totp`,
+  and `verify-mfaall.sh` deleted the OTP credential, enrolled a fresh one and
+  kept the new secret to itself. Every harness on the host then failed to log in
+  as that user — `still a form -- refused` — which reads exactly like the
+  product refusing a valid login. The fix is one line in the harness, writing
+  the captured secret where the shared script reads it.
+- **An expectation that was wrong for the user it was applied to.** Stage 4
+  asserted `200` from the application for every user, so `labauditor` failed a
+  stage that was reporting correct behaviour. The expectation is now a
+  parameter. A harness that hardcodes the answer for one user's entitlements is
+  measuring the entitlement table, not the change.
+
+**What this does not establish.** That the enrolment is *survivable* at scale:
+the lab has five users and Keycloak here runs on H2 with no volume, so a
+rebuild re-imports the realm and drops every enrolment with it — which is why
+all three users met enrolment rather than a challenge on the first run. An
+installation with a Keycloak database keeps its users' credentials, and only
+those without one meet the QR. The day-one cost of enrolling a whole directory
+is the operator's and is not measured here.

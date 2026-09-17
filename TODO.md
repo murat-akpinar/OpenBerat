@@ -1,10 +1,11 @@
 # TODO
 
-Status: **every phase and every box ever opened here is closed, and nothing is
-tagged.** What closed each one — the measurement, the thing that turned out to
-be wrong, the ADR it forced — is in [`docs/09-history.md`](docs/09-history.md),
-156 boxes of it: phases 0–7, and the backlog that came out of reading an
-enterprise SSO roadmap against the finished product.
+Status: **one box is open**, and nothing is tagged. Every phase and every box
+before it is closed; what closed each one — the measurement, the thing that
+turned out to be wrong, the ADR it forced — is in
+[`docs/09-history.md`](docs/09-history.md), 156 boxes of it: phases 0–7, and the
+backlog that came out of reading an enterprise SSO roadmap against the finished
+product.
 **A tag is still a deliberate manual act** ([ADR-0023](docs/adr/0023-versioning-and-release.md)).
 
 What is left on this page is **not** scheduled work. `Later` is the standing
@@ -14,6 +15,43 @@ kept underneath it so the refusals are not re-litigated every time that roadmap
 is read again.
 
 Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
+
+---
+
+## Open
+
+- [ ] **A way to reset a user's second factor from the management plane.**
+      [ADR-0035](docs/adr/0035-mfa-for-every-user.md) made MFA everybody's, and
+      with it made a lost or replaced phone a routine helpdesk task rather than
+      a rare one. [ADR-0032](docs/adr/0032-admin-mfa.md)'s answer — the Keycloak
+      admin console under `KC_ADMIN_PASSWORD` — was sized for a handful of
+      admins: it makes a routine task reach for the realm-master credential, and
+      a credential reached for often is a credential that gets shared.
+
+      **Measured already** (`docs/07`), so the shape is not in doubt: the
+      backend's existing service account, the one the kill switch uses, answers
+      **200** to a username query and to reading a user's groups, and its
+      `DELETE` on a credential answers **404** rather than 403. The permission is
+      already held — only the HTTP surface is missing. No new secret, no new
+      role, no compose change.
+
+      **The decision this needs an ADR for is the scope, not the mechanism.**
+      The intended shape, to be argued in the ADR rather than assumed here:
+      `ADMIN_GROUP` only (`AUDITOR_GROUP` is GET-only and excluded by the guard
+      that already exists), **refusing a target in `ADMIN_GROUP` or
+      `AUDITOR_GROUP`** — resetting a privileged account's second factor stays a
+      terminal call, the way revocation did
+      ([ADR-0024](docs/adr/0024-no-admin-ui-in-v1.md)) — and **refusing self**,
+      since an admin who is already past MFA gains nothing and a stolen session
+      gains durability. Audited like every other management-plane write.
+
+      One thing the shape has to solve before it is a button: **the admin UI has
+      no user directory.** The only place a person appears is the Live tab, over
+      the kill-switch index ([ADR-0028](docs/adr/0028-live-sessions-endpoint.md)),
+      and somebody who cannot log in will never be in it. Either the admin types
+      a username and the backend resolves it, or this grows a user list — and a
+      user list is a surface this product has deliberately never had
+      (`known_user` is still on `Later`, unstarted).
 
 ---
 

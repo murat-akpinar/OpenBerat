@@ -222,13 +222,15 @@ sürecin değil bütün zincirin cevabı.
   için altı dakika, kill switch için saniyeler
   ([ADR-0016](docs/adr/0016-n03-revocation-targets.md)). Uzun ömürlü bağlantı
   değil ([INSTALL.md](INSTALL.md) §8).
-- **MFA yalnızca yönetim düzlemini koruyor, başka kimseyi değil.** `ADMIN_GROUP`
-  ve `AUDITOR_GROUP` için TOTP zorunlu, realm yapılandırması olarak
-  ([ADR-0032](docs/adr/0032-admin-mfa.md),
-  [ADR-0034](docs/adr/0034-read-only-management-group.md)). Sıradan
-  kullanıcıların ikinci bir faktör alıp almayacağı — girişte mi, uygulama
-  başına mı — başkasının kurulumuna ait bir karar ve açık duruyor
-  ([docs/06](docs/06-requirements.md)).
+- **Her giriş ikinci bir faktör taşıyor.** Tarayıcı akışı parola ve TOTP, ikisi
+  de zorunlu; kimlik bilgisi olmayan kullanıcı ilk girişinde kaydediliyor —
+  realm yapılandırması, kod değil
+  ([ADR-0035](docs/adr/0035-mfa-for-every-user.md),
+  [ADR-0032](docs/adr/0032-admin-mfa.md)'nin yerine geçti; o ADR MFA'yı yönetim
+  düzlemiyle sınırlıyordu ve bunu isteyen kurulumun geri döneceği akış orada
+  duruyor). Karar yolu bunu okumuyor: ikinci faktör girişin bir özelliği,
+  `/decide` her iki halde de aynı cevabı veriyor. Uygulama başına yükseltme
+  ayrı bir şey ve F-21'de kalıyor ([docs/06](docs/06-requirements.md)).
 - **Keycloak laboratuvarda dev kipinde ve gömülü veritabanıyla çalışıyor** —
   bilerek, realm her açılışta dışa aktarımdan yeniden üretilsin diye. Yeniden
   kurulumdan sağ çıkması gereken bir kurulum [INSTALL.md](INSTALL.md) §5'teki
@@ -262,7 +264,7 @@ sürecin değil bütün zincirin cevabı.
 | [docs/07-references.md](docs/07-references.md) | **Kaynaklar** — teknik iddiaların dayanağı, doğrulanmış varsayılanlar |
 | [docs/08-breakglass.md](docs/08-breakglass.md) | Proxy'nin kendisi kesinti olduğunda prova edilmiş dönüş yolu (ADR-0017) |
 | [docs/09-history.md](docs/09-history.md) | **Yapım kaydı** — 0–7. fazlar ve yol haritası backlog'u nasıl kapandı, 156 kutunun her biri neye mal oldu |
-| [docs/adr/](docs/adr/) | **Alınan kararlar** — 34 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği, denetim saklama süresi, sürümleme, frontend'de çatı yok, canlı oturumlar, bir path deseninin anlamı, break-glass aynı tablodan, birden fazla instance'ta karar cache'i, yönetim düzleminde MFA, yönetim ekranı iki adımda — önce okuma, sonra yazma — ve onun için salt okunur bir grup |
+| [docs/adr/](docs/adr/) | **Alınan kararlar** — 35 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği, denetim saklama süresi, sürümleme, frontend'de çatı yok, canlı oturumlar, bir path deseninin anlamı, break-glass aynı tablodan, birden fazla instance'ta karar cache'i, yönetim ekranı iki adımda — önce okuma, sonra yazma — onun için salt okunur bir grup ve her girişte ikinci faktör |
 | [SECURITY.md](SECURITY.md) | Güvenlik açığı bildirimi — kanallar, cevap süreleri, kapsam, kabul edilmiş sınırlar |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Nasıl katkı verilir — DCO imzası, konvansiyonlar, neler reddedilir |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |
