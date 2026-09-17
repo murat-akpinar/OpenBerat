@@ -16,17 +16,17 @@ karar neye erişebileceğin ([ADR-0012](docs/adr/0012-project-name-openberat.md)
 **Durum:** Kod yazıldı ve çalışıyor. 0–7. fazlar kapalı: girişten korumalı
 uygulamaya kadar olan zincir, gerçek bir AD'ye karşı laboratuvarda uçtan uca
 çalışıyor, N-01 ile N-03 tahmin değil ölçüm
-([docs/07](docs/07-references.md)), her fazı kapatmanın neye mal olduğu ise
-[docs/09-history.md](docs/09-history.md) içinde. **Henüz sürüm etiketi
-atılmadı** — `release.sh` çevrimdışı paketi üretiyor, ama etiketi kesmek bilerek
-elle yapılan bir iş olarak kalıyor
+([docs/07](docs/07-references.md)), her fazı — ve ardından gelen backlog'u —
+kapatmanın neye mal olduğu ise [docs/09-history.md](docs/09-history.md) içinde.
+**Henüz sürüm etiketi atılmadı** — `release.sh` çevrimdışı paketi üretiyor, ama
+etiketi kesmek bilerek elle yapılan bir iş olarak kalıyor
 ([ADR-0023](docs/adr/0023-versioning-and-release.md)). Hiçbir yerde açık kutu
 kalmadı: sonuncusu — backend'i birden fazla instance'ta çalıştırmak — yazıldı ve
 ölçüldü; tek nginx'in arkasında iki instance, kill switch ikisine de ulaşıyor
 ([ADR-0031](docs/adr/0031-decision-cache-multi-instance.md),
 [docs/07](docs/07-references.md)). N-06 HA'yı hâlâ v1'in dışında tutuyor, çünkü
-hiçbir instance sayısı yük testinden geçmedi. 7. faz bitmiş kodu
-okurken bulunanlardı: v1 tek bir yönetim ekranı sunuyor — denetim kaydı ve
+hiçbir instance sayısı yük testinden geçmedi. 7. faz bitmiş kodu okurken
+bulunanlardı: v1 tek bir yönetim ekranı sunuyor — denetim kaydı ve
 `explain` ([ADR-0026](docs/adr/0026-audit-explain-screen-in-v1.md)), kim girmiş
 ([ADR-0028](docs/adr/0028-live-sessions-endpoint.md)), uygulama ve erişim
 yönetimi ([ADR-0033](docs/adr/0033-admin-write-screens.md)) — çatı kullanmadan
@@ -222,12 +222,17 @@ sürecin değil bütün zincirin cevabı.
   için altı dakika, kill switch için saniyeler
   ([ADR-0016](docs/adr/0016-n03-revocation-targets.md)). Uzun ömürlü bağlantı
   değil ([INSTALL.md](INSTALL.md) §8).
-- **Henüz MFA yok, yöneticiler dahil.** Keycloak bunu realm yapılandırmasıyla
-  yapıyor, buradaki hiçbir kod değişmiyor ([docs/03](docs/03-keycloak-ad.md));
-  karar iki yönde de verilmiş değil.
-- **Keycloak hâlâ dev kipinde**, gömülü veritabanıyla. Lab için doğru, yeniden
-  kurulumdan sağ çıkması gereken bir kurulum için yanlış — production biçimi
-  [TODO.md](TODO.md)'de açık bir madde.
+- **MFA yalnızca yönetim düzlemini koruyor, başka kimseyi değil.** `ADMIN_GROUP`
+  ve `AUDITOR_GROUP` için TOTP zorunlu, realm yapılandırması olarak
+  ([ADR-0032](docs/adr/0032-admin-mfa.md),
+  [ADR-0034](docs/adr/0034-read-only-management-group.md)). Sıradan
+  kullanıcıların ikinci bir faktör alıp almayacağı — girişte mi, uygulama
+  başına mı — başkasının kurulumuna ait bir karar ve açık duruyor
+  ([docs/06](docs/06-requirements.md)).
+- **Keycloak laboratuvarda dev kipinde ve gömülü veritabanıyla çalışıyor** —
+  bilerek, realm her açılışta dışa aktarımdan yeniden üretilsin diye. Yeniden
+  kurulumdan sağ çıkması gereken bir kurulum [INSTALL.md](INSTALL.md) §5'teki
+  production biçimini kullanır.
 - **Yalnızca web.** SSH ve RDP aynı proxy'nin arkasında Guacamole olarak gelir
   ([ADR-0001](docs/adr/0001-scope-v1-web-only.md)). Parola kasası yok, cihaz
   duruşu yok, ajan yok ([docs/06](docs/06-requirements.md)).
@@ -256,12 +261,12 @@ sürecin değil bütün zincirin cevabı.
 | [docs/06-requirements.md](docs/06-requirements.md) | Gereksinimler ve **açık sorular** |
 | [docs/07-references.md](docs/07-references.md) | **Kaynaklar** — teknik iddiaların dayanağı, doğrulanmış varsayılanlar |
 | [docs/08-breakglass.md](docs/08-breakglass.md) | Proxy'nin kendisi kesinti olduğunda prova edilmiş dönüş yolu (ADR-0017) |
-| [docs/09-history.md](docs/09-history.md) | **Yapım kaydı** — 0–7. fazlar nasıl kapandı, her kutu neye mal oldu |
+| [docs/09-history.md](docs/09-history.md) | **Yapım kaydı** — 0–7. fazlar ve yol haritası backlog'u nasıl kapandı, 156 kutunun her biri neye mal oldu |
 | [docs/adr/](docs/adr/) | **Alınan kararlar** — 34 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği, denetim saklama süresi, sürümleme, frontend'de çatı yok, canlı oturumlar, bir path deseninin anlamı, break-glass aynı tablodan, birden fazla instance'ta karar cache'i, yönetim düzleminde MFA, yönetim ekranı iki adımda — önce okuma, sonra yazma — ve onun için salt okunur bir grup |
 | [SECURITY.md](SECURITY.md) | Güvenlik açığı bildirimi — kanallar, cevap süreleri, kapsam, kabul edilmiş sınırlar |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Nasıl katkı verilir — DCO imzası, konvansiyonlar, neler reddedilir |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |
-| [TODO.md](TODO.md) | Açık kalanlar |
+| [TODO.md](TODO.md) | Bekleyen backlog, ve okunup reddedilenler |
 
 ## Nereden başlanır
 

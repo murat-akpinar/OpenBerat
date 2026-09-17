@@ -157,10 +157,14 @@ network and policy. Phase 1 exists partly to establish them.
       - **The nginx buffer that reads the group header**, set by how many groups
         one user is in: the whole list travels in one header on every decision
         (`docs/07`).
-      - **How many instances**, which is the HA item in `TODO.md` and the first
-        thing to add is nginx, not the backend. What that item needed decided
-        first is now decided: the decision cache does not move to Redis, it gets
-        its invalidations broadcast ([ADR-0031](adr/0031-decision-cache-multi-instance.md)).
+      - **How many instances.** The HA item closed on correctness — the cache
+        does not move to Redis, it gets its invalidations broadcast
+        ([ADR-0031](adr/0031-decision-cache-multi-instance.md)), and two
+        instances behind one nginx are measured (`docs/09`). It did not close on
+        load: every latency figure here is single-instance, which is the
+        remaining `TODO.md` item. The measurement already says which process to
+        add first — at 32 connections nginx used 138 % of two cores and the
+        backend 11 % (`docs/07`), so it is nginx, not the backend.
 
 ### 🔴 Security, still open
 

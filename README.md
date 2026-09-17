@@ -19,16 +19,17 @@ this codebase decides is what you are permitted to reach
 **Status:** the code is written and runs. Phases 0–7 are closed: the chain from
 login to a protected application works end to end on a lab against a real AD,
 N-01 to N-03 are measured rather than estimated
-([docs/07](docs/07-references.md)), and what closing each phase took is in
-[docs/09-history.md](docs/09-history.md). **No version is tagged yet** —
-`release.sh` builds the offline bundle, but cutting the tag stays a deliberate
-manual act ([ADR-0023](docs/adr/0023-versioning-and-release.md)). Nothing is open
+([docs/07](docs/07-references.md)), and what closing each phase — and the
+backlog after them — took is in [docs/09-history.md](docs/09-history.md).
+**No version is tagged yet** — `release.sh` builds the offline bundle, but
+cutting the tag stays a deliberate manual act
+([ADR-0023](docs/adr/0023-versioning-and-release.md)). Nothing is open
 anywhere: the last box — running the backend on more than one instance — is
 built and measured, two instances behind one nginx with the kill switch reaching
 both ([ADR-0031](docs/adr/0031-decision-cache-multi-instance.md),
 [docs/07](docs/07-references.md)). N-06 still puts HA outside v1, because no
-instance count has been load-tested. Phase 7 was what
-reading the finished code found: v1 ships one management screen — the audit
+instance count has been load-tested. Phase 7 was what reading the finished
+code found: v1 ships one management screen — the audit
 record and `explain` ([ADR-0026](docs/adr/0026-audit-explain-screen-in-v1.md)),
 who is signed in ([ADR-0028](docs/adr/0028-live-sessions-endpoint.md)), and
 application and access management
@@ -221,12 +222,16 @@ the whole chain answering rather than one process.
   an AD change, seconds for the kill switch
   ([ADR-0016](docs/adr/0016-n03-revocation-targets.md)). A long-lived connection
   is not ([INSTALL.md](INSTALL.md) §8).
-- **No MFA yet, including for administrators.** Keycloak does it as realm
-  configuration and no code here would change
-  ([docs/03](docs/03-keycloak-ad.md)); it is decided in neither direction.
-- **Keycloak still runs in dev mode** with the embedded database. Right for a
-  lab, wrong for an install that has to survive a rebuild — the production form
-  is an open item in [TODO.md](TODO.md).
+- **MFA protects the management plane and nobody else.** TOTP is required for
+  `ADMIN_GROUP` and `AUDITOR_GROUP`, as realm configuration
+  ([ADR-0032](docs/adr/0032-admin-mfa.md),
+  [ADR-0034](docs/adr/0034-read-only-management-group.md)). Whether ordinary
+  users get a second factor — at login or per application — is a decision about
+  somebody else's deployment and stays open ([docs/06](docs/06-requirements.md)).
+- **Keycloak runs in dev mode with the embedded database in the lab** —
+  deliberately, so the realm is reproduced from the export on every start. An
+  install that has to survive a rebuild uses the production form in
+  [INSTALL.md](INSTALL.md) §5.
 - **Web only.** SSH and RDP would arrive as Guacamole behind the same proxy
   ([ADR-0001](docs/adr/0001-scope-v1-web-only.md)). No password vault, no device
   posture, no agents ([docs/06](docs/06-requirements.md)).
@@ -255,12 +260,12 @@ the whole chain answering rather than one process.
 | [docs/06-requirements.md](docs/06-requirements.md) | Requirements and **open questions** |
 | [docs/07-references.md](docs/07-references.md) | **Sources** — the basis for the technical claims, verified defaults |
 | [docs/08-breakglass.md](docs/08-breakglass.md) | The rehearsed way back when the proxy is the outage (ADR-0017) |
-| [docs/09-history.md](docs/09-history.md) | **Build log** — how phases 0–7 closed, and what each box actually cost |
+| [docs/09-history.md](docs/09-history.md) | **Build log** — how phases 0–7 and the roadmap backlog closed, and what each of the 156 boxes actually cost |
 | [docs/adr/](docs/adr/) | **Decisions taken** — 34 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity, audit retention, versioning, no frontend framework, live sessions, what a path pattern means, break-glass from the same table, the decision cache with more than one instance, MFA on the management plane, the management screen in two steps — reading, then writing — and a read-only group for it |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability — channels, response times, scope, accepted limitations |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — DCO sign-off, conventions, what gets rejected |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |
-| [TODO.md](TODO.md) | What is still open |
+| [TODO.md](TODO.md) | The standing backlog, and what was read and refused |
 
 ## Where to start
 
