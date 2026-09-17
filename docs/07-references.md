@@ -3623,3 +3623,90 @@ imported a moment earlier, then raises `failureFactor` and requires the script
 to fail — a check that can no longer see drift would otherwise pass quietly.
 Harnesses on the lab host: `verify-realmdrift.sh` (drift, check, restore) and
 `verify-realmdrift-prod.sh` with `kcprod.Dockerfile` and `kcprod.yml`.
+
+## Break-glass against the lab, with a clock
+
+[ADR-0017](adr/0017-fail-closed-availability.md) accepts a single point of
+failure in front of every internal application and pays for it with a rehearsed
+way back; the roadmap's §24 gives the same criterion a number — the applications
+back **under 10–15 minutes**. Two rehearsals had run (`docs/08`) and neither
+settles that number. The first was a local stack whose break-glass hosts were
+hand-written, so it timed a swap that would have restored nothing; the second
+was the fix for that and deliberately not a timing run. Both were also
+`docker compose` on a workstation, where every upstream is a container that
+answers anybody.
+
+This one ran on the lab, where the one application is a **row** pointing at
+Jenkins on another host. Harness: `verify-breakglass.sh`. The clock starts at
+the first command `docs/08` tells an operator to type — the `/readyz` probe that
+tells a broken chain from a policy that denies — because a procedure timed from
+its second command is not the procedure.
+
+| Step | Measured |
+|---|---|
+| Diagnosis (`/readyz` through nginx) | **0.2 s** |
+| **Off → on**, first command to an application answering 200 unauthenticated | **1.1 s** |
+| **On → off**, to enforced access with the chain repaired | **1.5 s** |
+| **Whole action** | **2.8 s**, against a 600–900 s target |
+
+The way back is measured to more than the proxy restarting: it ends when a
+signed-in user gets 200 through the normal path and an anonymous one gets 302,
+with `backend` started again in the same block. Three polls got there.
+
+**The finding: break-glass restores the route, not necessarily the access.**
+Under break-glass Jenkins answered **403**, with and without a session cookie,
+while the echo upstream published beside it answered 200. That is not a fault in
+the procedure — it is [ADR-0021](adr/0021-application-identity-trusted-headers.md)
+seen from the other side. Jenkins is wired to take its identity from the PEP's
+`X-Auth-*` headers, and `breakglass/upstream.inc` clears that family on purpose;
+an upstream that trusts those headers therefore meets an anonymous request.
+Confirmed against Jenkins directly, off the proxy entirely:
+
+```
+$ curl -o /dev/null -w '%{http_code}' http://192.168.1.133:8080/
+403
+$ curl -o /dev/null -w '%{http_code}' -H 'X-Auth-Username: labuser' http://192.168.1.133:8080/
+200
+```
+
+So the restored request reaches the application and the application refuses it.
+Nothing the PEP can do fixes this while break-glass is on — supplying an
+identity is the one thing it has stopped doing, and a break-glass that forwarded
+`X-Auth-*` would be forwarding whatever the client wrote. The operator's move is
+on the upstream (grant anonymous read for the window), and the cost of knowing
+that during the incident rather than before it is why `docs/08` now says so.
+
+**A correction to the diagnostic table.** With `backend` stopped, the probe in
+`docs/08` did not answer "connection refused": it answered
+
+```
+wget: bad address 'backend:8081'
+```
+
+Compose takes the DNS name away with the container, so the failure surfaces as
+resolution and not connection. An operator who has been told to expect a refused
+connection can read that as a typo in the command they were handed.
+
+**The first run measured the wrong thing**, and it is the same mistake this file
+records elsewhere: it polled *Jenkins* for the 200 that means break-glass is
+serving, got 403 six hundred times, and reported the poll's own duration —
+**11.8 s** — as the swap. The number was not wrong by much and was wrong
+entirely. The poll now runs against an upstream that authenticates nobody, and
+Jenkins is recorded rather than waited for.
+
+What else held, on the same run:
+
+| Checked | Result |
+|---|---|
+| A row published before the incident, never in any hand-written file | **200** under break-glass, `x-openberat-breakglass: active` |
+| The same host through the running proxy, before and after | **302**, no break-glass header |
+| Forged `X-Auth-Groups`, `X-Auth-Username`, `X-Auth-Request-Email` + a real session cookie | **0** of them reached the upstream; `Cookie` **0**; `X-Auth-Request-Id` still written by the proxy |
+| The portal host | **404** — break-glass is `edge` only and does not serve it |
+| A hostname that is not a row | **404** from the default server |
+| `nginx -T` on the restored proxy, `grep -c breakglass/upstream.inc` | **0** |
+| `conflicting server name` in the nginx log | **0** |
+
+With `backend` stopped and break-glass not yet pulled, both the anonymous and
+the signed-in request to Jenkins answered **500** — `auth_request` with no
+backend behind it, which is the fail-closed shape ADR-0017 describes and the
+`error_page` that goes with it.

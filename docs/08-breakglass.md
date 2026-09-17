@@ -33,7 +33,7 @@ docker compose exec nginx wget -qO- http://backend:8081/readyz; echo
 | `200`, empty | The chain is fine. **Do not pull break-glass** — a user who cannot reach an application has a policy problem, and the reason is in the nginx access log as `deny="…"` |
 | `unreachable: postgres` | Decisions still work for one cache TTL (30 s), then everything denies with `store_unavailable`. Fix Postgres first; this is usually faster than break-glass |
 | `unreachable: redis` | Sessions are gone. Users are logged out and cannot log back in |
-| Connection refused / no answer | The backend is down. `auth_request` fails, every protected location answers the unavailable page |
+| `wget: bad address 'backend:8081'`, connection refused, or no answer | The backend is down. `auth_request` fails, every protected location answers the unavailable page. **The usual spelling is the address one**: Compose takes the DNS name away with the container, so a stopped backend fails to resolve rather than to connect (`docs/07`) — it is not a typo in the command above |
 
 Anything other than the first row, with the applications needed **now**, is what
 this file is for.
@@ -61,6 +61,20 @@ here and no list has to be kept in step by hand — which is the whole reason th
 is generated, because a hand-written list is stale exactly when it is read. It
 was: until this ADR the file named two lab hostnames, so the procedure restored
 the lab and answered 404 to every real application.
+
+**An upstream that authenticates for itself does not come back.** Break-glass
+restores the route and not the access: it clears the `X-Auth-*` family (see
+below, and it must), so an application that takes its identity from those
+headers ([ADR-0021](adr/0021-application-identity-trusted-headers.md)) meets an
+anonymous request and refuses it. Measured — the lab's Jenkins answers **403**
+through break-glass, with a session cookie or without (`docs/07`). There is
+nothing the proxy can do about it during the window: supplying an identity is
+the one thing it has stopped doing, and forwarding the headers would mean
+forwarding whatever the client wrote. **The move is on the upstream** — grant
+anonymous read there for the duration, and take it back with the window. Know
+which of your applications are in this class *before* the incident: they are the
+ones that were onboarded with trusted headers rather than as plain proxied
+sites.
 
 The corollary is worth knowing before the incident, not during it: break-glass
 serves what the **last successful publish** put in the volume. The backend
@@ -133,6 +147,7 @@ rehearsal goes in this table.
 |---|---|---|---|---|
 | 2026-09-06 | local `docker compose` stack, backend stopped | **2.4 s** | **4.4 s** | Both from typing the first command to the verification passing. Going back is the slower half and always will be: the normal nginx has more to load. See the note below. |
 | 2026-09-07 | local `docker compose` stack, after [ADR-0030](adr/0030-breakglass-generated-blocks.md) | — | — | Not a timing run: this one tested whether the right *applications* come back, which the first rehearsal could not have caught. A row inserted straight into Postgres became a break-glass host with nobody editing a file; deleting the row took the host away again; a hostname not in the table answers 404 from the default server; and `nginx -T` on the running nginx shows **zero** break-glass includes, which is the property the file extension protects (`docs/07`). |
+| 2026-09-17 | the lab, where the application is a **row** pointing at Jenkins on another host | **1.1 s** | **1.5 s** | The run that settles §24's 10–15 minute criterion: **2.8 s** end to end, clock started at the `/readyz` probe above. On → off is measured to *enforced access with the chain repaired*, not to nginx restarting. It found that Jenkins answers 403 through break-glass — the paragraph above exists because of this run — and that the diagnostic table's failure row was written with the wrong error message (`docs/07`). |
 
 What the first rehearsal found, which is not in the procedure above by accident:
 

@@ -115,7 +115,7 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       The export now carries it. CI imports the export, requires a clean read,
       then raises `failureFactor` and requires a failure.
 
-- [ ] **Break-glass is written and timed at nothing.** `docs/08` and
+- [x] **Break-glass is written and timed at nothing.** `docs/08` and
       [ADR-0030](docs/adr/0030-breakglass-generated-blocks.md) describe the way
       back in; §24 gives the equivalent criterion a number — a rollback to the
       old login **under 10–15 minutes**. [ADR-0017](docs/adr/0017-fail-closed-availability.md)
@@ -123,6 +123,28 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       being *written*, only on its having been run.
       *Run it against the lab, with a clock, and put the figure in `docs/07`.
       If it does not fit, the procedure is what changes, not the target.*
+      **Closed: 2.8 s end to end against a 600–900 s target, and the run found
+      a limit of the procedure that no workstation rehearsal could have**
+      (`docs/07`, `docs/08` rehearsal record, harness `verify-breakglass.sh`).
+      **1.1 s** off → on with the clock started at the `/readyz` probe `docs/08`
+      opens with, **1.5 s** back — measured to *enforced access with the chain
+      repaired*, not to nginx restarting. The limit: **break-glass restores the
+      route, not the access.** The lab's Jenkins answered **403** through it,
+      cookie or no cookie, because it takes its identity from the `X-Auth-*`
+      headers break-glass clears on purpose
+      ([ADR-0021](docs/adr/0021-application-identity-trusted-headers.md) from the
+      other side) — confirmed off the proxy entirely, where the same anonymous
+      request is 403 and one carrying a header is 200. Nothing the PEP can do
+      during the window: forwarding those headers would forward whatever the
+      client wrote. `docs/08` now names the class of application this hits and
+      says the move is on the upstream. Two smaller corrections came with it —
+      the diagnostic table promised "connection refused" where Compose actually
+      answers `wget: bad address`, and the first run polled *Jenkins* for the
+      200 that means break-glass is serving, reporting its own 600 failed polls
+      as an 11.8 s swap. Everything else held: a row published before the
+      incident became a break-glass host, forged `X-Auth-*` and a real session
+      cookie reached the upstream 0 times, the portal 404s, and the restored
+      proxy carries zero break-glass includes.
 
 - [ ] **The audit partitions have never been restored.**
       [ADR-0022](docs/adr/0022-audit-retention.md) drops a month as a partition
