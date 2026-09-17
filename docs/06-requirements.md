@@ -185,6 +185,19 @@ network and policy. Phase 1 exists partly to establish them.
       plainly that Keycloak's group tree is part of the trusted base. The
       second is cheaper and probably right — but it has to be written down,
       because `docs/02` and `docs/03` used to imply the first.
+- [ ] **Should some sessions be shorter than the one profile the realm ships?**
+      The shipped numbers (`docs/04`, "How long a session lasts": 30 min idle,
+      10 h at most) are the *internal, low-risk* row of the SSO roadmap `TODO.md`
+      was read against; its admin and critical-application rows want 10–15 min
+      idle and 2–4 h. There is nowhere for a second profile to live: one realm,
+      one client, one session cookie across `.apps.<domain>`
+      ([ADR-0015](adr/0015-single-parent-domain.md)), so the management plane
+      and the least sensitive application share one session by construction,
+      and shortening the realm's numbers shortens everyone's. A per-application
+      limit would have to be read at decision time — the session's age as an
+      input to `/decide`, which is F-21's `entitlement.conditions` column — and
+      nothing passes a session's age to the backend today: `/decide` reads the
+      user, username, email and groups, no more.
 - [ ] **How does an operator get into the machine when the identity chain is
       down?** [ADR-0017](adr/0017-fail-closed-availability.md) requires that host
       access does not depend on this product; the concrete mechanism (out-of-band

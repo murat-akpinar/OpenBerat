@@ -38,13 +38,36 @@ Regenerate it whenever `logo.svg` changes; nothing checks that it matches.
 off.** `bruteForceProtected` is absent from a stock realm, which means no
 lockout at all — and the login form is reachable from the browser-facing proxy,
 so without it a password is guessable at whatever rate the network allows. The
-export sets it with `failureFactor: 10` and `permanentLockout: false`: the
-lockout is temporary and grows (60 s, doubling to a 900 s ceiling), because a
-*permanent* one turns the same guessing campaign into a way to lock a real user
-out of everything the portal fronts. It is the per-user layer; the per-address
-one is `limit_req` on `login-actions` in `nginx/conf.d/10-portal.conf`, and
-neither sees what the other sees — one address spraying many accounts, or many
-addresses guessing one.
+export sets it with `failureFactor: 5` and `permanentLockout: false`: the fifth
+wrong password locks the account for 60 s, and from then on every failure locks
+it again: for 60 s through the ninth, 120 s at the tenth and eleventh (measured,
+`docs/07`), bounded by `maxFailureWaitSeconds`' 900 s, which the run did not
+reach. Temporary, because a *permanent* one turns the same guessing campaign
+into a way to lock a real user out of everything the portal fronts. It is the
+per-user layer; the per-address one is `limit_req` on `login-actions` in
+`nginx/conf.d/10-portal.conf.template`, and neither sees what the other sees —
+one address spraying many accounts, or many addresses guessing one.
+
+**Five and not ten, because AD counts too.** While the lock holds, **no bind
+reaches AD** — not a wrong password and not the right one — so the burst a
+guesser can land on the domain before Keycloak stops it is `failureFactor`
+binds. A domain whose own lockout threshold is at or below that number locks
+the account in AD, which is not this product's lockout: it locks the user out of
+everything else that authenticates against the domain as well. The lock slows what reaches AD and does not cap it —
+every failure *between* locks is a bind, and 11 of them reached AD in the
+7½ minutes of the run — so a domain that locks accounts still does, only later.
+A locked account answers `Invalid username or password` to the right password
+too, so the page does not tell a guesser the lock is there.
+
+**No password policy in the realm, on purpose.** Every account that signs in is
+AD's, through a `READ_ONLY` federation, and a realm `passwordPolicy` is not
+consulted when it does: measured, a policy of 64 characters with digits,
+capitals, symbols and history let a 24-character password straight through
+(`docs/07`). Length, complexity and history for those accounts are the domain's
+password settings; a policy in the export would read as a control that governs
+nobody. The one account the realm owns is the backend's service account, which
+has a client secret and no password. An installation that adds local accounts
+to the realm adds the policy with them.
 
 **Not done by hand, written to the file.** If a setting is changed through the
 Keycloak UI, the realm is exported again and committed here; otherwise the lab

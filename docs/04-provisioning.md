@@ -79,7 +79,7 @@ So a session is **at most 10 hours old and at most 30 minutes idle**, and the
 shortest sentence that is true is: *close the browser for half an hour and you
 log in again.*
 
-Two consequences worth having in one place:
+Three consequences worth having in one place:
 
 - **The idle timeout is not enforced by anything the user can see.**
   `cookie_refresh` runs on a request, so an abandoned session is not signed out
@@ -92,6 +92,17 @@ Two consequences worth having in one place:
   ([ADR-0028](adr/0028-live-sessions-endpoint.md)). `cookie_expire` is what
   bounds that window, which is why it is 10 h rather than 168 h: the cookie may
   not outlive the session it stands for.
+- **No refresh token ever leaves the server, so the realm does not rotate
+  them.** oauth2-proxy keeps the tokens in Redis, encrypted under a secret that
+  only the cookie carries; the browser holds a 176-byte ticket with no JWT in
+  it, and the Redis value has no token in the clear (measured, `docs/07`).
+  Rotation (`revokeRefreshToken`) makes a *reused* refresh token fail, and the
+  only thing here that ever presents one is oauth2-proxy itself. Turning it on
+  would buy nothing against that, and it acts on the very grant `cookie_refresh`
+  makes — one of the two terms of N-03's measured 330 s — so it could not be
+  switched on without measuring that again. What a thief can take is the
+  cookie, and what bounds that is the idle timeout above and the kill switch
+  ([ADR-0019](adr/0019-kill-switch-session-index.md)).
 
 ### Dangerous defaults
 

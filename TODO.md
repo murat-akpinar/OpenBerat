@@ -19,7 +19,7 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
 
 ## Open
 
-- [ ] **The realm ships exactly one security profile, and the roadmap wants
+- [x] **The realm ships exactly one security profile, and the roadmap wants
       four.** Read off `keycloak/realm/openberat-realm.json`, the shipped values
       are `ssoSessionIdleTimeout` 1800, `ssoSessionMaxLifespan` 36000,
       `accessTokenLifespan` 300 — which is §9.2's *internal, low-risk* row to
@@ -37,6 +37,21 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       a setting. And per-profile TTLs are a question this product has not
       answered: it has one realm and one session cookie, so "admin sessions
       expire sooner" has nowhere to live yet — that is an ADR, not a box.*
+      **Closed: one setting changed, two measured into staying as they are,
+      one question moved to `docs/06`** (all four in `docs/07`, harness
+      `verify-realmprofile.sh`). `failureFactor` is **5**; the reason that
+      holds up is AD's, not the roadmap's: while Keycloak's lock holds no bind
+      reaches AD, right password or wrong, so `failureFactor` is the burst a
+      domain lockout threshold has to survive (`keycloak/README.md`). The same
+      run found the README wrong — the lock does not double; 60 s through the
+      ninth failure, 120 s at the tenth. **`passwordPolicy` stays absent**: a
+      64-character policy let a 24-character AD password log in, because a
+      `READ_ONLY` federation never consults it. **`revokeRefreshToken` stays
+      off**: the premise was a stealable refresh token, and none exists outside
+      the server — the cookie is a 176-byte ticket and the Redis value is
+      ciphertext (`docs/04`). Per-profile session lengths are an open question
+      in `docs/06`, "Security, still open", because the only place they could
+      live is a decision-time input nothing supplies yet.
 
 - [ ] **`/api/admin/*` is all-or-nothing, and the roadmap wants an auditor.**
       F-12 binds the whole management plane to one group; §14.1 splits it six
@@ -97,7 +112,10 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       window — `audit_event.src_ip` already holds what the query needs, which is
       why it sat in **Later** as a report; §16 promotes it to a control.
       *Brute-force and MFA bypass are realm behaviour and belong in the lab
-      script, not in `cargo test`. Say which is which when the box opens.*
+      script, not in `cargo test`. Say which is which when the box opens.
+      Brute-force has a lab run now, from the box above
+      (`verify-realmprofile.sh`, `docs/07`) — the lockout, what reaches AD
+      during it; what is still owed is making it a check rather than a run.*
 
 - [ ] Backend on 2 instances + nginx health check (HA — after the first deployment)
       *Not started: N-06 puts HA outside v1 and the box waits on a first real
@@ -133,8 +151,10 @@ somebody else's architecture document expects it to arrive in.
   time and `acr`, §8.3 wants the decision to be able to read **`network_zone`**,
   **`user_type`** and **`identity_provider`**, and §10 wants a **per-application
   MFA level** — which is where [ADR-0032](docs/adr/0032-admin-mfa.md) already
-  routed it ("a rule on an entitlement rather than a property of a login"). One
-  column, four inputs; they arrive together or the column is designed twice.
+  routed it ("a rule on an entitlement rather than a property of a login"). A
+  fifth is the session's age, if `docs/06`'s shorter-session question is answered
+  with yes. One column, five inputs; they arrive together or the column is
+  designed twice.
 - **Step-up MFA** for a critical operation (§10.3 Faz 3). A different thing from
   the above: it is re-authentication *inside* a session, so it needs a way for
   an upstream to demand it — and this product deliberately tells upstreams

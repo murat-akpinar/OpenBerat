@@ -3438,3 +3438,63 @@ stopped it dead — `Invalid client openberat-proxy: A redirect URI is not a val
 URI`, the unresolved `${APPS_DOMAIN}` reaching Keycloak's URI validation. A
 placeholder with nothing behind it fails loudly at import, which is the right
 direction for it to fail in.
+
+## The realm against a four-profile session table, and the two settings that stay off
+
+`TODO.md`'s first backlog box read the realm export against an SSO roadmap's
+session and security tables. Three settings were named; one changed, two were
+measured into staying as they are. Harness `verify-realmprofile.sh` on the lab
+host (subcommands, so AD's counter could be read between steps from the
+workstation — the DC is on another machine) and `rp-ladder.sh` beside it.
+
+**`failureFactor` 10 → 5.** Read back from Keycloak after the rebuild imported
+the export: `"failureFactor" : 5`, the other brute-force values unchanged. Then
+`labnested` against it, with the lab AD's `lockoutThreshold` raised from 0 to 20
+for the run — at 0 Samba does not count at all (`badPwdCount` stayed 0 after a
+wrong password) — and put back afterwards. Attempts 1.5 s apart, so
+`quickLoginCheckMilliSeconds` never fires and every lock below is the
+failure count's:
+
+| Step | Keycloak | AD `badPwdCount` | Login |
+|---|---|---|---|
+| 4 wrong | `numFailures 4`, not disabled | 4 | — |
+| then the right password | reset to 0 | **0** | **200** |
+| 5 wrong | `numFailures 5`, **disabled**, not before +60 s | 5 | — |
+| the right password, locked | unchanged | **5** | refused, `Invalid username or password` |
+| 3 more wrong, locked | unchanged, still 5 | **5** | refused, same text |
+| 1 wrong after the lock lifted | 6, locked again, +60 s | 6 | — |
+| one wrong per lock window | 7, 8, 9: +60 s each · **10, 11: +120 s** | 11 | — |
+
+Three things this settles. **While Keycloak's lock holds, nothing reaches AD**,
+right or wrong, so the burst a guesser lands on the domain is `failureFactor`
+binds and a domain threshold at or below it locks the account in AD first.
+**The lock slows what reaches AD and does not cap it**: 11 binds in 7½ minutes,
+one per window once the first lock has come and gone. And the lockout **does not
+double** — `keycloak/README.md` said "60 s, doubling to a 900 s ceiling"; it is
+60 s from the fifth failure through the ninth and 120 s at the tenth. The 900 s
+ceiling was not reached. The lab was restored with an unlock and one good login,
+which put both counters back to 0.
+
+**`passwordPolicy` — measured into staying absent.** On the realm as shipped,
+set by hand to `length(64) and digits(3) and upperCase(3) and specialChars(3)
+and passwordHistory(5)` and read back; `labnested`, whose password is 24
+characters, then logged in: `/api/me` **200**. The federation is `READ_ONLY`
+and the policy is not consulted on a login that AD verifies. (Setting it back
+with `-s 'passwordPolicy='` did nothing; the rebuild for the row above re-imported
+the realm, and the policy was gone from the read-back.)
+
+**`revokeRefreshToken` — measured into staying off.** The premise was that a
+stolen refresh token is good for a whole session. What a logged-in browser and
+Redis actually hold:
+
+| Where | What |
+|---|---|
+| the `_oauth2_proxy` cookie | 176 bytes; decodes to `v2` + a 62-character handle + a 22-character secret; no `eyJ` anywhere |
+| the Redis value under that handle | 3 649 bytes; no `eyJ`, no `refresh`; 36% printable bytes, which is what ciphertext gives (95/256 ≈ 37%) |
+| response headers on `/api/me` | nothing naming a token or `Authorization` |
+
+So the refresh token exists in Keycloak and inside an encrypted payload that
+only oauth2-proxy, handed the cookie, decrypts. Rotation defends against a
+token presented twice; nothing here presents one but oauth2-proxy. The
+reasoning, and why it would cost an N-03 re-measurement to turn on anyway, is in
+`docs/04`, "How long a session lasts".
