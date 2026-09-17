@@ -171,8 +171,12 @@ outside is indistinguishable from a user who is simply not entitled. Without a
 readiness endpoint the operator at 3 a.m. sees "everyone is denied" and cannot
 tell whether the policy is working or the system is down — which is exactly when
 the break-glass decision has to be made ([ADR-0017](adr/0017-fail-closed-availability.md)).
-They are reachable on the internal network only, like `/decide`, and they are
-the health check the second instance in Phase 6 needs.
+They are reachable on the internal network only, like `/decide`. They are not
+what a second instance needs — nginx finds a dead instance by trying it and
+retries the survivor in the same request (`docs/07`) — but they are what tells
+an operator that an instance is *up and unhealthy*, which is the case nothing
+else reports: a backend whose Redis has gone answers `/readyz` 503 while still
+serving.
 
 `/metrics` is on the same network for the same reason, and it is why nothing in
 it is labelled with a user or an application: nginx proxies none of these three,
@@ -532,8 +536,9 @@ is the rehearsed break-glass below, not a promise of uptime.
 | Measure | In v1? |
 |---|---|
 | `backend` stateless, horizontally scalable | **Yes**, a design constraint |
-| At least 2 instances + an upstream health check | Not in v1 — and **nginx OSS cannot be the thing that checks**: `health_check` is not a directive it has (measured, `docs/07`), only passive `max_fails`/`fail_timeout`, which ejects an instance after users have already met the failure. `/readyz` ships in v1 all the same: an operator, an orchestrator and the break-glass runbook all ask it |
-| Decision cache is instance-local; a second instance gets **broadcast invalidation**, not a shared cache | Decided, not built — [ADR-0031](adr/0031-decision-cache-multi-instance.md). Only step 3 of the kill switch is process-local, so without it the switch degrades from 0.085 s to a 30 s TTL on every instance that did not handle the call. Moving the cache into Redis was measured and rejected: 0.039–0.167 ms per round trip against 11–29 µs for the whole decision (`docs/07`) |
+| At least 2 instances + an upstream health check | **Runs, and needs no health check** — `docker compose up --scale backend=2`, measured (`docs/07`). `health_check` is not a directive nginx OSS has, but the check it was wanted for is not needed: `decide.inc` proxies through a variable, so the `resolver` returns both addresses per request, and `proxy_next_upstream error timeout` — nginx's own default — retries the survivor **inside the same request**. 30 of 30 served with one instance stopped. This row previously said the passive check "ejects an instance after users have already met the failure"; it does not. What the failure does cost is the request that discovers it: `proxy_connect_timeout`, 1.04 s worst, then `max_fails`/`fail_timeout` skips that peer for ten seconds. HA is still outside v1 (N-06) because nothing else about running two has been load-tested |
+| Decision cache is instance-local; a second instance gets **broadcast invalidation**, not a shared cache | **Built and measured** — [ADR-0031](adr/0031-decision-cache-multi-instance.md), `docs/07`. Only step 3 of the kill switch is process-local, so without it the switch degrades from 0.085 s to a 30 s TTL on every instance that did not handle the call; with it, 0.11–0.14 s to refused on both. Moving the cache into Redis was measured and rejected: 0.039–0.167 ms per round trip against 11–29 µs for the whole decision |
+| An instance with no live invalidation subscription serves **no cache hits** | **Yes** — the half that makes a local cache safe on two instances. A lost subscription turns every request into a miss (N-02 latency) and never into a stale ALLOW, and the subscription is proved by a `PING` on the subscribed connection itself: a Redis that is reachable but answers nothing was otherwise undetectable and served stale ALLOWs indefinitely (measured, `docs/07`) |
 | Postgres unreachable → DENY; cached decisions survive for their TTL | **Yes** |
 | **Break-glass:** a second nginx config in the same image, via `docker compose --profile breakglass` — written down and **rehearsed**. Its application blocks are generated from the `application` table like the running proxy's, and it mounts that shared volume **read-only** ([ADR-0030](adr/0030-breakglass-generated-blocks.md)); the `edge`-only network rule is untouched, since a file is not a network path | **Yes**, Phase 3 exit criterion |
 | Timeout budget decreasing outward-in (`/decide` 2s → oauth2-proxy 1s → sqlx 500ms) | **Yes**, a design constraint |

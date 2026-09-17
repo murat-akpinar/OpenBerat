@@ -982,7 +982,7 @@ refuses everybody:
 |---|---|
 | `openberat_decision_total{reason="store_unavailable"}` | anything above zero. Postgres is not answering and every decision is a denial |
 | `openberat_decision_total{reason="auth_unavailable"}` | the same, for oauth2-proxy |
-| `openberat_decision_cache_total` | the hit rate falling. Misses are the requests that pay for the double hop, and the cache is what N-01 rests on |
+| `openberat_decision_cache_total` | the hit rate falling. Misses are the requests that pay for the double hop, and the cache is what N-01 rests on. A hit rate at **zero** is its own diagnosis: the backend serves no hits at all while it has no live invalidation subscription to Redis, which is deliberate (`docs/02`) and which it also logs |
 | `openberat_audit_dropped_total` | anything above zero, ever. It counts audit summaries that never reached Postgres — accesses that happened and are not in the record |
 
 `openberat_decision_duration_seconds` is a histogram with bucket edges at 2 ms
@@ -1047,5 +1047,15 @@ Two things to know:
 > This file is complete for v1: everything from an empty host to a protected
 > application, a backup, an upgrade and an installation with no internet. What
 > is deliberately **not** here is the load test that fixes N-01 and N-02 under
-> concurrency, and running the backend on more than one instance — both are
-> open in `TODO.md`, and neither changes an install that has one.
+> concurrency, which is open in `TODO.md` and changes nothing about an install.
+>
+> **More than one backend is `docker compose up -d --scale backend=2`, and
+> nothing else.** It is measured (`docs/07`) rather than merely allowed: nginx
+> resolves `backend` per request, so it reaches both and retries the survivor
+> within the same request if one stops, and a kill switch served by either
+> reaches both caches over Redis. Three things to know before you do it. The
+> decision cache is per instance, so each pays its own first miss for a session.
+> An instance that loses its Redis subscription serves **no** cache hits until
+> it is back — correct, and visible as a hit rate of zero (§10). And this is not
+> HA: nginx is still one process, and no instance count has been load-tested,
+> which is why N-06 keeps HA outside v1.

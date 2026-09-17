@@ -73,6 +73,17 @@ async fn main() {
     let (audit, queue) = store::audit_channel(AUDIT_QUEUE);
     let writer = tokio::spawn(store::write_audit(pool.clone(), queue));
     let cache = Arc::new(Cache::new(audit.clone()));
+    // --- Feature Start ---
+    // Not awaited, and the cache is fail-closed until it connects (ADR-0031):
+    // a process that blocked here would refuse to start on a Redis that is
+    // merely slow, and one that served hits before subscribing would answer
+    // from a copy no kill switch could reach. So startup is unchanged and the
+    // only cost of a late subscription is the N-02 miss path.
+    // --- Feature End ---
+    let subscriber = tokio::spawn(openberat::session::subscribe_invalidations(
+        required("REDIS_URL"),
+        cache.clone(),
+    ));
     let sweeper = tokio::spawn({
         let cache = cache.clone();
         async move {
@@ -215,6 +226,7 @@ async fn main() {
     // and up to one TTL of audit summaries goes with the process (docs/02).
     // --- Feature End ---
     sweeper.abort();
+    subscriber.abort();
     cache.flush_all();
     drop(ctx);
     drop(cache);

@@ -20,6 +20,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use uuid::Uuid;
@@ -174,6 +175,10 @@ pub struct Cache {
     /// misses. Single-flight for the *same* key is what matters and is exact.
     fill: Vec<tokio::sync::Mutex<()>>,
     audit: Audit,
+    /// Whether this process is currently subscribed to the invalidation
+    /// channel. Starts false: a cache nobody has subscribed for must not serve
+    /// a hit before the first message could have reached it.
+    subscribed: AtomicBool,
 }
 
 impl Cache {
@@ -184,10 +189,42 @@ impl Cache {
                 .map(|_| tokio::sync::Mutex::new(()))
                 .collect(),
             audit,
+            subscribed: AtomicBool::new(false),
         }
     }
 
+    // --- Feature Start ---
+    // An instance with no live subscription serves no cache hits (ADR-0031).
+    // This is the half that makes broadcast invalidation safe rather than
+    // merely fast: with several instances only the one that served the kill
+    // switch drops its own entries, and every other instance learns about it
+    // over Redis. One that has lost that subscription would otherwise keep
+    // answering ALLOW from its own copy for a full TTL — 30 s against
+    // ADR-0016's 5 s — and nothing outside would say so. Losing it costs an
+    // oauth2-proxy hop and a query per request, which is N-02 latency; the
+    // other direction costs the revocation guarantee.
+    // --- Feature End ---
+    pub fn set_subscribed(&self, live: bool) {
+        if self.subscribed.swap(live, Ordering::Release) == live {
+            return;
+        }
+        if live {
+            tracing::info!("subscribed to decision cache invalidations; serving cache hits");
+        } else {
+            tracing::warn!(
+                "no decision cache invalidation subscription; every request is a miss until it is back"
+            );
+        }
+    }
+
+    pub fn subscribed(&self) -> bool {
+        self.subscribed.load(Ordering::Acquire)
+    }
+
     pub fn get(&self, key: &Key) -> Option<Cached> {
+        if !self.subscribed() {
+            return None;
+        }
         let inner = self.inner.lock().unwrap();
         let entry = inner.entries.get(key)?;
         (entry.inserted.elapsed() < TTL).then(|| entry.cached.clone())
@@ -444,6 +481,15 @@ mod tests {
         Key::new(Some(cookie), slug).expect("a session cookie is present")
     }
 
+    /// A cache that may serve hits. Every test below that asks for one needs
+    /// this: an instance with no live invalidation subscription has no hits to
+    /// serve (ADR-0031), so arming it is the precondition and not the subject.
+    fn armed(audit: Audit) -> Cache {
+        let cache = Cache::new(audit);
+        cache.set_subscribed(true);
+        cache
+    }
+
     // --- the cookie half of the key ---
 
     #[test]
@@ -472,13 +518,44 @@ mod tests {
         assert!(Key::new(Some("_oauth2_proxy_0=a; _oauth2_proxy_1=b"), "finance").is_some());
     }
 
+    // --- the subscription that makes a local cache safe on two instances ---
+
+    /// ADR-0031's second half. Broadcast invalidation is only safe if an
+    /// instance that has lost the broadcast stops trusting its own copy:
+    /// otherwise a kill switch it never heard about leaves it answering ALLOW
+    /// for a full TTL. A miss costs N-02 latency; the alternative costs the
+    /// revocation guarantee.
+    #[test]
+    fn an_instance_with_no_live_subscription_serves_no_hits() {
+        let (audit, mut queue) = audit_channel(16);
+        let cache = Cache::new(audit);
+        let k = key("_oauth2_proxy=abc", "finance");
+        cache.insert(k.clone(), "sub-labuser".to_string(), cached());
+        assert!(
+            cache.get(&k).is_none(),
+            "a process that has not subscribed yet has no hits to serve"
+        );
+        cache.set_subscribed(true);
+        assert!(cache.get(&k).is_some());
+        cache.set_subscribed(false);
+        assert!(
+            cache.get(&k).is_none(),
+            "losing the subscription stops the hits at once, not at the next TTL"
+        );
+        // The entry itself is untouched: what a lost subscription costs is the
+        // hit, never the audit summary the entry is still holding.
+        assert!(cache.count(&k, Decision::Allow, "/a", None, None));
+        cache.flush_all();
+        assert_eq!(queue.try_recv().unwrap().count, 1);
+    }
+
     // --- exit roads ---
 
     /// Every road out has to flush, so each one is walked and the summary is
     /// read back off the channel.
     fn walk_exit_road(road: impl Fn(&Cache, &Key)) -> Vec<AuditEvent> {
         let (audit, mut queue) = audit_channel(16);
-        let cache = Cache::new(audit);
+        let cache = armed(audit);
         let k = key("_oauth2_proxy=abc", "finance");
         cache.insert(k.clone(), "sub-labuser".to_string(), cached());
         cache.count(&k, Decision::Allow, "/a", None, None);
@@ -539,7 +616,7 @@ mod tests {
     #[test]
     fn an_expired_entry_is_a_miss_and_its_counters_are_written() {
         let (audit, mut queue) = audit_channel(16);
-        let cache = Cache::new(audit);
+        let cache = armed(audit);
         let k = key("_oauth2_proxy=abc", "finance");
         cache.insert(k.clone(), "sub-labuser".to_string(), cached());
         cache.count(&k, Decision::Allow, "/a", None, None);
@@ -568,7 +645,7 @@ mod tests {
     #[test]
     fn one_session_from_two_addresses_is_two_rows() {
         let (audit, mut queue) = audit_channel(16);
-        let cache = Cache::new(audit);
+        let cache = armed(audit);
         let k = key("_oauth2_proxy=abc", "finance");
         let owner: IpAddr = "10.0.0.7".parse().unwrap();
         let thief: IpAddr = "203.0.113.9".parse().unwrap();
@@ -603,7 +680,7 @@ mod tests {
     #[test]
     fn a_key_that_has_left_is_held_nowhere() {
         let (audit, mut queue) = audit_channel(4096);
-        let cache = Cache::new(audit);
+        let cache = armed(audit);
         let k = key("_oauth2_proxy=abc", "finance");
         // One user, one application, one session: the smallest possible cache,
         // refilled every TTL the way a signed-in browser refills it.
@@ -631,7 +708,7 @@ mod tests {
     #[test]
     fn the_bound_evicts_the_entry_closest_to_expiry() {
         let (audit, mut queue) = audit_channel(CAPACITY * 2);
-        let cache = Cache::new(audit);
+        let cache = armed(audit);
         let first = key("_oauth2_proxy=first", "finance");
         cache.insert(first.clone(), "sub-first".to_string(), cached());
         cache.count(&first, Decision::Allow, "/a", None, None);

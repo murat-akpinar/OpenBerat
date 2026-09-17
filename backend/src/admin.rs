@@ -142,7 +142,19 @@ async fn kill(State(ctx): State<Arc<Ctx>>, headers: HeaderMap, Path(sub): Path<U
     if let Err(e) = ctx.index.drop_sessions(&sessions).await {
         return refused("delete_sessions", e.to_string());
     }
+    // --- Feature Start ---
+    // Step 3, and with more than one instance the local drop is only half of it
+    // (ADR-0031): every other instance is still holding this user's entries and
+    // never saw this POST. The publish comes first and the local drop runs
+    // whatever it answers — an instance that cannot broadcast must still cut
+    // the access it can reach — but the failure is reported, because a kill
+    // switch that silently leaves the fleet stale is one that missed its 5 s.
+    // --- Feature End ---
+    let published = ctx.index.publish_invalidation(&sub).await;
     ctx.cache.drop_sub(&sub);
+    if let Err(e) = published {
+        return refused("publish_invalidation", e.to_string());
+    }
     if let Err(e) = ctx.index.forget(&sub).await {
         return refused("forget_index_entry", e.to_string());
     }

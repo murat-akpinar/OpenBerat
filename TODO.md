@@ -1,7 +1,9 @@
 # TODO
 
-Status: **phases 0–7 are closed and nothing is tagged.** What closed each phase,
-and the 148 boxes that did it, moved to [`docs/09-history.md`](docs/09-history.md).
+Status: **phases 0–7 are closed, every box below is closed with it, and nothing
+is tagged.** What closed each phase, and the 148 boxes that did it, moved to
+[`docs/09-history.md`](docs/09-history.md). The set below has not moved there
+yet — it is a backlog rather than a phase, and it moves as a unit or not at all.
 **A tag is still a deliberate manual act** ([ADR-0023](docs/adr/0023-versioning-and-release.md)).
 
 The backlog below is what came out of reading an enterprise SSO roadmap
@@ -17,7 +19,7 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
 
 ---
 
-## Open
+## Closed
 
 - [x] **The realm ships exactly one security profile, and the roadmap wants
       four.** Read off `keycloak/realm/openberat-realm.json`, the shipped values
@@ -213,13 +215,13 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       half (F-23 already ships the stream) and an `acr` input to `/decide`,
       which stays the `docs/06` question.
 
-- [ ] Backend on 2 instances + nginx health check (HA — after the first deployment)
-      *Not started: N-06 puts HA outside v1 and the box waits on a first real
+- [x] **Backend on 2 instances + nginx health check (HA — after the first
+      deployment).** N-06 puts HA outside v1 and the box waited on a first real
       deployment. §17.1's "Keycloak must never run single-node in production" is
       the same box seen from the roadmap's side, and the product's answer is
       already written down rather than shipped — `start-dev` + embedded H2 is
       lab-only and the production form is INSTALL.md §5.
-      Two things are known before it opens, both from measurement.
+      Two things were known before it opened, both from measurement.
       **nginx OSS has no `health_check` directive** — only passive
       `max_fails`/`fail_timeout`, which ejects an instance after users have
       already met the failure — so the check has to be NGINX Plus, a patched
@@ -227,13 +229,40 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       upstream list, the shape ADR-0011 already uses (`docs/07`). And the load
       test says **the first instance to add is nginx, not the backend**: at 32
       connections nginx used 138% of two cores and the backend 11%.
-      The design question the cache raised is **answered**:
+      The design question the cache raised was **answered**:
       [ADR-0031](docs/adr/0031-decision-cache-multi-instance.md) keeps the cache
       in memory and broadcasts its invalidations over the Redis ADR-0019 already
-      requires, both transports measured (`docs/07`). What this box still owes
-      it is the subscriber itself, the rule that an instance with no live
+      requires, both transports measured (`docs/07`). What this box still owed
+      it was the subscriber itself, the rule that an instance with no live
       subscription serves no cache hits, and a decision about the gap that rule
-      leaves — a connection alive at TCP level with a wedged reader.*
+      leaves — a connection alive at TCP level with a wedged reader.
+      **Closed: the subscriber, the rule, a heartbeat the gap turned out to
+      need — and the health check deleted rather than built** (`docs/07`,
+      harnesses `verify-ha.sh` and `verify-ha-wedge.sh`). Two instances run on
+      `--scale backend=2` with no configuration change, and **the second thing
+      known before it opened was wrong**: nginx OSS needs no active check here.
+      `decide.inc` proxies through a variable, so the `resolver` hands back both
+      addresses per request and `proxy_next_upstream error timeout` — nginx's
+      own default — retries the survivor **inside the same request**; 30 of 30
+      requests were served with one instance stopped. What the failure costs is
+      the request that finds it: `proxy_connect_timeout`, 1.04 s worst, then
+      that peer is skipped for ten seconds. So no poller, and `docs/02`'s "ejects
+      an instance after users have already met the failure" is corrected. The
+      broadcast itself: both instances holding live entries for one session, a
+      kill switch served by either, **0.11–0.14 s** to refused on both against
+      ADR-0016's 5 s — red first in `cargo test`, where removing the publish
+      leaves the second instance answering 200. **The gap ADR-0031 named was
+      real and is now closed rather than written down.** `docker pause` on Redis
+      is exactly its shape — no FIN, no RST, every socket ESTABLISHED — and
+      without a heartbeat the instance served **16 of 16 stale ALLOWs and never
+      noticed**. A `PING` on the subscribed connection itself (5 s between
+      beats, 5 s for the answer) brings the first refusal to **8.5–9.2 s**.
+      `/readyz` already answered 503 throughout, which is the honest limit of
+      the experiment: it would have caught *this* failure too, but it cannot
+      report on the connection the rule is about, and it cannot make the
+      instance stop trusting its own cache. Not done: any instance count under
+      load — the load figures are all single-instance and `vaultscan` runs the
+      generator itself, which is why N-06 still keeps HA outside v1.
 
 ---
 

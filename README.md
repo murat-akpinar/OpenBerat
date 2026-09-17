@@ -22,10 +22,12 @@ N-01 to N-03 are measured rather than estimated
 ([docs/07](docs/07-references.md)), and what closing each phase took is in
 [docs/09-history.md](docs/09-history.md). **No version is tagged yet** —
 `release.sh` builds the offline bundle, but cutting the tag stays a deliberate
-manual act ([ADR-0023](docs/adr/0023-versioning-and-release.md)). One box is
-open anywhere — running the backend on more than one instance, which N-06 puts
-outside v1, and whose one prerequisite is now decided
-([ADR-0031](docs/adr/0031-decision-cache-multi-instance.md)). Phase 7 was what
+manual act ([ADR-0023](docs/adr/0023-versioning-and-release.md)). Nothing is open
+anywhere: the last box — running the backend on more than one instance — is
+built and measured, two instances behind one nginx with the kill switch reaching
+both ([ADR-0031](docs/adr/0031-decision-cache-multi-instance.md),
+[docs/07](docs/07-references.md)). N-06 still puts HA outside v1, because no
+instance count has been load-tested. Phase 7 was what
 reading the finished code found: v1 ships one management screen — the audit
 record and `explain` ([ADR-0026](docs/adr/0026-audit-explain-screen-in-v1.md)),
 who is signed in ([ADR-0028](docs/adr/0028-live-sessions-endpoint.md)), and
@@ -210,7 +212,9 @@ the whole chain answering rather than one process.
 
 - **No HA in v1.** One machine, one nginx, and a rehearsed break-glass instead
   of a second one ([ADR-0017](docs/adr/0017-fail-closed-availability.md)); N-06
-  puts more than one instance outside v1.
+  puts more than one instance outside v1. The *backend* will run on two —
+  `--scale backend=2`, measured, kill switch and all — but nginx is still one
+  process and nothing has been load-tested on two.
 - **An already-open WebSocket or SSE connection is outside revocation.** It is
   authorised once, at the upgrade, and never again — measured
   ([docs/07](docs/07-references.md)). HTTP requests are bounded: six minutes for

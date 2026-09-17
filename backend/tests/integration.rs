@@ -23,6 +23,16 @@ use uuid::Uuid;
 /// The kill switch takes it as one, so the fixture is one.
 const LABUSER_SUB: &str = "cae7c116-24a0-42b8-ac6e-9961b34f5d6b";
 
+/// A cache that may serve hits. An instance with no live invalidation
+/// subscription serves none (ADR-0031), and these fixtures run no subscriber —
+/// except the one section that is about the subscriber, which starts a real
+/// one. Arming it here is the precondition, not the subject.
+fn armed(audit: openberat::store::Audit) -> Arc<openberat::cache::Cache> {
+    let cache = Arc::new(openberat::cache::Cache::new(audit));
+    cache.set_subscribed(true);
+    cache
+}
+
 /// The backend's own client (main.rs): /oauth2/sign_out answers 302 and that
 /// 302 is the answer, not something to follow.
 fn no_redirects() -> reqwest::Client {
@@ -951,7 +961,7 @@ async fn decide_section(pool: &PgPool) {
             pool,
             http: no_redirects(),
             oauth2_proxy: oauth2_proxy.to_string(),
-            cache: Arc::new(Cache::new(audit.clone())),
+            cache: armed(audit.clone()),
             audit,
             index: index.clone(),
             keycloak: openberat::keycloak::Keycloak::new(
@@ -1139,7 +1149,7 @@ async fn decide_section(pool: &PgPool) {
         pool: pool.clone(),
         http: no_redirects(),
         oauth2_proxy: upstream.clone(),
-        cache: Arc::new(Cache::new(audit.clone())),
+        cache: armed(audit.clone()),
         audit,
         index: index.clone(),
         keycloak: openberat::keycloak::Keycloak::new(
@@ -1261,7 +1271,7 @@ async fn decide_section(pool: &PgPool) {
         pool: pool.clone(),
         http: no_redirects(),
         oauth2_proxy: upstream.clone(),
-        cache: Arc::new(Cache::new(audit.clone())),
+        cache: armed(audit.clone()),
         audit,
         index: index.clone(),
         keycloak: openberat::keycloak::Keycloak::new(
@@ -2509,6 +2519,107 @@ async fn decide_section(pool: &PgPool) {
         before,
         "none of them reached Keycloak"
     );
+
+    // --- a second instance (ADR-0031) ---
+    // Three of the kill switch's four steps are already fleet-wide; step 3,
+    // this user's cache entries, happens in one process. So this is the whole
+    // of what the broadcast buys, and the only way to test it is with two
+    // caches: the instance that did **not** serve the POST has to stop serving
+    // its own copy. Without the publish it answers ALLOW for a full TTL after
+    // the session the entry rests on has been deleted.
+    let (audit_b, _queue_b) = audit_channel(64);
+    let cache_b = Arc::new(Cache::new(audit_b.clone()));
+    let subscriber = tokio::spawn(openberat::session::subscribe_invalidations(
+        redis_url.clone(),
+        cache_b.clone(),
+    ));
+    // Not a sleep papering over a race: until the subscription is live this
+    // instance serves no hits at all, so waiting for it is waiting for the
+    // precondition the test is about.
+    for _ in 0..200 {
+        if cache_b.subscribed() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(cache_b.subscribed(), "the subscriber never came up");
+    let second = Arc::new(Ctx {
+        pool: pool.clone(),
+        http: no_redirects(),
+        oauth2_proxy: upstream.clone(),
+        cache: cache_b.clone(),
+        audit: audit_b,
+        index: index.clone(),
+        keycloak: openberat::keycloak::Keycloak::new(
+            &reqwest::Client::new(),
+            &keycloak_url,
+            "openberat",
+            "openberat-backend",
+            "test-secret",
+        ),
+        admin_group: "OpenBerat-Admins".to_string(),
+        auditor_group: "OpenBerat-Auditors".to_string(),
+        portal_origin: "https://portal.apps.example.local".to_string(),
+        nginx_conf_dir: None,
+    });
+    index.forget(LABUSER_SUB).await.unwrap();
+    let on_b = "_oauth2_proxy-onb";
+    seed(on_b).await;
+    let b_cookie = session("onb", "valid-revocable");
+    calls.store(0, Ordering::SeqCst);
+    for path in ["/reports/q1", "/reports/q2"] {
+        assert_eq!(
+            ask(second.clone(), full(path, &b_cookie)).await.status(),
+            StatusCode::OK,
+            "{path} on the second instance"
+        );
+    }
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "the second instance filled its own entry and then hit it"
+    );
+    assert_eq!(kill(LABUSER_SUB).await.status(), StatusCode::OK);
+    let mut answered = StatusCode::OK;
+    for _ in 0..200 {
+        answered = ask(second.clone(), full("/reports/q3", &b_cookie))
+            .await
+            .status();
+        if answered != StatusCode::OK {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(
+        answered,
+        StatusCode::UNAUTHORIZED,
+        "the invalidation never reached the instance that did not serve the kill"
+    );
+    subscriber.abort();
+    // And the rule that makes the publish safe to rely on: with the subscriber
+    // gone this instance is back to serving nothing from cache, whatever it
+    // still holds.
+    cache_b.set_subscribed(false);
+    calls.store(0, Ordering::SeqCst);
+    let orphan = "_oauth2_proxy-orphan";
+    seed(orphan).await;
+    let orphan_cookie = session("orphan", "valid");
+    for path in ["/reports/q1", "/reports/q2"] {
+        assert_eq!(
+            ask(second.clone(), full(path, &orphan_cookie))
+                .await
+                .status(),
+            StatusCode::OK,
+            "{path} is still allowed, just never from cache"
+        );
+    }
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        2,
+        "an unsubscribed instance authenticates every request"
+    );
+    index.forget(LABUSER_SUB).await.unwrap();
+    while queue.try_recv().is_ok() {}
 
     // --- logout (docs/02, "Logout") ---
     // The caller's own kill switch, and the one step of the three only the

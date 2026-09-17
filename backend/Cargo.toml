@@ -8,6 +8,9 @@ license = "GPL-3.0-or-later"
 axum = "0.8.9"
 base64 = "0.23.1"
 chrono = { version = "0.4.45", features = ["serde"] }
+# Only for `StreamExt::next` over the Redis pub/sub stream (ADR-0031). Already
+# in the tree as a dependency of `redis`, so this is a name, not a build.
+futures-util = { version = "0.3.34", default-features = false }
 redis = { version = "1.7.0", default-features = false, features = ["tokio-comp", "connection-manager"] }
 reqwest = { version = "0.12.28", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }

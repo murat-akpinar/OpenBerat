@@ -91,7 +91,17 @@ pub(crate) async fn logout(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> R
         tracing::error!(error = %e, "deleting the oauth2-proxy session failed");
         return refused("delete_session");
     }
+    // The same broadcast the kill switch sends, for the same reason: the
+    // instance that served this POST is not the only one holding an entry this
+    // cookie still matches (ADR-0031). It drops this user's *other* sessions'
+    // entries too — they stay valid and pay a miss each, and the alternative
+    // would need the killer to know a cookie it does not hold.
+    let published = ctx.index.publish_invalidation(&caller.sub).await;
     ctx.cache.drop_sub(&caller.sub);
+    if let Err(e) = published {
+        tracing::error!(error = %e, "broadcasting the invalidation failed");
+        return refused("publish_invalidation");
+    }
     if let Err(e) = ctx.index.forget_session(&caller.sub, &key).await {
         tracing::error!(error = %e, "dropping the index entry failed");
         return refused("forget_index_entry");

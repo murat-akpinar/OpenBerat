@@ -3188,10 +3188,9 @@ seconds, so the first run reported every delivery as 0 µs. The clock above is
 `/proc/uptime` read with the shell builtin, at 10 ms, amortised over thousands
 of cycles.
 
-**Not measured:** anything about two backend instances actually running. Nothing
-has been deployed twice; these are the two transport costs the decision turns
-on, and the ADR is explicit that its subscription-liveness rule is a design
-commitment rather than a measurement.
+**Since measured:** two instances actually running, below — including the
+subscription-liveness rule, which this section called a design commitment
+rather than a measurement.
 
 ## `DATABASE_URL` as an override, and what the default hides
 
@@ -3920,3 +3919,120 @@ consequences, both about what this control can see:
 **Not built, deliberately:** the alerting half. The row above is a query; F-23
 already ships the structured stream a SIEM would evaluate it on, and nothing in
 this product is a monitoring system.
+
+## Two backend instances, actually running
+
+The HA box, on the lab on 2026-09-17 (`verify-ha.sh`, `verify-ha-wedge.sh`),
+against the code [ADR-0031](adr/0031-decision-cache-multi-instance.md) decided
+and this box built: the Redis subscriber, the rule that an instance with no live
+subscription serves no cache hits, and the heartbeat that rule turned out to
+need. `docker compose up -d --scale backend=2`; nothing else in the deployment
+changed, and the lab was put back to one instance afterwards.
+
+**nginx reaches both, and no upstream block was added.** `decide.inc` proxies
+through a variable — `set $backend backend; proxy_pass http://$backend:8081` —
+so the name is resolved per request by the `resolver 127.0.0.11 valid=10s` in
+`nginx.conf`. Docker's DNS answers with both container addresses and nginx
+round-robins over them. 40 concurrent requests, decisions counted on each
+instance's own `/metrics`:
+
+| Run | instance 1 | instance 2 |
+|---|---|---|
+| 1 | +19 | +21 |
+| 2 | +24 | +16 |
+| 3 | +17 | +23 |
+| 4 | +28 | +12 |
+
+**The broadcast, end to end.** Both instances were made to hold a live entry for
+the same session first — without that, an absence of stale ALLOWs afterwards
+proves nothing — read off `openberat_decision_cache_total{result="hit"}` on each
+(+16/+14, +18/+12, +7/+23 across runs). Then a kill switch, served by whichever
+instance nginx picked for the POST:
+
+| | |
+|---|---|
+| Kill switch, two instances | **0.11–0.14 s** to refused on both |
+| Kill switch, one instance (earlier) | 0.085 s |
+| Target ([ADR-0016](adr/0016-n03-revocation-targets.md)) | 5 s |
+
+Removing the publish and re-running is what makes that a measurement rather than
+an observation: the second instance then answers 200 for a full TTL, which is
+the shape the integration suite pins in `cargo test` as well.
+
+**A stopped instance costs the user nothing — and this corrects `docs/02`.**
+That table said nginx OSS's passive check "ejects an instance after users have
+already met the failure". It does not. `proxy_next_upstream error timeout` is
+nginx's own default, so the retry happens **inside the same request**, on the
+next address of the resolved set. With one instance stopped, 30 of 30 requests
+answered 200.
+
+What it does cost is the request that discovers the failure. `docker stop`
+leaves the address unreachable rather than refusing, so nginx finds it by the
+`proxy_connect_timeout 1s` in `decide.inc` and not by an RST:
+
+| | |
+|---|---|
+| Requests served with one instance down | **30/30** |
+| Of those, over 100 ms | 4 of 30, then 10 of 30 on a second run |
+| Worst | **1.04–1.06 s** |
+| nginx's own words | `upstream timed out (110) while connecting`, then `upstream server temporarily disabled` |
+
+The second line is `max_fails=1` / `fail_timeout=10s`, nginx's defaults: after
+one failure that peer is skipped for ten seconds, per worker, which is why a
+handful of requests pay the second and the rest do not. **So the health check
+this box was opened to add is not needed** — not an active one, and not the
+`/readyz` poller rewriting an upstream list that the note proposed. The knob, if
+a site wants the discovery cheaper, is `proxy_connect_timeout`, which is a
+connection to a container on the same network and is generous at 1 s.
+
+**An instance with no live subscription serves no cache hits.** Severed with
+`redis-cli CLIENT KILL TYPE pubsub` (it reported 2 subscribers, which is the
+first thing the run confirms), with the scrapes deliberately outside the window
+because `docker run` costs about as long as the window itself:
+
+| 6 requests | hits | misses |
+|---|---|---|
+| before the kill | 6 | 0 |
+| inside the window | **0** | **6** |
+| after resubscribing | 6 | 0 |
+
+The instance kept serving throughout — that is the point of the rule: a lost
+subscription buys N-02 latency, never a stale ALLOW. Detection is immediate (the
+stream ends) and the subscription is back in **1.0 s**, the `RESUBSCRIBE`
+constant.
+
+**The residual gap ADR-0031 named was real, and is now closed.** The ADR left
+one case open — a connection alive at TCP level while nothing is delivered — and
+said the HA box either adds a heartbeat or writes the gap down. It was measured
+first, with `docker pause` on the Redis container, which is exactly that shape
+and the only thing on the lab that is: the process stops, no FIN and no RST, and
+every socket stays ESTABLISHED.
+
+| | Before the heartbeat | With it |
+|---|---|---|
+| Stale ALLOWs after Redis wedged | **16 of 16, and no end in sight** | 25–28 |
+| Time to the first refusal | never | **8.5–9.2 s** |
+| What the instance logged | nothing | `the cache invalidation subscription stopped answering` |
+
+The heartbeat is a `PING` on the **subscribed connection itself**, which is what
+`PubSubSink`/`PubSubStream` exist for — 5 s between beats and 5 s for the
+answer, so the bound is 10 s and the runs land inside it. The refusal is a 302
+to the login, not a 200: with Redis gone the miss path cannot write the
+[ADR-0019](adr/0019-kill-switch-session-index.md) index either, so the fall from
+hit to miss lands on the fail-closed branch that was already there.
+
+**One honest note about what the experiment does and does not separate.**
+`/readyz` answered **503 on both instances** the whole time it was wedged — its
+`PING` goes over the ordinary connection, and a paused server answers neither.
+So on this particular failure a `/readyz`-driven check would have detected it
+too. The subscribed connection is still the one that has to be proved, because
+the failure the rule is written against is *that* connection being blackholed
+while another one works, and no second connection can report on it. What the
+503 does say is that the gap was always visible from outside; what it could not
+do is make the instance stop trusting its own cache, which is what the flag does.
+
+**Not measured:** more than two instances, and any instance count under
+sustained load — the load figures in this file are all single-instance, and
+`vaultscan` runs the generator itself. Nothing here changes an installation that
+has one instance: with one subscriber the publish is delivered to the process
+that sent it, which is the `drop_sub` the kill switch already performed.

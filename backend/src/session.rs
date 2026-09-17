@@ -1,23 +1,31 @@
 // SPDX-FileCopyrightText: 2026 OpenBerat contributors
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// The sub -> oauth2-proxy session key index (ADR-0019).
+// What the kill switch needs from Redis, which is two things reaching the same
+// server (ADR-0019, ADR-0031).
 //
-// oauth2-proxy's Redis store is keyed by a ticket derived from the session
-// cookie, not by the user, and it exposes no "terminate this user's sessions"
-// API. Without this index the kill switch degrades to Keycloak logout-all plus
-// waiting for cookie_refresh — five minutes rather than the five seconds
-// ADR-0016 promises.
+// **The sub -> oauth2-proxy session key index.** oauth2-proxy's Redis store is
+// keyed by a ticket derived from the session cookie, not by the user, and it
+// exposes no "terminate this user's sessions" API. Without this index the kill
+// switch degrades to Keycloak logout-all plus waiting for cookie_refresh — five
+// minutes rather than the five seconds ADR-0016 promises.
 //
 // The one moment the session key is derivable is a decision-cache miss, because
 // that is when the backend holds the raw cookie. It stores keys, not tokens: a
 // revocation aid, not a second session store.
+//
+// **And the invalidation channel**, which is the same problem one instance
+// over: three of the kill switch's four steps are already fleet-wide, and the
+// fourth — this user's decision-cache entries — happens in one process.
 
+use crate::cache::Cache;
 use base64::Engine;
 use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE_NO_PAD};
+use futures_util::StreamExt;
 use redis::AsyncCommands;
 use redis::aio::ConnectionManager;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Must be at least oauth2-proxy's `cookie_expire` — `10h` in
@@ -30,8 +38,99 @@ const INDEX_TTL: Duration = Duration::from_secs(8 * 24 * 60 * 60);
 
 const INDEX_PREFIX: &str = "openberat:sessions:";
 
+/// One channel carrying a `sub` (ADR-0031). Not a key: the killer does not hold
+/// the cookie a key is derived from, and every instance already knows how to
+/// drop one subject's entries.
+const INVALIDATE_CHANNEL: &str = "openberat:invalidate";
+
+/// How long a lost subscription waits before trying again. Short, because the
+/// instance is serving no cache hits until it is back — N-02 latency on every
+/// request rather than N-01.
+const RESUBSCRIBE: Duration = Duration::from_secs(1);
+
+/// How often the subscription is made to prove it is still delivering, and how
+/// long the proof may take. ADR-0031 leaves one gap open — a connection alive
+/// at TCP level with nothing arriving — and a PING **on the subscribed
+/// connection itself** is what closes it: measured on the lab, a paused Redis
+/// leaves every socket ESTABLISHED and answers nothing, and without this the
+/// instance went on serving cache hits it could no longer invalidate (docs/07).
+const HEARTBEAT: Duration = Duration::from_secs(5);
+
 fn index_key(sub: &str) -> String {
     format!("{INDEX_PREFIX}{sub}")
+}
+
+// --- Feature Start ---
+// The subscriber, and the flag it holds up. It owns the connection rather than
+// sharing the ConnectionManager above, because a subscribed connection can
+// serve no other command — and because the flag has to mean *this* connection:
+// a PING on a working second connection would report a subscription that is
+// gone (ADR-0031).
+//
+// Every road out of the loop clears the flag before retrying, so the window in
+// which this instance could serve a stale ALLOW is the window in which it
+// serves no hits at all.
+// --- Feature End ---
+pub async fn subscribe_invalidations(url: String, cache: Arc<Cache>) {
+    let client = match redis::Client::open(url.as_str()) {
+        Ok(client) => client,
+        // Unreachable in practice: `Index::connect` opened the same URL before
+        // the process got this far. Not a panic, because the caller is a
+        // background task and the cache is already fail-closed without it.
+        Err(e) => {
+            tracing::error!(error = %e, "cannot open Redis for cache invalidations");
+            return;
+        }
+    };
+    loop {
+        // The two ways out are worth telling apart in a log: a connection
+        // somebody closed is a Redis that restarted, and one that went quiet is
+        // the wedge the heartbeat exists for.
+        match subscribed(&client, &cache).await {
+            Ok(why) => tracing::warn!("the cache invalidation subscription {why}"),
+            Err(e) => tracing::warn!(error = %e, "the cache invalidation subscription failed"),
+        }
+        cache.set_subscribed(false);
+        tokio::time::sleep(RESUBSCRIBE).await;
+    }
+}
+
+/// One subscription, from connecting to the stream ending or going quiet. The
+/// connection is split so the heartbeat can go out while the stream is being
+/// read — that is the whole reason for `split`, and a second connection would
+/// prove the wrong thing.
+async fn subscribed(
+    client: &redis::Client,
+    cache: &Cache,
+) -> Result<&'static str, redis::RedisError> {
+    let (mut sink, mut stream) = client.get_async_pubsub().await?.split();
+    sink.subscribe(INVALIDATE_CHANNEL).await?;
+    // Only now: a connection that failed to subscribe would be delivered
+    // nothing while the flag said otherwise.
+    cache.set_subscribed(true);
+    let mut beat = tokio::time::interval(HEARTBEAT);
+    // `interval` fires its first tick immediately, and a PING in the same
+    // breath as the SUBSCRIBE proves nothing.
+    beat.tick().await;
+    loop {
+        tokio::select! {
+            message = stream.next() => match message {
+                Some(message) => match message.get_payload::<String>() {
+                    // `drop_sub` is the one the kill switch and logout already
+                    // call, so a dropped entry still flushes its counters to
+                    // the audit channel — on the instance that held them.
+                    Ok(sub) => cache.drop_sub(&sub),
+                    Err(e) => tracing::warn!(error = %e, "an invalidation carried no subject"),
+                },
+                None => return Ok("ended"),
+            },
+            _ = beat.tick() => match tokio::time::timeout(HEARTBEAT, sink.ping::<()>()).await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => return Err(e),
+                Err(_) => return Ok("stopped answering"),
+            },
+        }
+    }
 }
 
 // --- Feature Start ---
@@ -156,6 +255,18 @@ impl Index {
             return Ok(());
         }
         self.0.clone().del::<_, ()>(keys).await
+    }
+
+    /// The kill switch's and logout's third step, on every instance rather than
+    /// only this one (ADR-0031). The number `PUBLISH` returns is how many
+    /// subscribers it reached, and it is deliberately not read: it is not an
+    /// acknowledgement from anybody's cache, and the rule that an instance with
+    /// no live subscription serves no hits is what makes it unnecessary.
+    pub async fn publish_invalidation(&self, sub: &str) -> Result<(), redis::RedisError> {
+        self.0
+            .clone()
+            .publish::<_, _, ()>(INVALIDATE_CHANNEL, sub)
+            .await
     }
 
     /// The kill switch's last step, after the cache entries are gone.

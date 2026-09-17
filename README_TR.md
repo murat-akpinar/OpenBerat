@@ -20,10 +20,12 @@ uygulamaya kadar olan zincir, gerçek bir AD'ye karşı laboratuvarda uçtan uca
 [docs/09-history.md](docs/09-history.md) içinde. **Henüz sürüm etiketi
 atılmadı** — `release.sh` çevrimdışı paketi üretiyor, ama etiketi kesmek bilerek
 elle yapılan bir iş olarak kalıyor
-([ADR-0023](docs/adr/0023-versioning-and-release.md)). Her yerde tek bir kutu
-açık — backend'i birden fazla instance'ta çalıştırmak, N-06 onu v1'in dışında
-tutuyor, tek ön koşulu ise artık karara bağlandı
-([ADR-0031](docs/adr/0031-decision-cache-multi-instance.md)). 7. faz bitmiş kodu
+([ADR-0023](docs/adr/0023-versioning-and-release.md)). Hiçbir yerde açık kutu
+kalmadı: sonuncusu — backend'i birden fazla instance'ta çalıştırmak — yazıldı ve
+ölçüldü; tek nginx'in arkasında iki instance, kill switch ikisine de ulaşıyor
+([ADR-0031](docs/adr/0031-decision-cache-multi-instance.md),
+[docs/07](docs/07-references.md)). N-06 HA'yı hâlâ v1'in dışında tutuyor, çünkü
+hiçbir instance sayısı yük testinden geçmedi. 7. faz bitmiş kodu
 okurken bulunanlardı: v1 tek bir yönetim ekranı sunuyor — denetim kaydı ve
 `explain` ([ADR-0026](docs/adr/0026-audit-explain-screen-in-v1.md)), kim girmiş
 ([ADR-0028](docs/adr/0028-live-sessions-endpoint.md)), uygulama ve erişim
@@ -211,7 +213,9 @@ sürecin değil bütün zincirin cevabı.
 
 - **v1'de HA yok.** Tek makine, tek nginx, ve ikincisi yerine provası yapılmış
   bir break-glass ([ADR-0017](docs/adr/0017-fail-closed-availability.md));
-  birden fazla instance'ı N-06 v1'in dışına koyuyor.
+  birden fazla instance'ı N-06 v1'in dışına koyuyor. *Backend* iki instance'ta
+  çalışıyor — `--scale backend=2`, ölçüldü, kill switch dahil — ama nginx hâlâ
+  tek süreç ve iki instance yük testinden geçmedi.
 - **Zaten açık bir WebSocket veya SSE bağlantısı iptalin dışında.** Bir kez,
   upgrade anında yetkilendiriliyor ve bir daha değil — ölçüldü
   ([docs/07](docs/07-references.md)). HTTP istekleri sınırlı: AD değişikliği
