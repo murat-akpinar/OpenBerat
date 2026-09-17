@@ -1715,6 +1715,13 @@ file with **none** of the rows in it: the table is partitioned, every row is in
 `audit_event_default`, and `-t` on the parent does not follow partitions. It
 exits 0 and says nothing. `-t 'audit_event*'` gets them all.
 
+**Superseded in part**, and by the same table growing the partitions it was
+always going to have: `-t 'audit_event*'` puts every row in the file, but once
+the months exist that file loads into nothing but a schema partitioned exactly
+like the one it came from. See "The audit partitions restored, and the evidence
+file that carried nothing" below — the command now carries
+`--load-via-partition-root` as well.
+
 **Rolling back is restoring, because the old binary will not start.** Asserted
 in `backend/tests/integration.rs` rather than assumed: with a version in
 `_sqlx_migrations` that the running build does not carry, `store::connect`
@@ -3710,3 +3717,91 @@ With `backend` stopped and break-glass not yet pulled, both the anonymous and
 the signed-in request to Jenkins answered **500** — `auth_request` with no
 backend behind it, which is the fail-closed shape ADR-0017 describes and the
 `error_page` that goes with it.
+
+## The audit partitions restored, and the evidence file that carried nothing
+
+`INSTALL.md` §9 was rehearsed when every audit row was in `audit_event_default`
+— the only partition the schema ships with. Since [ADR-0022](adr/0022-audit-retention.md)
+the retention job creates a partition per month, so the table a real
+installation restores is not the table that procedure was tested against, and a
+partitioned table is the shape that restores wrong. Run on the lab against
+Jenkins as the protected application, over a table carrying **252 rows in two
+partitions plus an empty third**: the live record, a planted `audit_event_2026_08`
+with nine rows, and the `audit_event_2026_10` the backend had already created
+ahead of itself (harness `verify-partrestore.sh`).
+
+**The restore is not the finding.** It is clean, and it is fast:
+
+| | |
+|---|---|
+| `pg_dump` | **0.63 s**, 82 KB |
+| `drop schema public cascade` + `psql` | **0.49 s** |
+| **Stop to enforced access again** — Jenkins answering 200 to the session that held before | **1.57 s** |
+| Partition list after | identical, and every one of them still *attached* |
+| Rows per partition | identical |
+| `md5` of every audit `id`, ordered | identical |
+
+That last row is what the box was actually asking. A partition restored as a
+plain table would still answer every query through the parent — and would never
+expire, because `maintain_audit` finds a month to drop by joining `pg_inherits`
+(`store.rs`). So that query was run verbatim against the restored schema with a
+cutoff the planted month must fall under; it returned `audit_event_2026_08`.
+**Retention survives a restore**, rather than silently stopping at it.
+
+**The finding is the other dump — the one taken before a rollback.** §9 tells an
+operator to keep the audit rows before overwriting them with an older version's
+database:
+
+```
+pg_dump -U openberat -a -t 'audit_event*' openberat > audit-before-rollback.sql
+```
+
+The `*` was already known to be load-bearing, and the reason written down for it
+was that the rows are in `audit_event_default`. That reason expired when the
+retention job shipped. With monthly partitions in the table the file is full of
+rows and **loads nowhere**: `pg_dump` writes one `COPY` per partition, naming
+each partition,
+
+```
+COPY public.audit_event_2026_08 ...
+COPY public.audit_event_2026_10 ...
+COPY public.audit_event_default ...
+```
+
+and the schema a rollback loads it into — the previous version's, freshly
+migrated — has only `audit_event_default`. Measured on the lab: psql stops at
+`ERROR: relation "public.audit_event_2026_08" does not exist` and **0 of 253
+rows** are recovered. `ON_ERROR_STOP=1` is again the difference between a
+failure and half a file.
+
+`--load-via-partition-root` is the fix and it is one flag: it makes every `COPY`
+target the parent, so rows are routed by the *destination's* partitioning rather
+than requiring the source's. Measured four ways, three of them on a throwaway
+`postgres:17-alpine` on the workstation and the fourth on the lab:
+
+| Dump | Loaded into | Rows recovered |
+|---|---|---|
+| plain `-a -t 'audit_event*'` | a schema with the same monthly partitions | all |
+| plain `-a -t 'audit_event*'` | a freshly migrated schema (default partition only) | **0**, stopped |
+| `--load-via-partition-root` | a freshly migrated schema | **all**, in the default partition |
+| `--load-via-partition-root` | a schema with the same monthly partitions | **all**, back in their own months |
+
+The last row is why the flag costs nothing: where the months exist, the rows
+still land in them. The first row is why nobody would have caught this by
+restoring onto the machine the dump came from.
+
+**A second thing the lab showed without being asked.** The current month had no
+partition — `audit_event_2026_10` existed and `audit_event_2026_09` did not,
+with every September row in the default partition. That is ADR-0022's documented
+self-healing case seen live: the backend was down across the month boundary, so
+September's rows reached `audit_event_default` first, and `create table ...
+partition of` for a month whose rows are already in the default is a statement
+Postgres refuses. It is logged as a warning, the expiry half of the pass still
+runs, and October partitioned itself normally. The consequence is the one the
+ADR names — those rows now expire on the cutoff rather than leaving as a month.
+
+**Not measured:** a restore onto deleted volumes with monthly partitions
+present. The full dump carries `CREATE TABLE ... PARTITION OF`, so that path
+differs from this one only in the 25–60 s of Keycloak import already measured
+above, and the in-place restore is the one that exercises `drop schema public
+cascade` against partitions.

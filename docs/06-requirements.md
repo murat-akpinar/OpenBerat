@@ -53,6 +53,7 @@
 | N-05 | Must come up with `docker compose up` on a single machine | v1 |
 | N-06 | High availability (HA) | No in v1; the design will not prevent it |
 | N-07 | Target concurrent users | **? — undecided** |
+| N-08 | Recovery from the backup | **≤ 15 min** to the applications enforcing access again, from one `pg_dump` (`INSTALL.md` §9). Measured on the lab over a table with monthly partitions: **1.6 s** from stopping the backend to Jenkins answering the session that held before — partitions restored attached, rows in the same partitions, and still expirable by the N-04 job. The target is minutes rather than seconds because the product's share of it is seconds: what is left is the operator fetching the dump and deciding (`docs/07`). |
 
 ## Open Questions
 

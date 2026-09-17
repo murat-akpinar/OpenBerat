@@ -146,7 +146,7 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       cookie reached the upstream 0 times, the portal 404s, and the restored
       proxy carries zero break-glass includes.
 
-- [ ] **The audit partitions have never been restored.**
+- [x] **The audit partitions have never been restored.**
       [ADR-0022](docs/adr/0022-audit-retention.md) drops a month as a partition
       and defaults to twelve; §17.3 and §24 both want a restore that has
       actually been performed, and §17.3 additionally wants a stated recovery
@@ -154,6 +154,27 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       ours**, because the schema is ours and a partitioned table is exactly the
       shape that restores wrong.
       *A drill on the lab, and one figure in `docs/07`. No new feature.*
+      **Closed: 1.6 s against a new 15-minute target (N-08), and the drill found
+      the rollback evidence file recovering nothing** (`docs/07`, harness
+      `verify-partrestore.sh`). The restore itself is clean over a table with
+      monthly partitions — 252 rows in two partitions plus an empty third came
+      back attached, per-partition counts and the `md5` of every audit `id`
+      identical, and `maintain_audit`'s own `pg_inherits` query still finds the
+      restored month to expire, which is the failure the box was worried about:
+      a partition restored as a plain table answers every query and silently
+      stops expiring. **The finding is the other dump.** §9's
+      `pg_dump -a -t 'audit_event*'` taken before a version rollback writes one
+      `COPY` per partition *naming that partition*, and the schema a rollback
+      loads it into has only `audit_event_default` — **0 of 253 rows recovered**,
+      stopped at `relation "public.audit_event_2026_08" does not exist`. The
+      `*` was documented as load-bearing because "the rows are in
+      `audit_event_default`", a reason that expired the day the retention job
+      shipped. `--load-via-partition-root` is now on that command: measured four
+      ways, it recovers everything into a freshly migrated schema and still puts
+      the rows back in their own months where those months exist. The lab also
+      showed ADR-0022's self-healing case live — no `audit_event_2026_09` at
+      all, because the backend was down across the month boundary and September's
+      rows reached the default partition before the partition could be created.
 
 - [ ] **Three attack scenarios named by §24 have no check.** The success
       criteria ask for brute-force, **token replay** and **MFA bypass** to be

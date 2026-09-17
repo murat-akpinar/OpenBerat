@@ -906,6 +906,20 @@ restore onto deleted volumes had the application answering **200 again 59 s
 after it began** — of which the restore itself is 3 s and the rest is Keycloak
 importing its realm.
 
+Rehearsed again over a table that **has monthly partitions**, which is what an
+installation older than a month restores and is the shape that restores wrong:
+252 rows across two partitions, dump 0.6 s, restore 0.5 s, **1.6 s from stopping
+the backend to the application enforcing access again**. The partitions came
+back attached, the rows came back in the same partitions, and the retention job
+still finds them to expire — a partition restored as a plain table would have
+answered every query and quietly stopped expiring (`docs/07`).
+
+**The recovery target is 15 minutes** (N-08), and the measurements above are why
+it is not tighter: the product's share of it is seconds, so the target is the
+operator's — noticing, fetching the dump from wherever this installation keeps
+it, and deciding to restore. If a restore here takes minutes, the dump is far
+away, not slow.
+
 ### Rolling a version back
 
 There is no migration rollback. `backend/migrations/` is applied forward only;
@@ -924,16 +938,25 @@ redo, and audit rows nobody can. Keep them before you overwrite them —
 
 ```sh
 docker compose exec -T postgres pg_dump -U openberat -a -t 'audit_event*' \
-  openberat > audit-before-rollback.sql
+  --load-via-partition-root openberat > audit-before-rollback.sql
 ```
 
-The `*` is load-bearing: `audit_event` is partitioned, the rows are in
-`audit_event_default`, and `-t audit_event` dumps the parent — measured, a
-file with **none** of the rows in it and no warning that it was empty. Keep in
-mind, too, that they may not load into the older schema. The audit record is
-immutable by rule (`CONTRIBUTING.md`), so a column the newer version added is a
-column the older one cannot take. That file is evidence; it is not always a
-restore.
+**Both of those flags are load-bearing, and for opposite halves of the same
+fact.** `audit_event` is partitioned by month ([ADR-0022](docs/adr/0022-audit-retention.md)).
+Without the `*`, `-t audit_event` dumps the parent alone — measured, a file with
+**none** of the rows in it and no warning that it was empty. With the `*` the
+rows are all there, but `pg_dump` names each partition in its own `COPY`, and
+the schema you are rolling back into is the older version's freshly migrated
+one, where `audit_event_default` is the only partition that exists: measured,
+the load stops at `relation "public.audit_event_2026_08" does not exist` having
+recovered **0 of 253 rows**. `--load-via-partition-root` sends every row through
+the parent instead, so it lands wherever the destination is partitioned — and
+where those months do exist, back in their own months (`docs/07`).
+
+Keep in mind, too, that they may not load into the older schema for a second
+reason. The audit record is immutable by rule (`CONTRIBUTING.md`), so a column
+the newer version added is a column the older one cannot take. That file is
+evidence; it is not always a restore.
 
 ## 10. Watching it
 
