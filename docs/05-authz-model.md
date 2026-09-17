@@ -219,13 +219,15 @@ zero.
 them separately:
 
 ```
-allow: { count, first_seen, last_seen, distinct_path }
-deny:  { reason → { count, first_seen, last_seen } }
+(allow,          src_ip) → { count, first_seen, last_seen, distinct_path }
+(deny(reason),   src_ip) → { count, first_seen, last_seen, distinct_path }
 ```
 
 When the entry leaves the cache — TTL, eviction, logout, kill switch — one
-summary row is written per outcome: an allow row, and one row per distinct deny
-reason (`docs/02`, "Audit granularity").
+summary row is written per outcome per source address: an allow row per
+address, and one row per distinct deny reason per address (`docs/02`, "Audit
+granularity"). The address is part of that key because a cookie replayed from a
+second client is refused by nothing here, so the record is the whole control.
 
 Deprovisioning delay is therefore still **two numbers**: `cookie_refresh` plus
 this TTL (ADR-0006, ADR-0016). **Exception:** long-lived connections such as
@@ -361,7 +363,9 @@ without a test is visible as a gap rather than an omission.
 | Calling `/decide` directly to enumerate the policy table | From the browser: `internal;`. From a container: the backend sits only on `core`, which no protected application joins (`docs/02`) | Phase 3 |
 | Calling the portal's `/oauth2/auth` directly as a session oracle, and reading the identity headers it answers with | `internal;`, the same control `/decide` uses and for the same reason (`nginx/conf.d/README.md` rule 5) | Measured, Phase 7 |
 | Guessing `KC_BOOTSTRAP_ADMIN_PASSWORD` at `/realms/master/protocol/openid-connect/token`, which `admin-cli` accepts a password grant on | The Keycloak host publishes **one realm, by name**; `master` is not proxied at all (`nginx/conf.d/README.md` rule 22) | Measured, Phase 7 |
-| Guessing a user's password at the login form, which nothing bounded | `limit_req` per address on `login-actions`, and the realm's own per-user brute-force lockout, which Keycloak leaves off (`keycloak/README.md`). Neither layer sees what the other does | Phase 7 |
+| A session cookie **replayed** from somewhere else — the same ticket presented by a second client | **Not refused, deliberately: the cookie *is* the session (ADR-0003) and nothing binds it to an address.** The control is the record — audit summaries are keyed on the source address as well as the outcome, so "one subject, two addresses, one window" is a query. It sees only what reaches nginx: two clients behind one NAT are one address | Measured, `docs/07` |
+| Guessing a user's password at the login form, which nothing bounded | `limit_req` per address on `login-actions`, and the realm's own per-user brute-force lockout, which Keycloak leaves off by default and this realm turns on at five failures (`keycloak/README.md`). Neither layer sees what the other does | Measured, `docs/07`: the right password is refused while the lock holds |
+| Answering the management plane's OTP challenge wrongly, or skipping the browser flow that carries it — a password grant at the token endpoint, or a token minted by a service account | A refused code leaves **no session at all**, not a lesser one; `directAccessGrantsEnabled` is off on both clients, so there is no password grant to mint one with; and the management plane reads only what nginx rewrote from a session, so a bearer token is not an identity here ([ADR-0032](adr/0032-admin-mfa.md)) | Measured, `docs/07` |
 | A client sending its own `X-Forwarded-Host` and the upstream building a password-reset link, an OAuth `redirect_uri` or a cache key out of it | The whole `X-Forwarded-*` family is pinned on every hop, and `X-Forwarded-Prefix` / `X-Original-URL` / `X-Rewrite-URL` are cleared on the two that reach somebody else's application. nginx forwards what it is not told to overwrite, so a half-pinned family is a client-written one (`nginx/conf.d/README.md` rule 24) | Phase 7 test |
 | A forged `X-Forwarded-For` becoming the source address on Keycloak's login events, so a password spray is recorded from somewhere else | `$remote_addr`, not `$proxy_add_x_forwarded_for`, which keeps the client's copy and appends to it. Keycloak reads the leftmost entry (`KC_PROXY_HEADERS=xforwarded`). `limit_req` was never affected — it keys on `$binary_remote_addr` — but the record was | Phase 7 test |
 | A `slug` or `external_hostname` carrying `;` becoming a directive in a generated `server` block | Three copies of one shape rule: the schema's CHECK, the admin API, and `render_apps_conf` — which is the last point before the value *is* configuration and had no slug check at all | Phase 7 test |

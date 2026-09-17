@@ -99,11 +99,17 @@ rather than an attack. Never writing cache hits makes a user who downloads
 
 The rule: **count decisions, summarise rows.**
 
-- The cache entry keeps counters per outcome: `count`, `first_seen`, `last_seen`
-  and `distinct_path` for allows, and the same per reason for denies (`docs/05`).
+- The cache entry keeps counters per outcome **and per source address**:
+  `count`, `first_seen`, `last_seen` and `distinct_path` for allows, and the
+  same per reason for denies (`docs/05`). The address is in the key rather than
+  folded in from the first request because a session presented from a second
+  address is the only trace a **replayed cookie** leaves — nothing refuses one,
+  so a row carrying only the first address hides it (`docs/07`, and the source
+  address is the client's only as far as the last NAT in front of nginx).
 - When the entry leaves the cache — TTL expiry, LRU eviction, logout or the
-  kill switch — **one summary row per outcome** is written: one allow row, and
-  one row per distinct deny reason. Every exit road flushes for the reason
+  kill switch — **one summary row per outcome per source address** is written:
+  one allow row per address, and one row per distinct deny reason per address.
+  Every exit road flushes for the reason
   shutdown does: dropping an entry without writing its counters silently
   deletes audit, and the kill-switch road would lose exactly the user under
   incident response.
@@ -358,11 +364,16 @@ entitlement                       -- "who reaches what"
   expires_at                      -- NULL = no expiry
 
 audit_event         -- append-only, partitioned by month on ts; one summary row
-                    -- per (cache entry, outcome) — "Audit granularity" above
+                    -- per (cache entry, outcome, src_ip) — "Audit granularity"
+                    -- above. 0001_init.sql's own comment predates the address
+                    -- being in that key, and an applied migration is not edited
+                    -- (docs/07).
   id, ts, actor_sub, actor_name,
   application_id, application_slug, decision, reason,
   count, first_seen, last_seen, distinct_path,
-  first_path, src_ip, request_id  -- of the FIRST request folded into the row;
+  src_ip,                         -- every request folded into the row came from
+                                  -- it; a second address is a second row
+  first_path, request_id          -- of the FIRST request folded into the row;
                                   -- the per-request stream is stdout (F-23)
   -- PK is (id, ts): Postgres requires the partition key in the primary key
   --                 of a partitioned table. Not a detail to discover in Phase 2.

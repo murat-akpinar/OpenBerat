@@ -16,7 +16,7 @@
 | F-05 | An application not shown in the portal cannot be reached by direct URL either. |
 | F-06 | An admin can define applications (name, target address, icon). |
 | F-07 | An admin can map AD group ↔ application (allow/deny). |
-| F-08 | Every access decision enters the audit record; rows are written summarised — counters plus a single summary row (`docs/02`, "Audit granularity"). |
+| F-08 | Every access decision enters the audit record; rows are written summarised — counters plus one summary row per outcome and source address (`docs/02`, "Audit granularity"). |
 | F-09 | An admin can terminate all of a user's sessions immediately (kill switch). |
 | F-10 | A user disabled in AD loses access within a defined period. |
 | F-11 | Path-based authorisation: a single path of an application (`/admin/*`) can be bound to its own rule. |

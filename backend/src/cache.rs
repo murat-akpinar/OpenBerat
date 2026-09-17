@@ -130,15 +130,14 @@ pub struct Cached {
     pub application_id: Option<Uuid>,
 }
 
-/// One outcome's running total inside a live entry. Written out as a single
-/// `audit_event` row when the entry leaves the cache (docs/02, "Audit
-/// granularity").
+/// One outcome's running total inside a live entry, for one source address.
+/// Written out as a single `audit_event` row when the entry leaves the cache
+/// (docs/02, "Audit granularity").
 struct Counters {
     count: i32,
     first_seen: DateTime<Utc>,
     last_seen: DateTime<Utc>,
     first_path: String,
-    src_ip: Option<IpAddr>,
     request_id: Option<String>,
     // ponytail: one hash per distinct path, so a user walking 50k paths inside
     // one TTL costs 400 KB. Swap for an estimator if that ever shows up.
@@ -150,7 +149,14 @@ struct Entry {
     slug: String,
     cached: Cached,
     inserted: Instant,
-    counters: HashMap<Decision, Counters>,
+    // Keyed on the address as well as the outcome: a session presented from a
+    // second one is then a second row rather than requests folded into the
+    // first address's, which is the only trace a replayed cookie leaves
+    // (docs/02, "Audit granularity").
+    // ponytail: one Counters per address per outcome per TTL, so an attacker
+    // rotating addresses pays in rows. Bound it the way `distinct` would be
+    // bounded if that ever shows up.
+    counters: HashMap<(Decision, Option<IpAddr>), Counters>,
 }
 
 #[derive(Default)]
@@ -264,15 +270,17 @@ impl Cache {
         let now = Utc::now();
         let mut hasher = DefaultHasher::new();
         path.hash(&mut hasher);
-        let counters = entry.counters.entry(decision).or_insert_with(|| Counters {
-            count: 0,
-            first_seen: now,
-            last_seen: now,
-            first_path: path.to_string(),
-            src_ip,
-            request_id,
-            distinct: HashSet::new(),
-        });
+        let counters = entry
+            .counters
+            .entry((decision, src_ip))
+            .or_insert_with(|| Counters {
+                count: 0,
+                first_seen: now,
+                last_seen: now,
+                first_path: path.to_string(),
+                request_id,
+                distinct: HashSet::new(),
+            });
         counters.count += 1;
         counters.last_seen = now;
         counters.distinct.insert(hasher.finish());
@@ -360,7 +368,7 @@ impl Cache {
     }
 
     fn flush(&self, entry: Entry) {
-        for (decision, counters) in entry.counters {
+        for ((decision, src_ip), counters) in entry.counters {
             self.audit.record(AuditEvent {
                 application_id: entry.cached.application_id,
                 application_slug: entry.slug.clone(),
@@ -372,7 +380,7 @@ impl Cache {
                 last_seen: counters.last_seen,
                 distinct_path: counters.distinct.len() as i32,
                 first_path: counters.first_path,
-                src_ip: counters.src_ip,
+                src_ip,
                 request_id: counters.request_id,
             });
         }
@@ -550,6 +558,40 @@ mod tests {
         );
         cache.sweep();
         assert_eq!(queue.try_recv().unwrap().count, 1);
+    }
+
+    /// Token replay in this product's terms: one session cookie presented from
+    /// a second address. Nothing refuses it — the cookie *is* the session
+    /// (ADR-0003) — so the whole control is that the record shows it, and it
+    /// cannot show it if the second address is folded into a row carrying the
+    /// first one's.
+    #[test]
+    fn one_session_from_two_addresses_is_two_rows() {
+        let (audit, mut queue) = audit_channel(16);
+        let cache = Cache::new(audit);
+        let k = key("_oauth2_proxy=abc", "finance");
+        let owner: IpAddr = "10.0.0.7".parse().unwrap();
+        let thief: IpAddr = "203.0.113.9".parse().unwrap();
+        cache.insert(k.clone(), "sub-labuser".to_string(), cached());
+        cache.count(&k, Decision::Allow, "/a", Some(owner), None);
+        cache.count(&k, Decision::Allow, "/b", Some(thief), None);
+        cache.count(&k, Decision::Allow, "/c", Some(thief), None);
+        cache.flush_all();
+
+        let mut written = Vec::new();
+        while let Ok(event) = queue.try_recv() {
+            written.push(event);
+        }
+        assert_eq!(written.len(), 2, "one outcome from two addresses");
+        let from = |ip: IpAddr| {
+            written
+                .iter()
+                .find(|e| e.src_ip == Some(ip))
+                .unwrap_or_else(|| panic!("no row carries {ip}"))
+        };
+        assert_eq!(from(owner).count, 1);
+        assert_eq!(from(thief).count, 2);
+        assert_eq!(from(thief).first_path, "/b");
     }
 
     // --- Feature Start ---

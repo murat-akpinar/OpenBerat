@@ -3805,3 +3805,118 @@ present. The full dump carries `CREATE TABLE ... PARTITION OF`, so that path
 differs from this one only in the 25–60 s of Keycloak import already measured
 above, and the in-place restore is the one that exercises `drop schema public
 cascade` against partitions.
+
+## §24's three attack scenarios, as checks
+
+The success criteria name brute force, token replay and MFA bypass. The suite
+already attacks rather than walks the happy path — forged `X-Auth-*`, double
+encoding, `/x/../admin/`, the post-kill-switch cache refill — and these three
+were simply not among it. Two of them are realm behaviour and belong in a lab
+script; **one turned out to be ours, and to be broken**: harness
+`verify-attacks.sh` (`brute`, `mfa`, `replay-a`/`replay-b`), plus one unit test
+and one integration test for the third.
+
+### Brute force — the lock, and the right password under it
+
+`failureFactor` was measured into being 5 when the realm was read against the
+§9.2 session table (above); what was owed was a check rather than a run. Eleven
+assertions against the running realm, `labnested`, attempts 1.5 s apart so
+`quickLoginCheckMilliSeconds` never fires:
+
+| Assertion | |
+|---|---|
+| `failureFactor` | 5 |
+| after 4 wrong: `numFailures` / `disabled` | 4 / false |
+| the right password below the threshold | logs in, `/api/me` 200 |
+| a good login resets `numFailures` | 0 |
+| after 5 wrong: `disabled` | true |
+| **the RIGHT password while the lock holds** | **refused**, and `/api/me` 302 |
+
+The second-to-last row is the control and the last row is the attack: a guesser
+who has just found the password still does not get in, and gets no session to
+show for it. The harness unlocks the account and logs in once to restore it.
+
+### MFA bypass — three ways past the second factor
+
+[ADR-0032](adr/0032-admin-mfa.md) puts MFA in the realm's browser flow, so the
+bypasses worth checking are the ones that avoid that flow. All three are
+refused, every stage against the live lab:
+
+| The attempt | What answers |
+|---|---|
+| the password, then a wrong OTP code | the challenge again; `/api/me`, `/api/admin/applications` and `/api/admin/sessions` all **302** — a refused code leaves no session at all, not a lesser one |
+| `grant_type=password` at the token endpoint for `labadmin`, with the client secret, and again as if the client were public | `unauthorized_client`, *"Client not allowed for direct access grants"*; no `access_token` in either body |
+| a token minted outside the browser flow entirely — the backend's own service account — carried as `Authorization: Bearer` to `/api/admin/applications` | **302**. The management plane reads only what nginx rewrote from a session; a bearer token is not an identity here |
+
+The harness clears the attack-detection record before and after, because **a
+refused OTP is a failed login** and would otherwise leave `labadmin` locked for
+the next run (the same trap the ADR-0032 run hit).
+
+**What this does not check, and cannot from here:** that OTP is *required*. That
+rests on the realm role `openberat-mfa` being mapped onto both management
+groups, and the backend never sees an `acr` — `/decide` is handed the user,
+username, email and groups and nothing else. Remove the mapping and an admin
+logs in with a password alone and reaches everything, with nothing in this
+product to notice. The check for that is `keycloak/realm-drift.sh`, which
+compares the running realm against a fresh import of the export and reports
+exactly that kind of missing mapping; the second line of defence — a session's
+authentication level as an input to the decision — is the open question in
+`docs/06` that F-21's `conditions` column would answer.
+
+### Token replay — the record folded the replay away
+
+This one was ours, and the box's premise was wrong. `TODO.md` said
+`audit_event.src_ip` "already holds what the query needs"; it held the address
+of the **first** request folded into a summary row, and a replayed cookie is by
+construction the *same* cache entry — same `(cookie_hash, app_slug)` key, same
+outcome — so its address was folded into a row carrying the owner's. Run
+against the deployed backend before the fix, one session used twice from one
+address and once from another:
+
+```
+rows: 172.19.0.1:3
+```
+
+One row, three requests, one address. Nothing in the product noticed, and the
+report §16 asks for — one subject, two addresses, one window — returned nothing
+to notice.
+
+**The fix is the counter key**: `HashMap<(Decision, Option<IpAddr>), Counters>`
+instead of `HashMap<Decision, Counters>`, so an address that has not been seen
+in this entry starts its own row rather than incrementing somebody else's
+(`cache.rs`). The row format does not change and no column is added — this is a
+granularity change, and the one in `0001_init.sql`'s header comment is now the
+old one, because an applied migration is not edited (`docs/07`, the checksum
+finding). `docs/02` and `docs/05` carry the current rule.
+
+Red first in both places — `cache::tests::one_session_from_two_addresses_is_two_rows`
+(one row, the thief's address absent) and the integration suite through `/decide`
+to Postgres (`[("10.0.0.7", 3)]` where two rows were expected) — then on the
+lab against the rebuilt backend:
+
+| | |
+|---|---|
+| the same cookie from a second machine | **200.** Nothing refuses it, and nothing should: the cookie *is* the session (ADR-0003) |
+| rows for that subject, that window | `172.19.0.1:2`, `192.168.1.112:1` |
+| the report: `count(distinct src_ip) > 1` grouped by `actor_sub` | finds the subject, **2** addresses |
+
+**The second finding is what `172.19.0.1` is.** It is Docker's bridge gateway,
+not a client. Every request from the lab host itself — whatever address curl
+binds with, loopback or the host's own LAN address — reaches nginx through
+Docker's userland proxy and arrives with the gateway as `$remote_addr`, which is
+what `X-Real-IP` and therefore `src_ip` carry. Only traffic from another machine
+keeps its address (`192.168.1.112` above, DNAT'd rather than proxied). Two
+consequences, both about what this control can see:
+
+- **A replay driven from one host is invisible by construction**, which is why
+  the harness is two stages with a real second machine in between. A one-host
+  version of this check would have passed against the broken code.
+- The address in the record is the client's only as far as the last NAT in front
+  of nginx. Two users behind one corporate NAT are one address, and the report
+  cannot separate them; a replay from inside that NAT is not visible at all.
+  This is a property of a proxy record, not of this product, and it is why the
+  control is a *report* for an operator rather than a decision the PEP takes.
+
+**Not built, deliberately:** the alerting half. The row above is a query; F-23
+already ships the structured stream a SIEM would evaluate it on, and nothing in
+this product is a monitoring system.

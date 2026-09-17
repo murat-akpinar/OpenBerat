@@ -176,7 +176,7 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       all, because the backend was down across the month boundary and September's
       rows reached the default partition before the partition could be created.
 
-- [ ] **Three attack scenarios named by §24 have no check.** The success
+- [x] **Three attack scenarios named by §24 have no check.** The success
       criteria ask for brute-force, **token replay** and **MFA bypass** to be
       tested; `CLAUDE.md` step 3 already requires the attack to be tested rather
       than the happy path, and the existing suite does that for forged
@@ -190,6 +190,28 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       Brute-force has a lab run now, from the box above
       (`verify-realmprofile.sh`, `docs/07`) — the lockout, what reaches AD
       during it; what is still owed is making it a check rather than a run.*
+      **Closed: two lab checks, one `cargo test` — and the third scenario was
+      broken in our own code** (`docs/07`, harness `verify-attacks.sh` with
+      `brute`, `mfa`, `replay-a`/`replay-b`). Brute force and MFA bypass are
+      the realm's and are now asserted rather than observed: the **right**
+      password is refused while the five-failure lock holds and earns no
+      session, and three ways past the second factor — a wrong OTP code, a
+      `grant_type=password` at the token endpoint with and without the client
+      secret, and a service-account bearer token — all answer 302 or
+      `unauthorized_client`. **Token replay was ours and the box's premise was
+      wrong:** `src_ip` held the *first* request's address and a replayed
+      cookie is the same cache entry, so the second address was folded into the
+      owner's row — measured on the deployed backend as `172.19.0.1:3`, one row
+      for three requests from two places. The counters are now keyed on
+      `(outcome, src_ip)`; red first in `cache.rs` and through `/decide` to
+      Postgres, then on the lab: `172.19.0.1:2` + `192.168.1.112:1`, and the
+      report finds the subject at two addresses. The run's own finding is that
+      `172.19.0.1` is **Docker's bridge gateway** — every client on the host
+      NATs to it whatever it binds, so a one-host version of this check would
+      have passed against the broken code, and the record separates clients
+      only as far as the last NAT in front of nginx. Not built: the alerting
+      half (F-23 already ships the stream) and an `acr` input to `/decide`,
+      which stays the `docs/06` question.
 
 - [ ] Backend on 2 instances + nginx health check (HA — after the first deployment)
       *Not started: N-06 puts HA outside v1 and the box waits on a first real

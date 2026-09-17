@@ -79,7 +79,11 @@ reader outside the maintainer's machine can find them.
   login theme is read at runtime, so it is not covered by this exception.
 - **The audit record format is immutable.** Changing what an `audit_event` row
   holds is a breaking change, which is why the summary columns are in the first
-  migration rather than added later (`docs/02-architecture.md`).
+  migration rather than added later (`docs/02-architecture.md`). How many rows
+  one cache entry writes is *not* the format: the key a summary is folded on
+  gained the source address without a column changing, because a replayed
+  cookie is otherwise invisible (`docs/07`). A reader summing `count` gets the
+  same answer; one assuming one row per outcome gets more rows.
 - **An applied migration is immutable, byte for byte.** sqlx stores a checksum
   of every file in `backend/migrations/` and refuses to start when one changes,
   so adding even a comment to `0001_init.sql` is an upgrade that stops every

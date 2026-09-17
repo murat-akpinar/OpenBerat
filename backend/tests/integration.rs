@@ -1248,6 +1248,90 @@ async fn decide_section(pool: &PgPool) {
     index.forget(LABUSER_SUB).await.unwrap();
     while queue.try_recv().is_ok() {}
 
+    // --- token replay: one cookie, two addresses ---
+    // Nothing refuses the second address — the cookie *is* the session
+    // (ADR-0003) — so the whole control is that the record shows it, and the
+    // address only reaches the record through a summary row the cache folds
+    // requests into. Run to the table rather than to the channel, because the
+    // report §16 asks for is a query and a query cannot see what was folded
+    // away.
+    let (audit, rx) = audit_channel(16);
+    let writer = tokio::spawn(openberat::store::write_audit(pool.clone(), rx));
+    let replay = Arc::new(Ctx {
+        pool: pool.clone(),
+        http: no_redirects(),
+        oauth2_proxy: upstream.clone(),
+        cache: Arc::new(Cache::new(audit.clone())),
+        audit,
+        index: index.clone(),
+        keycloak: openberat::keycloak::Keycloak::new(
+            &reqwest::Client::new(),
+            &keycloak_url,
+            "openberat",
+            "openberat-backend",
+            "test-secret",
+        ),
+        admin_group: "OpenBerat-Admins".to_string(),
+        auditor_group: "OpenBerat-Auditors".to_string(),
+        portal_origin: "https://portal.apps.example.local".to_string(),
+        nginx_conf_dir: None,
+    });
+    let from = |ip: &str, uri: &str| {
+        full(uri, &session("replay", "valid"))
+            .into_iter()
+            .map(|(name, value)| {
+                if name == "x-real-ip" {
+                    (name, ip.to_string())
+                } else {
+                    (name, value)
+                }
+            })
+            .collect::<Vec<_>>()
+    };
+    for (ip, uri) in [
+        ("10.0.0.7", "/reports/q1"),
+        ("10.0.0.7", "/reports/q2"),
+        ("203.0.113.9", "/reports/q3"),
+    ] {
+        let response = ask(replay.clone(), from(ip, uri)).await;
+        assert_eq!(response.status(), StatusCode::OK, "{ip} {uri}");
+    }
+    replay.cache.flush_all();
+    drop(replay);
+    writer
+        .await
+        .expect("the writer drains and exits when the sender goes");
+
+    let rows: Vec<(String, i32)> = sqlx::query_as(
+        "select host(src_ip), count from audit_event
+          where actor_sub = $1 order by count desc",
+    )
+    .bind(LABUSER_SUB)
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows,
+        [("10.0.0.7".to_string(), 2), ("203.0.113.9".to_string(), 1)],
+        "three requests, two addresses, and neither folded into the other"
+    );
+    // The report itself: one subject seen from more than one address inside one
+    // window. Nothing else in this product notices a replayed cookie.
+    let seen: Vec<(String, i64)> = sqlx::query_as(
+        "select actor_sub, count(distinct src_ip) from audit_event
+          where last_seen > now() - interval '5 minutes'
+          group by actor_sub having count(distinct src_ip) > 1",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    assert_eq!(seen, [(LABUSER_SUB.to_string(), 2)]);
+    sqlx::query("delete from audit_event")
+        .execute(pool)
+        .await
+        .unwrap();
+    index.forget(LABUSER_SUB).await.unwrap();
+
     // --- the management plane ---
     let call = async |method: &str, path: &str, headers: Vec<(&str, String)>| {
         let mut request = Request::builder().method(method).uri(path);
