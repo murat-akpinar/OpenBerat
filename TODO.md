@@ -81,7 +81,7 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       five reads 200, six writes and a forged-header write 403 with both tables
       byte-identical, and an admin's identical write answering 200.
 
-- [ ] **Configuration-as-Code is asserted and nothing verifies it.**
+- [x] **Configuration-as-Code is asserted and nothing verifies it.**
       §24's success criterion is "the configuration can be re-installed from
       Git", and `docker-compose.yml` already claims the stronger version — the
       realm is *reproduced* by re-importing the export, which is why the lab H2
@@ -96,6 +96,24 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
       resolved `${...}` placeholders) and diffs the rest — runnable by hand,
       then in CI. It is also the only item here that would have caught the
       previous box: a `failureFactor` somebody raised in the console.*
+      **Closed: `keycloak/realm-drift.sh`, a `realm export` job in CI, and one
+      correction to the export itself** (measured in `docs/07`, harnesses
+      `verify-realmdrift.sh` and `verify-realmdrift-prod.sh`). It compares the
+      running realm not with the file but with a **fresh import of the file in
+      a throwaway container**: the export names only what differs from
+      Keycloak's defaults, so a comparison with the file would have missed
+      `registrationAllowed`, which nothing in the export mentions. Four kinds of
+      drift were made on the live lab realm and all four were reported —
+      including one nested in the LDAP component and a hand-made group carrying
+      `openberat-mfa` — then restored, and it read clean again. It answers the
+      same on `INSTALL.md` §5's production shape, where drift survives a
+      restart; there the database override is what keeps the reference from
+      reading the very realm it is checking (`Import skipped`). **The first run
+      found a real difference on a realm nobody had touched:** Keycloak writes
+      `multivalued` into the groups mapper on every token it issues, so every
+      installation differed from its own export the moment somebody logged in.
+      The export now carries it. CI imports the export, requires a clean read,
+      then raises `failureFactor` and requires a failure.
 
 - [ ] **Break-glass is written and timed at nothing.** `docs/08` and
       [ADR-0030](docs/adr/0030-breakglass-generated-blocks.md) describe the way

@@ -3536,3 +3536,90 @@ will meet: the auditor's `groups` carries `role:openberat-mfa` beside
 grants nothing here — both group checks are exact name matches (ADR-0021 on the
 `role:` prefix) — and it is the direct evidence that the mapping reached the
 member.
+
+## The export in Git against the realm that is running
+
+`docker-compose.yml` claims the realm is *reproduced* by re-importing the
+export, and until now nothing compared the two. `keycloak/realm-drift.sh` does:
+it reads the running realm through
+`POST /admin/realms/openberat/partial-export`, starts a throwaway Keycloak from
+the same compose service that imports `keycloak/realm/` fresh, reads that the
+same way, and prints every setting where they differ. Both sides hand back
+client secrets and the LDAP bind password as `**********`, so nothing compared
+is a secret and no placeholder value has to be known.
+
+**The reference is a fresh import, not the file.** The export names only what
+differs from Keycloak's defaults, so comparing against the file would see
+`failureFactor` change and not `registrationAllowed` — a setting the file never
+mentions. Switched on in the lab realm, it was caught, because the reference
+carries Keycloak's own default for it.
+
+**Keycloak writes `multivalued` into the groups mapper on every token it
+issues.** The first run reported exactly one difference, on a realm nobody had
+touched: `clients[openberat-proxy].protocolMappers[groups].config.multivalued`,
+`true` in the running realm and absent from a fresh import. It is not drift and
+not the admin console —
+[`GroupMembershipMapper.setClaim`](https://github.com/keycloak/keycloak/blob/26.3.5/services/src/main/java/org/keycloak/protocol/oidc/mappers/GroupMembershipMapper.java)
+does it on the claim path:
+
+```java
+// force multivalued as the attribute is not defined for this mapper
+mappingModel.getConfig().put(ProtocolMapperUtils.MULTIVALUED, "true");
+```
+
+So **every realm that has served one login differed from its own export**, and
+would have from the day the check existed. The export now carries the value
+Keycloak writes anyway; the lab then read clean, and read clean again after a
+fresh `labuser` login. Ruled out first, on a throwaway: two reads and two
+`partial-export` calls leave the mapper untouched.
+
+**One realm update through the admin API stores four session timeouts as
+attributes.** After `kcadm update realms/openberat -s failureFactor=10` and
+putting the value back by hand, the realm kept `attributes.clientSessionIdleTimeout`,
+`attributes.clientSessionMaxLifespan` and their two offline twins at `"0"` —
+the same value the top-level fields of those names already had. Nothing had
+changed, but a realm restored by hand would never have read clean again, so the
+check drops a realm attribute that shadows a top-level field and compares the
+field.
+
+**An empty environment variable is not an absent one.** The reference must not
+reach the database the running realm lives in — the production form of the
+service (`INSTALL.md` §5) points `KC_DB` at it. `-e KC_DB_URL=` does not unset
+it: Keycloak takes the empty string as the URL and the container dies with
+`Unable to find datasource '<default>' … its URL is not set`. The reference is
+therefore started through `env -u KC_DB_URL -u KC_DB_USERNAME -u KC_DB_PASSWORD`.
+Without that override it reads the realm it is checking: run against the
+production form on purpose, it logged `Realm 'openberat' already exists. Import
+skipped`, which would have compared a drifted database with itself and answered
+that everything matches.
+
+**Four kinds of drift, made on the live lab realm and then put back.**
+
+| Changed in the running realm | Reported |
+|---|---|
+| `failureFactor` 5 → 10 — a key the export names | `failureFactor`, export 5, running 10 |
+| `registrationAllowed` false → true — a key it does not | `registrationAllowed`, export false, running true |
+| LDAP provider `cachePolicy` `NO_CACHE` → `DEFAULT` — nested in a component | `components.…UserStorageProvider[ad].config.cachePolicy` |
+| A group `Handmade-Admins` carrying the `openberat-mfa` role | four lines, including `groups[Handmade-Admins].realmRoles` |
+
+Seven lines, exit 1. Restoring all four with `kcadm` — the group deleted — read
+clean again, exit 0. What is deliberately **not** compared is a group AD
+imported: the LDAP group mapper creates a realm group for every AD group it
+matches, so `OpenBerat-Finance` is printed as *not compared*. A group that
+carries a role, an attribute or a subgroup is not that import, and the
+hand-made one above proves such a group is still caught.
+
+**It works against the production shape too.** The `INSTALL.md` §5 form —
+two-stage image, `start --optimized --import-realm`, realm on Postgres — in its
+own compose project on the lab, with the serving stack's Keycloak stopped for
+the run on a 2 GB host: started in 41.9 s, imported, read clean. `kcadm` over
+`localhost:8080` works there with `KC_HOSTNAME` set to the browser-facing name.
+A `failureFactor` raised to 10 **survived a container restart**, as a realm on a
+real database does, and was caught.
+
+A run takes 60–67 s on the lab and about 40 s on a workstation, nearly all of it
+the reference Keycloak starting. CI runs the same script against a realm
+imported a moment earlier, then raises `failureFactor` and requires the script
+to fail — a check that can no longer see drift would otherwise pass quietly.
+Harnesses on the lab host: `verify-realmdrift.sh` (drift, check, restore) and
+`verify-realmdrift-prod.sh` with `kcprod.Dockerfile` and `kcprod.yml`.

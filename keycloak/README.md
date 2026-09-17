@@ -5,6 +5,7 @@
 | `realm/openberat-realm.json` | Realm export — LDAP federation, group mapper, clients. So the lab is reproducible. |
 | `themes/openberat/login/` | Our login theme. The one screen every user meets before anything else. |
 | `Dockerfile` | Bakes the theme into the image. The realm export stays a mount. |
+| `realm-drift.sh` | Says whether the running realm is still what the export imports. |
 
 **The realm is mounted, the theme is baked.** They look alike and are not: the
 export is *import data*, read once at first boot into Keycloak's own database,
@@ -72,6 +73,26 @@ to the realm adds the policy with them.
 **Not done by hand, written to the file.** If a setting is changed through the
 Keycloak UI, the realm is exported again and committed here; otherwise the lab
 cannot be rebuilt.
+
+**And that rule is checked rather than remembered.** `keycloak/realm-drift.sh`,
+run where `docker-compose.yml` is, prints every setting where the running realm
+differs from what this export imports — exit 0 when they match, 1 when they do
+not. It needs Docker and `python3`, signs in as the bootstrap admin the service
+already has, and reads both realms through `partial-export`, which masks every
+secret. The comparison is against a **fresh import in a throwaway container**,
+not against the file: the export names only what differs from Keycloak's
+defaults, so a setting switched on in the console that the file never mentions
+would pass a comparison with the file (`docs/07`). Groups the LDAP mapper
+imported from AD are printed as *not compared* — a group carrying a role or an
+attribute is not that import and is compared like everything else. On a
+persistent database the realm is imported once (`INSTALL.md` §5), which is
+exactly where console settings survive and this check earns its keep.
+
+**`multivalued` on the groups mapper is Keycloak's, not a choice.** Every token
+the mapper serves writes `multivalued: true` into its own configuration, so a
+realm that has served one login carries it whatever the export said. It is in
+the export for that reason alone: without it, every live installation would
+differ from its own export on the day it was first used (`docs/07`).
 
 **No real secrets in the export.** The repository is public: a re-export is
 scrubbed before committing — the OIDC client secret is a `${OPENBERAT_CLIENT_SECRET}`

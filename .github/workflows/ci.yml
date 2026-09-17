@@ -4,6 +4,7 @@
 # The checks a human forgets: every commit is signed off (DCO, ADR-0018), the
 # documents' links still resolve and INSTALL.md still names every variable the
 # compose file gives Keycloak, every file says what licence it is under,
+# the realm export still imports and its drift check still sees drift,
 # nginx and the frontend have not lost a security rule that neither `nginx -t`
 # nor a build step would notice, and the backend still compiles and its tests
 # pass.
@@ -347,6 +348,36 @@ jobs:
           print('\n'.join(bad) if bad else 'text only, no inline script, nothing vendored at all')
           sys.exit(1 if bad else 0)
           EOF
+
+  realm:
+    name: realm export
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # keycloak/realm-drift.sh is run by hand against a live installation.
+      # Here the "running" realm is one imported a moment ago, which proves what
+      # nothing else in CI does: the export imports at all — one that does not
+      # stops Keycloak — and a realm nobody touched reads as unchanged. Then it
+      # is touched, because a check that can no longer see drift passes too.
+      - run: |
+          cat > .env <<'EOF'
+          APPS_DOMAIN=apps.example.local
+          KC_ADMIN_USER=admin
+          KC_ADMIN_PASSWORD=ci-only
+          OPENBERAT_CLIENT_SECRET=ci-only
+          OPENBERAT_BACKEND_SECRET=ci-only
+          AD_BIND_PASSWORD=ci-only
+          EOF
+          docker compose up -d keycloak
+          timeout 300 bash -c 'until docker compose logs keycloak | grep -q "Listening on"; do sleep 3; done'
+          keycloak/realm-drift.sh
+          docker compose exec -T keycloak bash -c '/opt/keycloak/bin/kcadm.sh update realms/openberat \
+            -s failureFactor=10 --no-config --server http://localhost:8080 --realm master \
+            --user "$KC_BOOTSTRAP_ADMIN_USERNAME" --password "$KC_BOOTSTRAP_ADMIN_PASSWORD"'
+          rc=0
+          keycloak/realm-drift.sh > drift.txt || rc=$?
+          cat drift.txt
+          [ "$rc" = 1 ] && grep -qx failureFactor drift.txt
 
   backend:
     name: backend

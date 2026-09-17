@@ -500,7 +500,10 @@ the second start logs `Realm 'openberat' already exists. Import skipped`, so
 editing `keycloak/realm/` no longer reaches a running installation and
 re-importing becomes a deliberate step. That cuts both ways: settings clicked
 together in the admin console now persist, which is why `keycloak/README.md`
-says to export them back into the repository. And Keycloak's database joins the
+says to export them back into the repository — and why
+`keycloak/realm-drift.sh`, run where `docker-compose.yml` is, is worth running
+after every console visit: it prints whatever the running realm holds that a
+fresh import of `keycloak/realm/` would not. And Keycloak's database joins the
 list in §9 that cannot be re-derived — it holds the `sub`s your audit log names
 and the OTP credentials your admins enrolled.
 
