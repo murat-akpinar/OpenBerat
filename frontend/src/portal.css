@@ -170,6 +170,15 @@ body::before {
 
 main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
 
+/* --- Feature Start --- */
+/* The management screen is a data view, not the portal's launcher: its
+   six-column tables want width the portal's cards do not, so the admin page
+   alone opens the header and the content out to fit a row without a sideways
+   scroll. The .scroller below stays the fallback for a phone. */
+body.admin .bar,
+body.admin main { max-width: 84rem; }
+/* --- Feature End --- */
+
 h1 {
   font-size: clamp(1.75rem, 1.2rem + 2vw, 2.75rem);
   font-weight: 600;
@@ -438,7 +447,18 @@ td {
 td:not(.path) { white-space: nowrap; }
 .path { overflow-wrap: anywhere; min-width: 14rem; }
 
-.sub { display: block; color: var(--muted); font-size: 0.8125rem; }
+/* A secondary line — a UUID subject, a first→last time range — is an
+   identifier, not the column its table is built around. It wraps instead of
+   forcing its cell to the width of an unbreakable 36-character id, which is what
+   pushed the Path column off the right edge (the same reasoning as .mono-wrap).
+   The td around it is nowrap; this line opts back out. */
+.sub {
+  display: block;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 
 .tag {
   display: inline-block;
