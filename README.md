@@ -209,6 +209,37 @@ on the internal network and nginx proxies neither. Use a TCP check on 443, or
 the portal itself — without a session it answers 302 towards Keycloak, which is
 the whole chain answering rather than one process.
 
+## What it refuses
+
+The attack table in [docs/05](docs/05-authz-model.md) is not a wish list: every
+row is exercised against a running lab, and the measurements are in
+[docs/07](docs/07-references.md). What holds, end to end:
+
+- **A forged `X-Auth-*` header never reaches an upstream.** A client that sends
+  its own `X-Auth-Groups: <ADMIN_GROUP>` — to a protected application or on the
+  `/decide` subrequest — has it stripped and rewritten from the verified
+  identity; the same forged header on `/api/admin/*` leaves a non-admin at 403,
+  not 200. The shared session cookie is removed before the upstream sees it.
+- **The path is normalised before it is matched.** A `/admin/*` deny survives
+  single- and double-encoding (`/%61dmin/`, `/%2561dmin/`), a NUL
+  (`/admin%00`), collapsed slashes (`//admin/`), traversal (`/x/../admin/`), a
+  backslash a Windows upstream would fold (`/x\..\admin\`) and an encoded
+  separator (`/admin%2fusers`), while `/adminx` is allowed because matching is
+  at a segment boundary. The one spelling still not closed is the path parameter
+  `/admin;x/`, which some frameworks strip back to `/admin/` — an open question
+  in [docs/06](docs/06-requirements.md).
+- **The decision endpoint and the identity oracle stay internal.** `/decide`
+  and the portal's `/oauth2/auth` answer 404 from the browser, and Keycloak
+  publishes one realm by name — `master` is not proxied at all.
+- **No credential lands in a log.** The two secrets a login puts in a URL — the
+  OAuth `code` and Keycloak's `session_code` — are redacted in the access log,
+  the session is stored in Redis as ciphertext, and an exact-value search for
+  every password, cookie and secret across all six services and the on-disk logs
+  comes back clean.
+- **The read-only management group cannot write.** `AUDITOR_GROUP` reads
+  `/api/admin/*` and nothing else; a state-changing call — from it, or from an
+  origin the backend does not own — is refused with 403.
+
 ## What it does not do
 
 - **No HA in v1.** One machine, one nginx, and a rehearsed break-glass instead

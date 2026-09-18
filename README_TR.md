@@ -209,6 +209,38 @@ duruyor, nginx ikisini de proxy'lemiyor. 443'te TCP kontrolü kullan ya da
 portalın kendisini — oturumsuz istekte Keycloak'a 302 dönüyor, bu da tek bir
 sürecin değil bütün zincirin cevabı.
 
+## Neleri reddediyor
+
+[docs/05](docs/05-authz-model.md)'teki saldırı tablosu bir dilek listesi değil:
+her satır çalışan bir laboratuvara karşı deneniyor, ölçümler
+[docs/07](docs/07-references.md)'de. Uçtan uca tutan şeyler:
+
+- **Uydurma bir `X-Auth-*` başlığı hiçbir upstream'e ulaşmıyor.** Kendi
+  `X-Auth-Groups: <ADMIN_GROUP>` başlığını gönderen istemci — korumalı bir
+  uygulamaya ya da `/decide` alt-isteğinde — bunu temizlenmiş ve doğrulanmış
+  kimlikten yeniden yazılmış bulur; aynı uydurma başlık `/api/admin/*` üzerinde
+  admin olmayanı 200 değil 403'te bırakır. Paylaşılan oturum çerezi upstream onu
+  görmeden kaldırılır.
+- **Path, eşleşmeden önce normalize edilir.** Bir `/admin/*` deny'i tek ve çift
+  encode'a (`/%61dmin/`, `/%2561dmin/`), NUL'a (`/admin%00`), katlanmış
+  slash'lara (`//admin/`), traversal'a (`/x/../admin/`), bir Windows upstream'in
+  katlayacağı ters eğik çizgiye (`/x\..\admin\`) ve encode edilmiş ayraça
+  (`/admin%2fusers`) dayanır; `/adminx` ise izinlidir, çünkü eşleşme segment
+  sınırındadır. Hâlâ kapanmayan tek yazım, bazı çatıların `/admin/`'e geri
+  soyduğu path parametresi `/admin;x/` — [docs/06](docs/06-requirements.md)'da
+  açık bir soru.
+- **Karar ucu ve kimlik kâhini içeride kalır.** `/decide` ve portalın
+  `/oauth2/auth`'u tarayıcıdan 404 döner; Keycloak tek realm'i adıyla yayımlar —
+  `master` hiç proxy'lenmez.
+- **Hiçbir kimlik bilgisi log'a düşmez.** Bir girişin URL'ye koyduğu iki secret
+  — OAuth `code`'u ve Keycloak'ın `session_code`'u — erişim log'unda redakte
+  edilir, oturum Redis'te şifreli metin olarak saklanır, ve her parola, çerez ve
+  secret için altı servisin tamamında ve diskteki log'larda yapılan birebir
+  değer araması temiz döner.
+- **Salt okunur yönetim grubu yazamaz.** `AUDITOR_GROUP` yalnızca `/api/admin/*`
+  okur; durum değiştiren bir çağrı — ondan ya da backend'in sahibi olmadığı bir
+  origin'den — 403 ile reddedilir.
+
 ## Neleri yapmıyor
 
 - **v1'de HA yok.** Tek makine, tek nginx, ve ikincisi yerine provası yapılmış
