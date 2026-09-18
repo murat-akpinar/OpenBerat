@@ -258,6 +258,33 @@ pub fn may_manage(groups: &[String], admin_group: &str, auditor_group: &str, rea
     in_group(groups, admin_group) || (reads && in_group(groups, auditor_group))
 }
 
+// --- Feature Start ---
+// A second-factor reset (ADR-0036) deletes the target's OTP credential, so
+// whoever logs in next enrols theirs — which is the point for an ordinary user
+// and an account takeover for two targets. Both refusals are terminal and
+// fail-closed: an admin resetting *themselves* gains nothing but lets a stolen
+// admin session swap in its own authenticator, and resetting a *privileged*
+// account hands the management plane to the next login. The caller having
+// passed the `may_manage` guard is not enough; this is the second gate.
+// --- Feature End ---
+pub fn may_reset_second_factor(
+    caller_sub: &str,
+    target_sub: &str,
+    target_groups: &[String],
+    admin_group: &str,
+    auditor_group: &str,
+) -> Result<(), &'static str> {
+    if caller_sub == target_sub {
+        return Err("an admin cannot reset their own second factor");
+    }
+    if in_group(target_groups, admin_group) || in_group(target_groups, auditor_group) {
+        return Err(
+            "a management-plane account's second factor is reset at the Keycloak console, not here",
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -534,6 +561,34 @@ mod tests {
         // list somehow carries an empty name.
         assert!(!may_manage(&groups(&[""]), "", "", true));
         assert!(!may_manage(&groups(&[""]), "OpenBerat-Admins", "", true));
+    }
+
+    // ADR-0036: a second-factor reset hands an account to whoever enrols next,
+    // so it must refuse the two targets that turns into an attack — the caller
+    // themselves, and any account that manages the plane.
+    #[test]
+    fn a_second_factor_reset_refuses_self_and_privileged_targets() {
+        let g = |names: &[&str]| names.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let may = |caller: &str, target: &str, names: &[&str]| {
+            may_reset_second_factor(
+                caller,
+                target,
+                &g(names),
+                "OpenBerat-Admins",
+                "OpenBerat-Auditors",
+            )
+        };
+        // The ordinary case: a different, unprivileged user.
+        assert!(may("admin-sub", "user-sub", &["OpenBerat-Finance"]).is_ok());
+        assert!(may("admin-sub", "user-sub", &[]).is_ok());
+        // Self: already past MFA, and a stolen session would gain durability.
+        assert!(may("admin-sub", "admin-sub", &["OpenBerat-Finance"]).is_err());
+        // A privileged target, either management group, terminal.
+        assert!(may("admin-sub", "t", &["OpenBerat-Admins"]).is_err());
+        assert!(may("admin-sub", "t", &["OpenBerat-Auditors"]).is_err());
+        assert!(may("admin-sub", "t", &["OpenBerat-Finance", "OpenBerat-Admins"]).is_err());
+        // Fail-closed: an unnamed caller equals an unnamed target, so refused.
+        assert!(may("", "", &[]).is_err());
     }
 
     #[test]

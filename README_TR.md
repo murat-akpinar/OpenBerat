@@ -296,7 +296,7 @@ her satır çalışan bir laboratuvara karşı deneniyor, ölçümler
 | [docs/07-references.md](docs/07-references.md) | **Kaynaklar** — teknik iddiaların dayanağı, doğrulanmış varsayılanlar |
 | [docs/08-breakglass.md](docs/08-breakglass.md) | Proxy'nin kendisi kesinti olduğunda prova edilmiş dönüş yolu (ADR-0017) |
 | [docs/09-history.md](docs/09-history.md) | **Yapım kaydı** — 0–7. fazlar ve yol haritası backlog'u nasıl kapandı, 156 kutunun her biri neye mal oldu |
-| [docs/adr/](docs/adr/) | **Alınan kararlar** — 35 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği, denetim saklama süresi, sürümleme, frontend'de çatı yok, canlı oturumlar, bir path deseninin anlamı, break-glass aynı tablodan, birden fazla instance'ta karar cache'i, yönetim ekranı iki adımda — önce okuma, sonra yazma — onun için salt okunur bir grup ve her girişte ikinci faktör |
+| [docs/adr/](docs/adr/) | **Alınan kararlar** — 36 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği, denetim saklama süresi, sürümleme, frontend'de çatı yok, canlı oturumlar, bir path deseninin anlamı, break-glass aynı tablodan, birden fazla instance'ta karar cache'i, yönetim ekranı iki adımda — önce okuma, sonra yazma — onun için salt okunur bir grup, her girişte ikinci faktör ve yönetim düzleminden bir kullanıcının ikinci faktörünü sıfırlama |
 | [SECURITY.md](SECURITY.md) | Güvenlik açığı bildirimi — kanallar, cevap süreleri, kapsam, kabul edilmiş sınırlar |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Nasıl katkı verilir — DCO imzası, konvansiyonlar, neler reddedilir |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |

@@ -295,7 +295,7 @@ row is exercised against a running lab, and the measurements are in
 | [docs/07-references.md](docs/07-references.md) | **Sources** — the basis for the technical claims, verified defaults |
 | [docs/08-breakglass.md](docs/08-breakglass.md) | The rehearsed way back when the proxy is the outage (ADR-0017) |
 | [docs/09-history.md](docs/09-history.md) | **Build log** — how phases 0–7 and the roadmap backlog closed, and what each of the 156 boxes actually cost |
-| [docs/adr/](docs/adr/) | **Decisions taken** — 35 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity, audit retention, versioning, no frontend framework, live sessions, what a path pattern means, break-glass from the same table, the decision cache with more than one instance, the management screen in two steps — reading, then writing — a read-only group for it, and a second factor on every login |
+| [docs/adr/](docs/adr/) | **Decisions taken** — 36 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity, audit retention, versioning, no frontend framework, live sessions, what a path pattern means, break-glass from the same table, the decision cache with more than one instance, the management screen in two steps — reading, then writing — a read-only group for it, a second factor on every login, and resetting a user's second factor from the management plane |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability — channels, response times, scope, accepted limitations |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — DCO sign-off, conventions, what gets rejected |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |

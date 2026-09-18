@@ -20,38 +20,24 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
 
 ## Open
 
-- [ ] **A way to reset a user's second factor from the management plane.**
-      [ADR-0035](docs/adr/0035-mfa-for-every-user.md) made MFA everybody's, and
-      with it made a lost or replaced phone a routine helpdesk task rather than
-      a rare one. [ADR-0032](docs/adr/0032-admin-mfa.md)'s answer — the Keycloak
-      admin console under `KC_ADMIN_PASSWORD` — was sized for a handful of
-      admins: it makes a routine task reach for the realm-master credential, and
-      a credential reached for often is a credential that gets shared.
+- [ ] **Reset a user's second factor from the management plane** —
+      decided in [ADR-0036](docs/adr/0036-reset-second-factor.md), being built.
+      The scope is settled: a **Users tab** that reads Keycloak's directory live
+      (`GET /api/admin/users`), and `POST /api/admin/reset-second-factor` on the
+      service account that already holds the permission (re-measured on the lab:
+      `200` to resolve and to read groups, `404` to a credential `DELETE`).
+      `ADMIN_GROUP` only; **refuses self and any `ADMIN_GROUP`/`AUDITOR_GROUP`
+      target**, which stay a Keycloak-console job. The list is a view of the IdP,
+      not a stored directory — `known_user` stays on `Later`.
 
-      **Measured already** (`docs/07`), so the shape is not in doubt: the
-      backend's existing service account, the one the kill switch uses, answers
-      **200** to a username query and to reading a user's groups, and its
-      `DELETE` on a credential answers **404** rather than 403. The permission is
-      already held — only the HTTP surface is missing. No new secret, no new
-      role, no compose change.
-
-      **The decision this needs an ADR for is the scope, not the mechanism.**
-      The intended shape, to be argued in the ADR rather than assumed here:
-      `ADMIN_GROUP` only (`AUDITOR_GROUP` is GET-only and excluded by the guard
-      that already exists), **refusing a target in `ADMIN_GROUP` or
-      `AUDITOR_GROUP`** — resetting a privileged account's second factor stays a
-      terminal call, the way revocation did
-      ([ADR-0024](docs/adr/0024-no-admin-ui-in-v1.md)) — and **refusing self**,
-      since an admin who is already past MFA gains nothing and a stolen session
-      gains durability. Audited like every other management-plane write.
-
-      One thing the shape has to solve before it is a button: **the admin UI has
-      no user directory.** The only place a person appears is the Live tab, over
-      the kill-switch index ([ADR-0028](docs/adr/0028-live-sessions-endpoint.md)),
-      and somebody who cannot log in will never be in it. Either the admin types
-      a username and the backend resolves it, or this grows a user list — and a
-      user list is a surface this product has deliberately never had
-      (`known_user` is still on `Later`, unstarted).
+      Done: the ADR, and the security core `policy::may_reset_second_factor`
+      with its self/privileged refusal test (red → green). Left:
+      `keycloak.rs` (list users, group members for the privileged flag, resolve,
+      delete the OTP credential); `admin.rs` (the two routes + audit line);
+      `api.rs` and `docs/02`'s endpoint table when they land; the **Users** tab
+      in the frontend; and `verify-resetmfa.sh` on the lab before the box closes
+      ([ADR-0017](docs/adr/0017-fail-closed-availability.md): a phase is not
+      closed until its exit criterion is run).
 
 ---
 

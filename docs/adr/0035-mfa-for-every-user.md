@@ -80,6 +80,7 @@ be off exactly when it is switched on. `REQUIRED` sends them to enrolment.
   uses, already answers `200` to a username query and to reading a user's
   groups, and its `DELETE` on a credential answers `404` rather than `403` —
   the permission is already held, only the HTTP surface is missing.
+  [ADR-0036](0036-reset-second-factor.md) builds that surface.
 - **ADR-0034 is untouched.** `AUDITOR_GROUP`'s read-only grant was never the
   role; both group checks are exact name matches on what oauth2-proxy put in
   the header (ADR-0021 on the `role:` prefix).
