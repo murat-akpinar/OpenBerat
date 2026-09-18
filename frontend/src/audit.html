@@ -152,12 +152,14 @@
           <input id="ex-user" name="user" required autocomplete="off" spellcheck="false">
         </p>
         <p class="field">
-          <label for="ex-groups">Groups <span class="hint">comma-separated, as the token carries them; empty for none</span></label>
-          <input id="ex-groups" name="groups" autocomplete="off" spellcheck="false">
+          <label for="ex-groups">Groups <span class="hint">comma-separated AD groups as the token carries them, e.g. <code>OpenBerat-Finance</code>; empty for none. Pick from the groups that have rules, or type your own</span></label>
+          <input id="ex-groups" name="groups" list="group-options" autocomplete="off" spellcheck="false">
+          <datalist id="group-options"></datalist>
         </p>
         <p class="field">
-          <label for="ex-host">Host <span class="hint">the application's external hostname</span></label>
-          <input id="ex-host" name="host" required autocomplete="off" spellcheck="false">
+          <label for="ex-host">Host <span class="hint">the application's external hostname — the <code>Applications</code> tab lists them; pick one below</span></label>
+          <input id="ex-host" name="host" list="host-options" required autocomplete="off" spellcheck="false">
+          <datalist id="host-options"></datalist>
         </p>
         <p class="field">
           <label for="ex-path">Path <span class="hint">as the client would send it, query string and all</span></label>

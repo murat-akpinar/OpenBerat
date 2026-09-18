@@ -138,7 +138,11 @@ function show(name) {
   if (view === 'live') live();
   // Both write tabs read the same application list — the Access table prints a
   // slug for an id — so either one being opened loads it.
-  if (view === 'apps' || view === 'access') apps();
+  // Both write tabs read the same application list, and Explain reads it too —
+  // its Host suggestions are the applications' hostnames and its Group
+  // suggestions are the group names that have rules — so any of the three
+  // opening loads it.
+  if (view === 'apps' || view === 'access' || view === 'explain') apps();
 }
 
 for (const name of VIEWS) {
@@ -525,6 +529,27 @@ function fillAppSelect() {
   select.value = chosen;
 }
 
+/// Explain's Host and Groups are free text, but the useful values are known:
+/// the hosts are the applications', and the groups worth simulating are the
+/// ones that have rules — a group no rule mentions cannot change the verdict.
+/// Offered as suggestions, not a closed list: Explain is hypothetical, so a
+/// host or a group that does not exist yet is a fair question to ask.
+function fillExplainSuggestions() {
+  const options = (values, into) => {
+    const list = document.getElementById(into);
+    if (list) list.replaceChildren(...[...new Set(values)].map((value) => {
+      const option = document.createElement('option');
+      option.value = value;
+      return option;
+    }));
+  };
+  options(applications.map((app) => app.external_hostname), 'host-options');
+  options(
+    entitlements.filter((e) => e.subject_type === 'ad_group').map((e) => e.subject_id),
+    'group-options',
+  );
+}
+
 function apps() {
   api('/api/admin/applications')
     .then((found) => {
@@ -532,11 +557,13 @@ function apps() {
       appRows.replaceChildren(...found.map(appRow));
       appCount.textContent = `${found.length} application${found.length === 1 ? '' : 's'}`;
       fillAppSelect();
+      fillExplainSuggestions();
       drawEntitlements();
       return api('/api/admin/entitlements');
     })
     .then((found) => {
       entitlements = found;
+      fillExplainSuggestions();
       drawEntitlements();
     })
     .catch((e) => {
