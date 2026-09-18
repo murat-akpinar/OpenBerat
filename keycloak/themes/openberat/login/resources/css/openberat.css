@@ -190,3 +190,59 @@
 }
 
 .wordmark-accent { color: var(--gold-ink); }
+
+/* --- The second factor: enrolment and challenge (ADR-0035) ------------------ */
+
+/* --- Feature Start --- */
+/* Keycloak renders the enrolment QR as a black-on-white PNG. Dropped straight
+   onto the glass card it reads as a bare cut-out, and scaled up it blurs — which
+   a phone camera then struggles to lock onto. Its own white panel, padded and
+   pixel-scaled, makes it both deliberate and reliably scannable: the one thing
+   on this screen that has to work on the first try. */
+#kc-totp-secret-qr-code {
+  display: block;
+  width: 12.5rem;
+  height: 12.5rem;
+  margin: 0.5rem auto 1.25rem;
+  padding: 0.75rem;
+  background: #fff;
+  border-radius: 0.75rem;
+  box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.45);
+  image-rendering: pixelated;
+}
+/* --- Feature End --- */
+
+/* The enrolment steps and the app list beside them are guidance, not the form. */
+#kc-totp-settings { margin: 0 0 1.25rem; }
+#kc-totp-supported-apps { color: var(--muted); font-size: 0.875rem; }
+
+/* The manual key, shown when the camera cannot: a monospace chip meant to be
+   read out and typed, not a run of text lost in a line. */
+#kc-totp-secret-key {
+  display: inline-block;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.05);
+  font-family: ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  word-break: break-all;
+}
+
+/* --- Feature Start --- */
+/* The one-time code is six digits read off a phone and typed once. A wide,
+   centred, letter-spaced field reads as a code box rather than a bare text
+   input — the difference between a modern OTP screen and a default form. The
+   text-indent balances the trailing letter-spacing so the digits sit centred. */
+#otp {
+  text-align: center;
+  font-family: ui-monospace, monospace;
+  font-size: 1.5rem;
+  letter-spacing: 0.5em;
+  text-indent: 0.5em;
+}
+/* --- Feature End --- */
+
+/* "Signing in as …" above the challenge: quiet, and set apart from the field. */
+#kc-attempted-username,
+#kc-username { color: var(--muted); }
