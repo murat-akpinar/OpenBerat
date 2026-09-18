@@ -131,12 +131,42 @@ body::before {
 }
 
 .wordmark-accent { color: var(--gold-ink); }
-.session { display: flex; align-items: center; gap: 0.875rem; }
+.session { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; }
 .identity { margin: 0; color: var(--muted); font-size: 0.875rem; }
 
-.signout { color: var(--muted); font-size: 0.875rem; text-decoration: none; border-radius: 0.25rem; }
-.signout:hover { color: var(--gold-ink); text-decoration: underline; }
-.signout:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 4px; }
+/* The two header actions are pills, not underlined words: on the one page every
+   user meets, "sign out" reading as body text is the thing that dates the whole
+   screen. Neutral outline on --panel, so the ratio table above still holds. */
+.signout {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--sheen), var(--panel);
+  color: var(--ink);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: border-color 120ms, color 120ms, box-shadow 120ms;
+}
+.signout:hover {
+  border-color: var(--line-lit);
+  color: var(--gold-ink);
+  text-decoration: none;
+  box-shadow: 0 0 0 1px rgba(217, 168, 66, 0.12);
+}
+.signout:focus-visible { outline: 2px solid var(--gold-ink); outline-offset: 2px; }
+
+/* Admin is the accented pill of the two: it is the door to the management
+   plane, so it wears the gold the way an app icon does, and sits apart from the
+   neutral Sign out beside it. */
+#admin-link {
+  border-color: var(--line-lit);
+  color: var(--gold-ink);
+  background: linear-gradient(145deg, rgba(217, 168, 66, 0.16), rgba(124, 74, 30, 0.18));
+}
+#admin-link:hover { border-color: var(--gold-ink); }
 
 main { max-width: 60rem; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
 
@@ -180,7 +210,7 @@ a { color: var(--gold-ink); }
 
 #apps {
   display: grid;
-  gap: 0.875rem;
+  gap: 1rem;
   grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
 }
 
@@ -248,8 +278,8 @@ a { color: var(--gold-ink); }
 }
 
 .app-text { min-width: 0; }
-.app-name { display: block; font-weight: 600; }
-.app-host { display: block; color: var(--muted); font-size: 0.8125rem; }
+.app-name { display: block; font-weight: 600; font-size: 1.0625rem; letter-spacing: -0.01em; }
+.app-host { display: block; color: var(--muted); font-size: 0.8125rem; margin-top: 0.1rem; }
 
 code {
   padding: 0.1rem 0.35rem;
@@ -292,14 +322,38 @@ code {
   letter-spacing: -0.01em;
 }
 
-.fields {
-  display: grid;
-  gap: 0.875rem;
-  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
-  margin: 1.25rem 0;
+/* The four management forms are cards, not fields floating on the ground: a
+   padded panel groups the inputs of one action and sets the form apart from the
+   table it writes into. Same scrim-then-sheen as .panel, so nothing new to
+   contrast-check. */
+main form {
+  margin: 1.5rem 0;
+  padding: 1.5rem;
+  border: 1px solid var(--line);
+  border-radius: 1rem;
+  background: var(--sheen), var(--panel);
+  backdrop-filter: blur(14px);
 }
 
-.field { margin: 0; }
+/* The action row under the fields, inside the same card. */
+main form button { margin: 0 0.5rem 0 0; }
+main form .hint { display: inline; margin-left: 0.25rem; }
+
+.fields {
+  display: grid;
+  gap: 1rem 1.25rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  margin: 0 0 1.25rem;
+}
+
+/* --- Feature Start --- */
+/* A field is a column with its control pinned to the bottom (margin-top: auto),
+   so a label that wraps to two lines — one hint longer than its neighbour's —
+   does not push its input below the input beside it. That misalignment is the
+   "shifted boxes" this grid otherwise shows whenever hints differ in length. */
+.field { display: flex; flex-direction: column; margin: 0; }
+.field input, .field select { margin-top: auto; }
+/* --- Feature End --- */
 
 label {
   display: block;
@@ -317,14 +371,18 @@ label {
 
 input, select {
   width: 100%;
-  padding: 0.5rem 0.625rem;
+  padding: 0.55rem 0.7rem;
   border: 1px solid var(--line);
   border-radius: 0.5rem;
   background: var(--ground);
   color: var(--ink);
   font: inherit;
   font-size: 0.9375rem;
+  transition: border-color 120ms, box-shadow 120ms;
 }
+
+input:hover, select:hover { border-color: var(--line-lit); }
+input::placeholder { color: var(--muted); }
 
 input:focus-visible, select:focus-visible, button:focus-visible {
   outline: 2px solid var(--gold-ink);
