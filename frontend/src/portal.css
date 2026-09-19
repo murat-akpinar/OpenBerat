@@ -561,3 +561,10 @@ td.mono-wrap {
   line-height: 1.3;
   vertical-align: middle;
 }
+
+/* Explain's known hosts and groups, on the page rather than inside a datalist
+   the browser only opens for somebody who already knows what to type. Between
+   the label and the input, so `.field input { margin-top: auto }` still pins
+   every input in the grid row to the same line. */
+.picks { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0 0 0.4rem; }
+.picks .tiny { margin-left: 0; }

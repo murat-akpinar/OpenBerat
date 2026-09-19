@@ -136,12 +136,9 @@ function show(name) {
   // whenever it is shown. Deliberately not a timer: a poll left running in a
   // background tab is a SCAN of the whole Redis keyspace, for nobody.
   if (view === 'live') live();
-  // Both write tabs read the same application list — the Access table prints a
-  // slug for an id — so either one being opened loads it.
-  // Both write tabs read the same application list, and Explain reads it too —
-  // its Host suggestions are the applications' hostnames and its Group
-  // suggestions are the group names that have rules — so any of the three
-  // opening loads it.
+  // All three read the same two lists: the Access table prints a slug for an
+  // application id, and Explain's Host and Group buttons are the applications'
+  // hostnames and the group names that have rules.
   if (view === 'apps' || view === 'access' || view === 'explain') apps();
   // Like Live, a read-through to something this page does not own: the rows are
   // Keycloak's directory as it is now, not a copy taken when the page loaded.
@@ -532,25 +529,48 @@ function fillAppSelect() {
   select.value = chosen;
 }
 
-/// Explain's Host and Groups are free text, but the useful values are known:
-/// the hosts are the applications', and the groups worth simulating are the
-/// ones that have rules — a group no rule mentions cannot change the verdict.
-/// Offered as suggestions, not a closed list: Explain is hypothetical, so a
-/// host or a group that does not exist yet is a fair question to ask.
+// --- Feature Start ---
+// Explain's Host and Groups stay free text — the tab answers hypothetical
+// questions, so a host or a group that does not exist yet is a fair thing to
+// ask about — but the values worth asking about are known, and a `datalist`
+// hides them until the operator already knows what to type. They are buttons on
+// the page instead: the hosts are the applications', the groups are the ones
+// that have rules, because a group no rule mentions cannot move the verdict.
+// --- Feature End ---
 function fillExplainSuggestions() {
-  const options = (values, into) => {
-    const list = document.getElementById(into);
-    if (list) list.replaceChildren(...[...new Set(values)].map((value) => {
-      const option = document.createElement('option');
-      option.value = value;
-      return option;
+  const host = document.getElementById('ex-host');
+  const groups = document.getElementById('ex-groups');
+  const picks = (values, into, fill) => {
+    const box = document.getElementById(into);
+    if (!box) return;
+    box.replaceChildren(...[...new Set(values)].filter(Boolean).map((value) => {
+      const button = el('button', 'quiet tiny', value);
+      button.type = 'button';
+      button.addEventListener('click', () => fill(value));
+      return button;
     }));
   };
-  options(applications.map((app) => app.external_hostname), 'host-options');
-  options(
+  picks(applications.map((app) => app.external_hostname), 'host-picks', (value) => {
+    host.value = value;
+  });
+  // Appended rather than replaced: the question is usually "these groups
+  // together", and a user in two of them is the case a rule set is hardest to
+  // reason about by hand.
+  picks(
     entitlements.filter((e) => e.subject_type === 'ad_group').map((e) => e.subject_id),
-    'group-options',
+    'group-picks',
+    (value) => {
+      const held = groups.value.split(',').map((name) => name.trim()).filter(Boolean);
+      if (!held.includes(value)) held.push(value);
+      groups.value = held.join(',');
+    },
   );
+  // With one application there is nothing to choose, so the field starts filled
+  // rather than empty: the form can be submitted without first learning what a
+  // host here looks like. Never over a value already typed.
+  if (!host.value && applications.length === 1) {
+    host.value = applications[0].external_hostname;
+  }
 }
 
 function apps() {

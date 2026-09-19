@@ -153,14 +153,14 @@
           <input id="ex-user" name="user" required autocomplete="off" spellcheck="false">
         </p>
         <p class="field">
-          <label for="ex-groups">Groups <span class="hint">comma-separated AD groups as the token carries them, e.g. <code>OpenBerat-Finance</code>; empty for none. Pick from the groups that have rules, or type your own</span></label>
-          <input id="ex-groups" name="groups" list="group-options" autocomplete="off" spellcheck="false">
-          <datalist id="group-options"></datalist>
+          <label for="ex-groups">Groups <span class="hint">comma-separated, as the token carries them; empty means the user is in none. The buttons are the groups that have rules — anything else cannot change the verdict</span></label>
+          <span class="picks" id="group-picks"></span>
+          <input id="ex-groups" name="groups" autocomplete="off" spellcheck="false">
         </p>
         <p class="field">
-          <label for="ex-host">Host <span class="hint">the application's external hostname — the <code>Applications</code> tab lists them; pick one below</span></label>
-          <input id="ex-host" name="host" list="host-options" required autocomplete="off" spellcheck="false">
-          <datalist id="host-options"></datalist>
+          <label for="ex-host">Host <span class="hint">the application's external hostname. The buttons are the applications defined now; a host that does not exist yet is a fair question to type</span></label>
+          <span class="picks" id="host-picks"></span>
+          <input id="ex-host" name="host" required autocomplete="off" spellcheck="false">
         </p>
         <p class="field">
           <label for="ex-path">Path <span class="hint">as the client would send it, query string and all</span></label>
