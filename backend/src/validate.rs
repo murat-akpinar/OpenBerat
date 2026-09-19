@@ -164,7 +164,13 @@ pub fn validate_slug(slug: &str) -> Result<(), String> {
 /// A generated block for `portal.…` or `auth.…` would shadow the portal or the
 /// login flow — and nginx would serve it without complaint, because the first
 /// matching `server_name` wins (ADR-0011).
-pub fn validate_hostname(hostname: &str, portal_origin: &str) -> Result<(), String> {
+///
+/// Answers with the lower-cased hostname, which is the one the caller must
+/// store: this function already lower-cases before checking, so `WIKI.…` passed
+/// it and then met a column whose CHECK is lower-case only — a 503 for a value
+/// the handler had just accepted. It is also the spelling `explain` looks up
+/// and the one nginx matches, neither of which cares how it was typed.
+pub fn validate_hostname(hostname: &str, portal_origin: &str) -> Result<String, String> {
     let hostname = hostname.to_ascii_lowercase();
     if !labelled(&hostname, &['.', '-']) {
         return Err(
@@ -182,14 +188,74 @@ pub fn validate_hostname(hostname: &str, portal_origin: &str) -> Result<(), Stri
     {
         return Err("external_hostname is the portal's own hostname".into());
     }
-    Ok(())
+    Ok(hostname)
 }
+
+// --- Feature Start ---
+// The two columns the portal draws and nothing else reads. Neither reaches
+// generated configuration — `nginx.rs` interpolates the slug and the hostname
+// and never these — so the bound is the layout's rather than a safety one:
+// `portal.css` is built to survive a 200-character name, and nothing is built
+// to survive an unbounded one. Both are returned trimmed, because the
+// management screen trims and a row written through the API must not be a
+// different row from the one the form would have written.
+pub const LABEL_MAX: usize = 200;
+
+pub fn validate_name(raw: &str) -> Result<&str, String> {
+    let name = raw.trim();
+    if name.is_empty() {
+        return Err("name is required".into());
+    }
+    if name.chars().count() > LABEL_MAX {
+        return Err(format!("name is at most {LABEL_MAX} characters"));
+    }
+    Ok(name)
+}
+
+/// `None` for an icon that is absent or blank: the portal falls back to the
+/// first letter of the name, and a column holding two spaces is that fallback
+/// written where nobody can see it.
+pub fn validate_icon(raw: Option<&str>) -> Result<Option<&str>, String> {
+    let icon = raw.map(str::trim).filter(|icon| !icon.is_empty());
+    if icon.is_some_and(|icon| icon.chars().count() > LABEL_MAX) {
+        return Err(format!("icon is at most {LABEL_MAX} characters"));
+    }
+    Ok(icon)
+}
+// --- Feature End ---
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const PORTAL: &str = "https://portal.apps.example.local";
+
+    // Both used to reach the database untouched. `""` broke a CHECK and came
+    // back as an outage; `"   "` satisfied it and was stored, so the portal
+    // drew a button with nothing on it.
+    #[test]
+    fn a_name_is_required_after_trimming_and_bounded() {
+        assert_eq!(validate_name("  Wiki  ").unwrap(), "Wiki");
+        for bad in ["", "   ", "\t\n"] {
+            assert!(validate_name(bad).is_err(), "{bad:?} is not a name");
+        }
+        assert!(validate_name(&"W".repeat(LABEL_MAX)).is_ok());
+        assert!(validate_name(&"W".repeat(LABEL_MAX + 1)).is_err());
+        // Counted in characters and not bytes: a bound that measures UTF-8
+        // would refuse a name a third as long once it is not written in ASCII.
+        assert!(validate_name(&"ş".repeat(LABEL_MAX)).is_ok());
+    }
+
+    #[test]
+    fn a_blank_icon_is_no_icon() {
+        assert_eq!(validate_icon(Some("  W  ")).unwrap(), Some("W"));
+        assert_eq!(validate_icon(Some("   ")).unwrap(), None);
+        assert_eq!(validate_icon(None).unwrap(), None);
+        // An emoji is several characters and a path is many; the same bound
+        // holds both, and it is the one the layout was measured against.
+        assert!(validate_icon(Some("/icons/jenkins.svg")).unwrap().is_some());
+        assert!(validate_icon(Some(&"W".repeat(LABEL_MAX + 1))).is_err());
+    }
 
     // A deny rule that can never fire is the one bug this file already refuses
     // for group names (the comma guard): the admin reads the rule back, sees

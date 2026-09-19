@@ -637,7 +637,16 @@ as text, and the portal's CSP would refuse to fetch it in any case. `upstream_ur
 credentials, no query, and it is refused if it names an infrastructure service
 or port (`postgres`, `redis`, `keycloak`, `backend`, 5432, 6379, 389, 636 …), a
 loopback, link-local or otherwise reserved address, or the portal's own
-hostname. Those come back as 400 with the reason in `error`.
+hostname. `name` is required and, with `icon`, at most 200 characters. Those
+come back as 400 with the reason in `error`.
+
+Three values are repaired rather than refused, so that a row written with curl
+is the row the screen would have written: `name`, `icon` and an entitlement's
+`subject_id` are stored trimmed — a group name with a space around it would
+never match, because `X-Auth-Groups` arrives comma-joined and is split back
+apart untrimmed — a blank `icon` is stored as no icon, and
+`external_hostname` is stored lower-cased, which is what nginx matches and what
+`/api/admin/explain` looks up.
 
 Nobody can reach it yet — **no rule means deny** (`docs/05`). One entitlement,
 with the `id` from above:

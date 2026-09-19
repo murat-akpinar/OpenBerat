@@ -18,7 +18,10 @@
 use crate::api::{Caller, Ctx};
 use crate::keycloak::LogoutError;
 use crate::policy;
-use crate::validate::{validate_hostname, validate_path_pattern, validate_slug, validate_upstream};
+use crate::validate::{
+    validate_hostname, validate_icon, validate_name, validate_path_pattern, validate_slug,
+    validate_upstream,
+};
 use crate::{audit, nginx};
 use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderMap, Method, StatusCode};
@@ -413,19 +416,28 @@ async fn create_application(
     if let Err(why) = validate_upstream(&new.upstream_url) {
         return bad_request(why);
     }
-    if let Err(why) = validate_hostname(&new.external_hostname, &ctx.portal_origin) {
-        return bad_request(why);
-    }
+    let hostname = match validate_hostname(&new.external_hostname, &ctx.portal_origin) {
+        Ok(hostname) => hostname,
+        Err(why) => return bad_request(why),
+    };
+    let name = match validate_name(&new.name) {
+        Ok(name) => name,
+        Err(why) => return bad_request(why),
+    };
+    let icon = match validate_icon(new.icon.as_deref()) {
+        Ok(icon) => icon,
+        Err(why) => return bad_request(why),
+    };
     let created: Result<Application, _> = sqlx::query_as(
         "insert into application (slug, name, icon, upstream_url, external_hostname, enabled)
          values ($1, $2, $3, $4, $5, $6)
          returning id, slug, name, icon, upstream_url, external_hostname, enabled",
     )
     .bind(&new.slug)
-    .bind(&new.name)
-    .bind(&new.icon)
+    .bind(name)
+    .bind(icon)
     .bind(&new.upstream_url)
-    .bind(&new.external_hostname)
+    .bind(&hostname)
     .bind(new.enabled)
     .fetch_one(&ctx.pool)
     .await;
@@ -464,6 +476,18 @@ async fn update_application(
     {
         return bad_request(why);
     }
+    // Absent stays absent — `coalesce` leaves the column alone — but a field
+    // that is present goes through the same gate the create path uses, or the
+    // value the create path refuses simply has a second door.
+    let name = match patch.name.as_deref().map(validate_name).transpose() {
+        Ok(name) => name,
+        Err(why) => return bad_request(why),
+    };
+    let icon = match patch.icon.as_ref().map(|i| validate_icon(i.as_deref())) {
+        Some(Err(why)) => return bad_request(why),
+        Some(Ok(icon)) => Some(icon),
+        None => None,
+    };
     // The hostname and the slug are not patchable: both are written into
     // generated nginx blocks and into every audit row that names this
     // application, and renaming one silently reassigns history.
@@ -477,9 +501,9 @@ async fn update_application(
          returning id, slug, name, icon, upstream_url, external_hostname, enabled",
     )
     .bind(id)
-    .bind(&patch.name)
-    .bind(patch.icon.is_some())
-    .bind(patch.icon.clone().flatten())
+    .bind(name)
+    .bind(icon.is_some())
+    .bind(icon.flatten())
     .bind(&patch.upstream_url)
     .bind(patch.enabled)
     .fetch_optional(&ctx.pool)
@@ -576,16 +600,20 @@ async fn create_entitlement(
     if !["allow", "deny"].contains(&new.effect.as_str()) {
         return bad_request("effect must be allow or deny");
     }
-    if new.subject_id.trim().is_empty() {
-        return bad_request("subject_id is required");
-    }
     // --- Feature Start ---
     // Group names arrive comma-joined in one header and are split back apart
-    // before matching (docs/07), so an `ad_group` name containing a comma can
-    // never equal anything in that list. Refused rather than stored: a rule
-    // that silently never fires is worse than one that was never accepted,
-    // because the admin believes the access was granted.
-    if new.subject_type == "ad_group" && new.subject_id.contains(',') {
+    // before matching (docs/07), so neither a comma nor a space around the name
+    // can ever equal anything in that list. Both are the same failure — a rule
+    // the admin reads back as typed while it matches nothing — and they part
+    // company only on the repair: a comma has no intended reading, so it is
+    // refused, while the space plainly does, and the screen already trims it.
+    // Trimming here is what makes a row written through the API the row the
+    // form would have written.
+    let subject_id = new.subject_id.trim();
+    if subject_id.is_empty() {
+        return bad_request("subject_id is required");
+    }
+    if new.subject_type == "ad_group" && subject_id.contains(',') {
         return bad_request("an AD group name cannot contain a comma");
     }
     // --- Feature End ---
@@ -601,7 +629,7 @@ async fn create_entitlement(
     )
     .bind(new.application_id)
     .bind(&new.subject_type)
-    .bind(&new.subject_id)
+    .bind(subject_id)
     .bind(&new.effect)
     .bind(&new.path_pattern)
     .bind(new.expires_at)

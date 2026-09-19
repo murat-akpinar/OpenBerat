@@ -1805,6 +1805,99 @@ async fn decide_section(pool: &PgPool) {
     .await;
     assert_eq!(response.status(), StatusCode::CREATED);
 
+    // A group name with a space around it stores fine and can never match:
+    // `X-Auth-Groups` arrives comma-joined and is split back apart without
+    // trimming, so " OpenBerat-Wiki" equals nothing in that list. The same
+    // failure the comma guard exists for — a rule the admin reads back as
+    // typed while it refuses nothing — but a repair rather than a refusal,
+    // because the screen already trims and both paths must write one row.
+    let response = post(
+        "/api/admin/entitlements",
+        serde_json::json!({
+            "application_id": wiki,
+            "subject_type": "ad_group",
+            "subject_id": "  OpenBerat-Wiki  ",
+            "effect": "allow",
+            "path_pattern": "",
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body = axum::body::to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
+    let rule: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        rule["subject_id"], "OpenBerat-Wiki",
+        "a group name is stored as the header will carry it"
+    );
+
+    // Four values the handler used to hand the database unchanged, and the
+    // database caught two of them and neither well. `""` violates the column's
+    // CHECK, which is not a unique violation, so it came back 503 — an admin
+    // reading "outage" for their own typo. `"   "` satisfies that CHECK and was
+    // stored, which is worse: the portal draws a button with no name on it and
+    // falls back to a space for the icon. Neither length was bounded at all.
+    let long = "W".repeat(201);
+    for (field, value) in [
+        ("name", ""),
+        ("name", "   "),
+        ("name", long.as_str()),
+        ("icon", long.as_str()),
+    ] {
+        let mut body = serde_json::json!({
+            "slug": "probe", "name": "Probe",
+            "upstream_url": "http://probe-app:8080",
+            "external_hostname": "probe.apps.example.local"
+        });
+        body[field] = serde_json::Value::String(value.to_string());
+        let response = post("/api/admin/applications", body).await;
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "{field} = {} chars",
+            value.chars().count()
+        );
+        let body = axum::body::to_bytes(response.into_body(), 65536)
+            .await
+            .unwrap();
+        let refused: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(refused["error"].is_string(), "{field}: no reason given");
+    }
+
+    // The other half: what is a repair and not a mistake is repaired. An
+    // uppercase hostname passed `validate_hostname`, which lower-cases before
+    // checking and then let the raw value reach a column whose CHECK is
+    // lower-case only — a 503 for a value the handler had already accepted.
+    // Lower-case is what nginx matches and what `explain` looks up, so it is
+    // what gets stored. A blank icon is null rather than two spaces: the portal
+    // falls back to the first letter of the name, and a column holding
+    // whitespace is that fallback written where nobody can see it.
+    let response = post(
+        "/api/admin/applications",
+        serde_json::json!({
+            "slug": "wikitwo", "name": "  Wiki Two  ", "icon": "   ",
+            "upstream_url": "http://wiki2-app:8080",
+            "external_hostname": "WIKI2.Apps.Example.Local"
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::CREATED);
+    let body = axum::body::to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
+    let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        created["application"]["external_hostname"], "wiki2.apps.example.local",
+        "a hostname is stored as the column and nginx spell it"
+    );
+    assert_eq!(created["application"]["name"], "Wiki Two");
+    assert!(
+        created["application"]["icon"].is_null(),
+        "a blank icon is no icon"
+    );
+    let wiki_two = created["application"]["id"].as_str().unwrap().to_string();
+
     // A slug the schema would refuse is refused before it gets there, and the
     // caller is told rather than seeing a 500.
     let send = async |method: &str, path: String, body: serde_json::Value| {
@@ -1889,6 +1982,26 @@ async fn decide_section(pool: &PgPool) {
         StatusCode::BAD_REQUEST,
         "patching in an infrastructure host"
     );
+
+    // The same two rules on the way in through a PATCH, because a value the
+    // create path refuses must not have a second door.
+    for body in [
+        serde_json::json!({"name": "   "}),
+        serde_json::json!({"name": long}),
+        serde_json::json!({"icon": long}),
+    ] {
+        let response = send(
+            "PATCH",
+            format!("/api/admin/applications/{wiki_two}"),
+            body.clone(),
+        )
+        .await;
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "patching {body}"
+        );
+    }
 
     let response = send(
         "DELETE",
