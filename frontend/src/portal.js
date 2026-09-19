@@ -50,6 +50,13 @@ function button(app) {
     // Decorative: the name is right beside it, so a second reading of it is
     // noise to a screen reader.
     image.alt = '';
+    // A path that 404s — a typo, or a file that never reached the image — would
+    // otherwise draw a broken tile on every portal in the building until
+    // somebody noticed. The letter is what the row would have shown with no
+    // icon at all, which is the right thing to fall back to.
+    image.addEventListener('error', () => {
+      icon.textContent = app.name.slice(0, 1).toUpperCase();
+    });
     icon.append(image);
   } else {
     icon.textContent = app.icon || app.name.slice(0, 1).toUpperCase();
