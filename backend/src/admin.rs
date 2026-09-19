@@ -313,9 +313,25 @@ fn yes() -> bool {
 #[derive(Deserialize)]
 struct ApplicationPatch {
     name: Option<String>,
-    icon: Option<String>,
+    /// Two levels, because the icon is the one field with three cases and not
+    /// two: absent keeps it, `null` clears it, a string sets it. `coalesce`
+    /// cannot tell the first two apart, and the screen sends `null` for an
+    /// emptied box — so with one level the icon could be set and never removed.
+    #[serde(default, deserialize_with = "present")]
+    icon: Option<Option<String>>,
     upstream_url: Option<String>,
     enabled: Option<bool>,
+}
+
+/// `Option<Option<T>>` does not distinguish absent from null on its own: serde's
+/// own `Option` reads a JSON null as `None` and the outer level never sees it.
+/// Deserialising the inner one and wrapping it says "the key was there".
+fn present<'de, D, T>(de: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::deserialize(de).map(Some)
 }
 
 /// Renders the whole file and hands it to nginx. Called after every change to
@@ -454,15 +470,16 @@ async fn update_application(
     let updated: Result<Option<Application>, _> = sqlx::query_as(
         "update application set
            name = coalesce($2, name),
-           icon = coalesce($3, icon),
-           upstream_url = coalesce($4, upstream_url),
-           enabled = coalesce($5, enabled)
+           icon = case when $3 then $4 else icon end,
+           upstream_url = coalesce($5, upstream_url),
+           enabled = coalesce($6, enabled)
          where id = $1
          returning id, slug, name, icon, upstream_url, external_hostname, enabled",
     )
     .bind(id)
     .bind(&patch.name)
-    .bind(&patch.icon)
+    .bind(patch.icon.is_some())
+    .bind(patch.icon.clone().flatten())
     .bind(&patch.upstream_url)
     .bind(patch.enabled)
     .fetch_optional(&ctx.pool)

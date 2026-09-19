@@ -1838,6 +1838,46 @@ async fn decide_section(pool: &PgPool) {
         "an absent field is left alone"
     );
 
+    // An icon is the one field an admin can legitimately want emptied again,
+    // and JSON's word for "empty it" is `null` — which `coalesce` read as
+    // "leave it alone", so the icon could be set and never removed. Absent
+    // still means keep, and only an explicit null clears.
+    let response = send(
+        "PATCH",
+        format!("/api/admin/applications/{wiki}"),
+        serde_json::json!({"icon": "W"}),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let response = send(
+        "PATCH",
+        format!("/api/admin/applications/{wiki}"),
+        serde_json::json!({"name": "Wiki"}),
+    )
+    .await;
+    let body = axum::body::to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
+    let patched: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(
+        patched["application"]["icon"], "W",
+        "an absent icon is kept"
+    );
+    let response = send(
+        "PATCH",
+        format!("/api/admin/applications/{wiki}"),
+        serde_json::json!({"icon": null}),
+    )
+    .await;
+    let body = axum::body::to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
+    let patched: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        patched["application"]["icon"].is_null(),
+        "an explicit null clears the icon"
+    );
+
     let response = send(
         "PATCH",
         format!("/api/admin/applications/{wiki}"),
