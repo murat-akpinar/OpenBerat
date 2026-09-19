@@ -7,7 +7,7 @@
   not do. [0032](0032-admin-mfa.md) — its answer, the Keycloak admin console
   under `KC_ADMIN_PASSWORD`, is what this replaces for ordinary users and keeps
   for privileged ones. [0024](0024-no-admin-ui-in-v1.md) — a destructive
-  management action stays a terminal call for a privileged target. [0019](0019-kill-switch.md)
+  management action stays a terminal call for a privileged target. [0019](0019-kill-switch-session-index.md)
   — the service account and the header identity this reuses. [0034](0034-read-only-management-group.md)
   — why `AUDITOR_GROUP` cannot reach this. [0028](0028-live-sessions-endpoint.md)
   — the one place a person appears, and why it does not help here.
@@ -55,8 +55,10 @@ anything that is not a `GET`/`HEAD` ([ADR-0034](0034-read-only-management-group.
 so the read-only group reaches the list and not the reset without a new check:
 
 - **`GET /api/admin/users?search=&page=`** — the directory, read **live from
-  Keycloak**, not stored. Each row is a username, an email and a **privileged**
-  flag; paged with Keycloak's `first`/`max` and filtered with its `search`.
+  Keycloak**, not stored. Each row is a username, an email, Keycloak's own
+  **`totp`** flag (whether a second factor is enrolled at all, which costs no
+  call of its own) and a **privileged** flag; paged with Keycloak's `first`/`max`
+  and filtered with its `search`.
 - **`POST /api/admin/reset-second-factor`, body `{"username": "<sAMAccountName>"}`**
   — resolves the username, deletes every `otp` credential the user holds, and
   the next login sends them back to enrolment.
@@ -75,8 +77,9 @@ kill switch takes.
 
 **The privileged flag is computed once per page, not per user.** Reading every
 listed user's groups would be a call each; instead the members of `ADMIN_GROUP`
-and `AUDITOR_GROUP` are fetched once (two calls) and a row is privileged if its
-username is among them. The flag disables the row's reset button — a convenience,
+and `AUDITOR_GROUP` are fetched once per page — two calls per group, because
+Keycloak addresses a group by id and the name has to resolve first — and a row
+is privileged if its username is among them. The flag disables the row's reset button — a convenience,
 not the control: the backend re-reads the target's own groups on the reset
 itself and never trusts the list.
 
@@ -134,7 +137,7 @@ summaries with an immutable format (`docs/02`).
 - **A username that does not resolve answers `404`.** An admin who typos a name,
   or names a user Keycloak has never seen, is told so rather than left wondering
   — the same distinction the kill switch draws between `NoSuchUser` and an
-  outage ([ADR-0019](0019-kill-switch.md)).
+  outage ([ADR-0019](0019-kill-switch-session-index.md)).
 - **The service account's blast radius grows by one verb.** It could already
   read users and groups and log sessions out; it now deletes a credential. It
   still cannot set a password, read one, or touch anything but the `otp`

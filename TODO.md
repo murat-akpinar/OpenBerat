@@ -1,11 +1,11 @@
 # TODO
 
-Status: **one box is open**, and nothing is tagged. Every phase and every box
-before it is closed; what closed each one — the measurement, the thing that
-turned out to be wrong, the ADR it forced — is in
-[`docs/09-history.md`](docs/09-history.md), 156 boxes of it: phases 0–7, and the
+Status: **no box is open**, and nothing is tagged. Every phase and every box is
+closed; what closed each one — the measurement, the thing that turned out to be
+wrong, the ADR it forced — is in
+[`docs/09-history.md`](docs/09-history.md), 157 boxes of it: phases 0–7, the
 backlog that came out of reading an enterprise SSO roadmap against the finished
-product.
+product, and the second-factor reset that ADR-0035 left behind it.
 **A tag is still a deliberate manual act** ([ADR-0023](docs/adr/0023-versioning-and-release.md)).
 
 What is left on this page is **not** scheduled work. `Later` is the standing
@@ -15,29 +15,6 @@ kept underneath it so the refusals are not re-litigated every time that roadmap
 is read again.
 
 Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
-
----
-
-## Open
-
-- [ ] **Reset a user's second factor from the management plane** —
-      decided in [ADR-0036](docs/adr/0036-reset-second-factor.md), being built.
-      The scope is settled: a **Users tab** that reads Keycloak's directory live
-      (`GET /api/admin/users`), and `POST /api/admin/reset-second-factor` on the
-      service account that already holds the permission (re-measured on the lab:
-      `200` to resolve and to read groups, `404` to a credential `DELETE`).
-      `ADMIN_GROUP` only; **refuses self and any `ADMIN_GROUP`/`AUDITOR_GROUP`
-      target**, which stay a Keycloak-console job. The list is a view of the IdP,
-      not a stored directory — `known_user` stays on `Later`.
-
-      Done: the ADR, and the security core `policy::may_reset_second_factor`
-      with its self/privileged refusal test (red → green). Left:
-      `keycloak.rs` (list users, group members for the privileged flag, resolve,
-      delete the OTP credential); `admin.rs` (the two routes + audit line);
-      `api.rs` and `docs/02`'s endpoint table when they land; the **Users** tab
-      in the frontend; and `verify-resetmfa.sh` on the lab before the box closes
-      ([ADR-0017](docs/adr/0017-fail-closed-availability.md): a phase is not
-      closed until its exit criterion is run).
 
 ---
 

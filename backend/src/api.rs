@@ -75,6 +75,22 @@
 //                     from the sub -> session index -> that user's cache entries
 //                     -> the index entry (ADR-0019). Reversing any pair lets a
 //                     request in the gap refill what was just cleared.
+//   GET /api/admin/users
+//                     the realm's users, read live from Keycloak and stored
+//                     nowhere (ADR-0036): `search` and `page` are Keycloak's own
+//                     filter and paging. A row is a username, an email, whether
+//                     an OTP credential is enrolled, and whether the user is in
+//                     ADMIN_GROUP or AUDITOR_GROUP — the last computed from the
+//                     two groups' member lists, two calls a page rather than one
+//                     a user.
+//   POST /api/admin/reset-second-factor
+//                     body {"username": "<sAMAccountName>"} — deletes every otp
+//                     credential the target holds, so the next login enrols
+//                     (ADR-0036). Refuses the caller's own account and any
+//                     target in ADMIN_GROUP or AUDITOR_GROUP, both terminal;
+//                     404 for a name the realm does not have; a read it cannot
+//                     make refuses rather than proceeds. Idempotent: a user with
+//                     no credential answers 200 and `removed: 0`.
 // Contract: docs/02-architecture.md
 //
 // The table above is the whole contract and stays here, next to the router

@@ -32,6 +32,7 @@
     <button role="tab" id="tab-explain" aria-controls="view-explain" aria-selected="false">Explain</button>
     <button role="tab" id="tab-apps" aria-controls="view-apps" aria-selected="false">Applications</button>
     <button role="tab" id="tab-access" aria-controls="view-access" aria-selected="false">Access</button>
+    <button role="tab" id="tab-users" aria-controls="view-users" aria-selected="false">Users</button>
   </div>
 
   <section id="view-live" role="tabpanel" aria-labelledby="tab-live">
@@ -312,6 +313,51 @@
       <button id="ent-refresh" type="button">Refresh</button>
       <span id="ent-count" class="hint"></span>
     </p>
+  </section>
+  <section id="view-users" role="tabpanel" aria-labelledby="tab-users" hidden>
+    <p class="prose">
+      <strong>A view of Keycloak's directory, read live.</strong> Nothing here is
+      stored: this is the identity provider's own user list, filtered and paged
+      by it, so a row is what it says right now. The one thing this page can do
+      to a row is clear the user's second factor — the next time they sign in
+      they are sent back to enrolment, which is how a lost or replaced phone is
+      answered (ADR-0036).
+    </p>
+    <p class="prose">
+      <strong>Two people it refuses: you, and anyone in the management-plane
+      groups.</strong> Resetting your own factor gains nothing a re-enrolment
+      from your account settings would not, while a stolen session would gain an
+      authenticator of its own; resetting an administrator or an auditor is an
+      account takeover with a helpdesk ticket, so it stays a deliberate act at
+      the Keycloak console. The disabled buttons below are a convenience — the
+      backend refuses both again, reading the target's groups itself.
+    </p>
+    <form id="user-form">
+      <div class="fields">
+        <p class="field">
+          <label for="us-search">Search <span class="hint">Keycloak's own: username, name or email; empty for everyone</span></label>
+          <input id="us-search" name="search" autocomplete="off" spellcheck="false">
+        </p>
+      </div>
+      <button type="submit">Search</button>
+      <button id="user-prev" type="button" class="quiet">Previous</button>
+      <button id="user-next" type="button" class="quiet">Next</button>
+      <span id="user-count" class="hint"></span>
+    </form>
+
+    <div class="scroller">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Username</th>
+            <th scope="col">Email</th>
+            <th scope="col">Second factor</th>
+            <th scope="col" class="actions"></th>
+          </tr>
+        </thead>
+        <tbody id="user-rows"></tbody>
+      </table>
+    </div>
   </section>
 </main>
 <script src="/audit.js"></script>

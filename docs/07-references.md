@@ -4103,3 +4103,77 @@ all three users met enrolment rather than a challenge on the first run. An
 installation with a Keycloak database keeps its users' credentials, and only
 those without one meet the QR. The day-one cost of enrolling a whole directory
 is the operator's and is not measured here.
+
+
+## The second factor becomes a helpdesk action
+
+[ADR-0036](adr/0036-reset-second-factor.md) moves the reset of a lost or
+replaced authenticator off the realm-master credential and onto the management
+plane. The mechanism was re-measured against the lab realm **before** any of it
+was written, with the backend's own service account (`openberat-backend`,
+`manage-users` — the one the kill switch already uses), against
+Keycloak 26.3:
+
+| Call | Answer |
+|---|---|
+| `GET /users?username=labuser&exact=true` | **200**, one user; a name nobody has answers **`[]`**, not 404 |
+| `GET /users/{id}/groups` | **200**, `[{"name":"OpenBerat-Finance", …}]` — the AD group names, under the `memberOf` token strategy |
+| `GET /users/{id}/credentials` | **200**. The enrolled `otp` carries an `id`; the federated `password` **carries none at all** |
+| `DELETE /users/{id}/credentials/<nonexistent>` | **404**, not 403 — the permission is held |
+| `GET /groups?search=OpenBerat-Admins&exact=true` | **200**, the group and its id; an unknown name answers `[]` |
+| `GET /groups/{id}/members` | **200**, the usernames |
+| `GET /users?first=&max=&search=` | **200**, the page |
+
+**Three of those rows changed the design.**
+
+- **The user representation already carries `totp`.** The list says who has a
+  second factor enrolled without a credentials call per row, which is what makes
+  the Users tab affordable at all: `labadmin` came back `"totp": true` and the
+  other four `false`, and the credentials call agreed. The endpoint answers it
+  straight out of the list.
+- **`briefRepresentation=true` does not trim this list.** Asked for it, the
+  user page still came back with `attributes`, `userProfileMetadata` and the
+  rest — so it is not sent; it buys nothing here. The page is fat and only four
+  fields of it are read.
+- **The privileged flag costs two calls per group, not one.** Keycloak
+  addresses a group by id, so the name has to resolve before the members can be
+  read. ADR-0036 said "two calls" and now says two *per* group: still a fixed
+  cost per page rather than one per listed user, which was the point.
+
+The federated password having **no id** is the reason the delete can reach
+nothing else: only an id can be deleted, filtering on `type == "otp"` is what
+collects them, and a password has neither.
+
+**The run.** `verify-resetmfa.sh` on the lab, through the real proxy and a real
+login, with `labops` (the other `ADMIN_GROUP` member — `labadmin`'s
+authenticator is on a phone this harness cannot answer for) as the actor:
+
+- `GET /api/admin/users` — **200** for `ADMIN_GROUP`, **200** for
+  `AUDITOR_GROUP` (it is a read, ADR-0034), **302** to the login for an
+  anonymous caller. `labadmin`, `labauditor` and `labops` come back
+  `privileged: true`, `labuser` and `labnested` `false`, and no row carries a
+  `sub`. `?search=labaud` narrows to one.
+- Every refusal, each one terminal: the auditor's **403** on the reset (a
+  write), a missing Origin and a foreign Origin **403**, the caller's own
+  username **403** *"an admin cannot reset their own second factor"*, a target
+  in `ADMIN_GROUP` or `AUDITOR_GROUP` **403** *"…reset at the Keycloak console,
+  not here"*, a name the realm does not have **404**, an empty one **400**.
+- The reset itself: `labnested` enrolled a factor, the list said
+  `totp: true`, the reset answered **200 `removed: 1`**, and the next login met
+  **enrolment** rather than a challenge — measured by submitting the password
+  alone and reading which form Keycloak returns. A second reset answered **200
+  `removed: 0`**, which is the idempotence the ADR promises.
+- The audit line, as F-14 renders it:
+  `admin actor=labops action="reset_second_factor" target="labnested" outcome="ok" removed=1`,
+  and `outcome="not_found"` for the name that does not resolve.
+- The decision path did not move: the portal and the management plane answered
+  200 either side of the reset. A reset changes who can *enrol*, not who is
+  entitled.
+
+**What the run cost, and it was not the product.** The lab's `/root/OpenBerat`
+is a plain directory rather than a checkout, and the image build failed with
+`cannot find function may_reset_second_factor` — `policy.rs` had been committed
+in an earlier session and never copied over, so a per-file `scp` of what *this*
+change touched left the tree half a feature behind. The deploy is an `rsync` of
+`backend/src/` and `frontend/src/` wholesale; copying the files a session edited
+is what hides drift that is already there.

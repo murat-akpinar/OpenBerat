@@ -11,16 +11,16 @@
 // management plane has is mounted here, including the read-only screens whose
 // handlers live in `audit.rs`, so there is one list to read the guard against.
 //
-// What the endpoints here change is applications, entitlements and sessions.
-// What they refuse to store is `validate.rs`; what an application row becomes
-// once stored is `nginx.rs`.
+// What the endpoints here change is applications, entitlements, sessions and a
+// user's second factor. What they refuse to store is `validate.rs`; what an
+// application row becomes once stored is `nginx.rs`.
 
 use crate::api::{Caller, Ctx};
 use crate::keycloak::LogoutError;
 use crate::policy;
 use crate::validate::{validate_hostname, validate_path_pattern, validate_slug, validate_upstream};
 use crate::{audit, nginx};
-use axum::extract::{Path, Request, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::{HeaderMap, Method, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
@@ -52,6 +52,11 @@ pub fn routes(ctx: Arc<Ctx>) -> Router<Arc<Ctx>> {
         .route("/api/admin/sessions", get(audit::list_sessions))
         .route("/api/admin/explain", get(audit::explain))
         .route("/api/admin/kill/{sub}", axum::routing::post(kill))
+        .route("/api/admin/users", get(list_users))
+        .route(
+            "/api/admin/reset-second-factor",
+            axum::routing::post(reset_second_factor),
+        )
         .route_layer(middleware::from_fn_with_state(ctx, guard))
 }
 
@@ -164,6 +169,117 @@ async fn kill(State(ctx): State<Arc<Ctx>>, headers: HeaderMap, Path(sub): Path<U
     tracing::warn!(actor, action = "kill", target = %sub, outcome = "ok",
         sessions = sessions.len(), "admin");
     Json(serde_json::json!({ "sessions": sessions.len() })).into_response()
+}
+
+/// Keycloak's own page size for the user list. A directory can be large and
+/// this endpoint is the first admin one whose cost grows with it rather than
+/// with what the operator typed (ADR-0036), so it is never asked for all of it.
+const PAGE: u32 = 50;
+
+#[derive(Deserialize)]
+struct UserQuery {
+    #[serde(default)]
+    search: String,
+    #[serde(default)]
+    page: u32,
+}
+
+/// The realm's users, read live from Keycloak and stored nowhere (ADR-0036).
+/// The subject of a reset is by definition someone who cannot log in, so the
+/// Live tab — the one place a person otherwise appears — is exactly where they
+/// are not.
+async fn list_users(State(ctx): State<Arc<Ctx>>, Query(query): Query<UserQuery>) -> Response {
+    let search = query.search.trim();
+    if search.chars().count() > 100 {
+        return bad_request("the search is too long");
+    }
+    let listed = ctx
+        .keycloak
+        .users(
+            search,
+            query.page.saturating_mul(PAGE),
+            PAGE,
+            [&ctx.admin_group, &ctx.auditor_group],
+        )
+        .await;
+    match listed {
+        Ok(users) => Json(users).into_response(),
+        Err(why) => {
+            tracing::error!(action = "list_users", outcome = "error", error = %why, "admin");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "error": why })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct ResetRequest {
+    username: String,
+}
+
+// --- Feature Start ---
+// A second-factor reset (ADR-0036). Deleting the OTP credential means whoever
+// logs in next enrols theirs, which is the point for an ordinary user and an
+// account takeover for two targets — so the guard above having passed is not
+// enough and `policy::may_reset_second_factor` is the second gate. Every read it
+// rests on is fail-closed: a target that cannot be resolved is a 404, and groups
+// that cannot be read refuse rather than proceed, because a reset that cannot
+// first prove the target is not privileged is one that must not run.
+// --- Feature End ---
+async fn reset_second_factor(
+    State(ctx): State<Arc<Ctx>>,
+    headers: HeaderMap,
+    Json(request): Json<ResetRequest>,
+) -> Response {
+    let Some(caller) = Caller::from(&headers) else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let username = request.username.trim();
+    if username.is_empty() || username.chars().count() > 255 {
+        return bad_request("a username is required");
+    }
+    let refused = |status: StatusCode, outcome: &str, why: String| {
+        tracing::warn!(actor = %caller.username, action = "reset_second_factor",
+            target = username, outcome, error = %why, "admin");
+        (status, Json(serde_json::json!({ "error": why }))).into_response()
+    };
+    let target = match ctx.keycloak.target(username).await {
+        Ok(Some(target)) => target,
+        Ok(None) => {
+            return refused(
+                StatusCode::NOT_FOUND,
+                "not_found",
+                "no such user in the realm".to_string(),
+            );
+        }
+        Err(why) => return refused(StatusCode::SERVICE_UNAVAILABLE, "error", why),
+    };
+    // Keycloak's `sub` is the same value as the user id the resolve answered
+    // with, and both are written lower-case; the fold is there so that a day
+    // when one of them is not does not turn the self refusal into a pass.
+    if let Err(why) = policy::may_reset_second_factor(
+        &caller.sub.to_ascii_lowercase(),
+        &target.id.to_string(),
+        &target.groups,
+        &ctx.admin_group,
+        &ctx.auditor_group,
+    ) {
+        return refused(StatusCode::FORBIDDEN, "refused", why.to_string());
+    }
+    match ctx.keycloak.delete_otp(&target.id).await {
+        // Zero is not an error: the whole effect is "the next login enrols",
+        // and for a user with no credential that is already true. A second
+        // click, or a race with the user enrolling, is safe.
+        Ok(removed) => {
+            tracing::warn!(actor = %caller.username, action = "reset_second_factor",
+                target = username, outcome = "ok", removed, "admin");
+            Json(serde_json::json!({ "removed": removed })).into_response()
+        }
+        Err(why) => refused(StatusCode::SERVICE_UNAVAILABLE, "error", why),
+    }
 }
 
 /// One `application` row. `nginx.rs` renders it into a server block, which is

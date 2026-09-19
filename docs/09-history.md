@@ -2176,3 +2176,42 @@ wrote down gets re-litigated.
       instance stop trusting its own cache. Not done: any instance count under
       load — the load figures are all single-instance and `vaultscan` runs the
       generator itself, which is why N-06 still keeps HA outside v1.
+
+
+---
+
+## After the backlog — the second factor stops being the admin's problem
+
+Not a phase either, and one box long. [ADR-0035](adr/0035-mfa-for-every-user.md)
+made a second factor a property of every login and, in the same breath, made a
+lost or replaced phone a routine helpdesk task rather than a rare one. It named
+the reset path as work it did not do.
+
+- [x] **Reset a user's second factor from the management plane.**
+      [ADR-0032](adr/0032-admin-mfa.md)'s answer — the Keycloak admin console
+      under `KC_ADMIN_PASSWORD` — was sized for two to five administrators; for
+      a whole directory it makes a routine task reach for the realm-master
+      credential, and a credential reached for often is a credential that gets
+      shared. **Closed:** [ADR-0036](adr/0036-reset-second-factor.md),
+      `policy::may_reset_second_factor` with its self/privileged refusal test,
+      `GET /api/admin/users` and `POST /api/admin/reset-second-factor`, and a
+      **Users tab** that lists Keycloak's own directory live rather than storing
+      one — which is why `known_user` stays on `Later`: the subject of a reset
+      is by definition someone who cannot log in, so the Live tab, the one place
+      a person otherwise appears, is exactly where they are not.
+      Three things the measurement changed, all in `docs/07`. The user
+      representation **already carries `totp`**, so the list says who has a
+      factor enrolled with no call per row; `briefRepresentation=true` **does
+      not trim** that list on Keycloak 26.3, so it is not sent; and the
+      privileged flag costs **two calls per group** rather than two in total,
+      because a group is addressed by id and the name has to resolve first.
+      The federated password **carries no credential id at all**, which is what
+      keeps the delete unable to reach anything but the `otp`.
+      Run rather than read ([ADR-0017](adr/0017-fail-closed-availability.md),
+      harness `verify-resetmfa.sh`): the list answers `ADMIN_GROUP` and
+      `AUDITOR_GROUP` and redirects an anonymous caller; the reset clears an
+      ordinary user's factor and the **next login meets enrolment**, is
+      idempotent on the second click, and refuses — terminally — the auditor,
+      the caller's own account, a target in either management group, a name the
+      realm does not have, and a read it cannot make. The decision path did not
+      move: a reset changes who can enrol, not who is entitled.

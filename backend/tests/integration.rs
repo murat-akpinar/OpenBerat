@@ -854,23 +854,65 @@ async fn fake_oauth2_proxy(
     (format!("http://{addr}"), calls, signed_out)
 }
 
-/// Keycloak's Admin API, as much of it as the kill switch's first step touches:
-/// the service-account token endpoint and `users/{id}/logout`. It records the
-/// subs it was asked to log out, because "step 1 ran" is otherwise invisible
-/// from outside — and a kill switch that skips it leaves a live SSO session
-/// that signs the user straight back in.
-async fn fake_keycloak() -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
-    use axum::extract::{Path, State};
+/// One user of the stand-in realm. `otp` is both the credential a reset deletes
+/// and the `totp` flag the user list shows — one field, because they are one
+/// fact and a delete that left them disagreeing would be the stand-in lying
+/// rather than the backend being wrong.
+#[derive(Clone)]
+struct Account {
+    id: &'static str,
+    username: &'static str,
+    groups: &'static [&'static str],
+    otp: bool,
+    /// Keycloak gives the federated password no id and the otp one a UUID, so
+    /// deleting by id can only ever reach the second (measured, `docs/07`).
+    otp_id: &'static str,
+}
+
+type Directory = Arc<std::sync::Mutex<Vec<Account>>>;
+
+/// Keycloak addresses a group by id, so a name costs a lookup before its
+/// members can be read — the second of the two calls the user list's
+/// privileged flag spends per management group.
+const GROUPS: [(&str, &str); 3] = [
+    ("OpenBerat-Admins", "11111111-1111-1111-1111-111111111111"),
+    ("OpenBerat-Auditors", "22222222-2222-2222-2222-222222222222"),
+    ("OpenBerat-Finance", "33333333-3333-3333-3333-333333333333"),
+];
+
+/// Keycloak's Admin API, as much of it as the backend touches: the
+/// service-account token endpoint, `users/{id}/logout` for the kill switch's
+/// first step, and the directory reads and credential delete a second-factor
+/// reset walks (ADR-0036). It records the subs it was asked to log out, because
+/// "step 1 ran" is otherwise invisible from outside — and a kill switch that
+/// skips it leaves a live SSO session that signs the user straight back in.
+async fn fake_keycloak() -> (String, Arc<std::sync::Mutex<Vec<String>>>, Directory) {
+    use axum::extract::{Path, Query, State};
     use axum::http::StatusCode;
     use axum::response::{IntoResponse, Response};
+    use std::collections::HashMap;
 
     type Killed = Arc<std::sync::Mutex<Vec<String>>>;
+    #[derive(Clone)]
+    struct Realm {
+        killed: Killed,
+        directory: Directory,
+    }
+
+    fn brief(account: &Account) -> serde_json::Value {
+        serde_json::json!({
+            "id": account.id,
+            "username": account.username,
+            "email": format!("{}@example.local", account.username),
+            "totp": account.otp,
+        })
+    }
 
     async fn token() -> Response {
         axum::Json(serde_json::json!({ "access_token": "service-account-token" })).into_response()
     }
-    async fn logout(State(killed): State<Killed>, Path(sub): Path<String>) -> Response {
-        killed.lock().unwrap().push(sub.clone());
+    async fn logout(State(realm): State<Realm>, Path(sub): Path<String>) -> Response {
+        realm.killed.lock().unwrap().push(sub.clone());
         // Two subs Keycloak refuses, so the test can watch the kill switch stop
         // at a failed first step instead of reporting a success it did not get
         // — and tell "nobody by that name" from "Keycloak is down", which are
@@ -884,21 +926,196 @@ async fn fake_keycloak() -> (String, Arc<std::sync::Mutex<Vec<String>>>) {
         StatusCode::NO_CONTENT.into_response()
     }
 
+    /// `username=<u>&exact=true` resolves one name and `search=` filters the
+    /// list; both answer the same array, and a name nobody has answers an empty
+    /// one rather than a 404 (measured, `docs/07`).
+    async fn users(
+        State(realm): State<Realm>,
+        Query(q): Query<HashMap<String, String>>,
+    ) -> Response {
+        let listed: Vec<serde_json::Value> = realm
+            .directory
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|a| match (q.get("username"), q.get("search")) {
+                (Some(name), _) => a.username == name,
+                (None, Some(search)) => a.username.contains(search.as_str()),
+                (None, None) => true,
+            })
+            .skip(q.get("first").and_then(|v| v.parse().ok()).unwrap_or(0))
+            .take(
+                q.get("max")
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(usize::MAX),
+            )
+            .map(brief)
+            .collect();
+        axum::Json(listed).into_response()
+    }
+
+    async fn groups(Query(q): Query<HashMap<String, String>>) -> Response {
+        let found: Vec<serde_json::Value> = GROUPS
+            .iter()
+            .filter(|(name, _)| q.get("search").is_none_or(|wanted| wanted == name))
+            .map(|(name, id)| serde_json::json!({ "id": id, "name": name }))
+            .collect();
+        axum::Json(found).into_response()
+    }
+
+    async fn members(State(realm): State<Realm>, Path(id): Path<String>) -> Response {
+        let Some((name, _)) = GROUPS.iter().find(|(_, group)| *group == id) else {
+            return StatusCode::NOT_FOUND.into_response();
+        };
+        let listed: Vec<serde_json::Value> = realm
+            .directory
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|a| a.groups.iter().any(|g| g == name))
+            .map(brief)
+            .collect();
+        axum::Json(listed).into_response()
+    }
+
+    async fn user_groups(State(realm): State<Realm>, Path(id): Path<String>) -> Response {
+        let directory = realm.directory.lock().unwrap();
+        let Some(account) = directory.iter().find(|a| a.id == id) else {
+            return StatusCode::NOT_FOUND.into_response();
+        };
+        // The read a reset cannot do without: with no answer here there is no
+        // way to know the target is not a management-plane account, and
+        // ADR-0036 refuses rather than proceeds. One account never answers it.
+        if account.username == "labbroken" {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        let listed: Vec<serde_json::Value> = account
+            .groups
+            .iter()
+            .map(|name| serde_json::json!({ "name": name, "path": format!("/{name}") }))
+            .collect();
+        axum::Json(listed).into_response()
+    }
+
+    async fn credentials(State(realm): State<Realm>, Path(id): Path<String>) -> Response {
+        let directory = realm.directory.lock().unwrap();
+        let Some(account) = directory.iter().find(|a| a.id == id) else {
+            return StatusCode::NOT_FOUND.into_response();
+        };
+        let mut listed = vec![serde_json::json!({ "type": "password" })];
+        if account.otp {
+            listed.push(serde_json::json!({ "id": account.otp_id, "type": "otp" }));
+        }
+        axum::Json(listed).into_response()
+    }
+
+    async fn delete_credential(
+        State(realm): State<Realm>,
+        Path((id, credential)): Path<(String, String)>,
+    ) -> Response {
+        let mut directory = realm.directory.lock().unwrap();
+        let Some(account) = directory.iter_mut().find(|a| a.id == id) else {
+            return StatusCode::NOT_FOUND.into_response();
+        };
+        if !account.otp || credential != account.otp_id {
+            return StatusCode::NOT_FOUND.into_response();
+        }
+        account.otp = false;
+        StatusCode::NO_CONTENT.into_response()
+    }
+
     let killed: Killed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let account = |id, username, groups, otp_id| Account {
+        id,
+        username,
+        groups,
+        otp: true,
+        otp_id,
+    };
+    let directory: Directory = Arc::new(std::sync::Mutex::new(vec![
+        account(
+            LABUSER_SUB,
+            "labuser",
+            &["OpenBerat-Finance"],
+            "0a000000-0000-0000-0000-000000000001",
+        ),
+        account(
+            "aaaaaaaa-0000-4000-8000-000000000002",
+            "labadmin",
+            &["OpenBerat-Admins", "OpenBerat-Finance"],
+            "0a000000-0000-0000-0000-000000000002",
+        ),
+        account(
+            "aaaaaaaa-0000-4000-8000-000000000003",
+            "labauditor",
+            &["OpenBerat-Auditors"],
+            "0a000000-0000-0000-0000-000000000003",
+        ),
+        account(
+            "aaaaaaaa-0000-4000-8000-000000000004",
+            "labplain",
+            &[],
+            "0a000000-0000-0000-0000-000000000004",
+        ),
+        Account {
+            otp: false,
+            ..account(
+                "aaaaaaaa-0000-4000-8000-000000000005",
+                "labnofactor",
+                &["OpenBerat-Finance"],
+                "0a000000-0000-0000-0000-000000000005",
+            )
+        },
+        account(
+            "aaaaaaaa-0000-4000-8000-000000000006",
+            "labbroken",
+            &[],
+            "0a000000-0000-0000-0000-000000000006",
+        ),
+        // Reset for real by the admin pass over the route list, which is why
+        // nothing else may name it: that pass asserts the call lands.
+        account(
+            "aaaaaaaa-0000-4000-8000-000000000007",
+            "labspare",
+            &[],
+            "0a000000-0000-0000-0000-000000000007",
+        ),
+    ]));
     let app = axum::Router::new()
         .route(
             "/realms/openberat/protocol/openid-connect/token",
             axum::routing::post(token),
         )
+        .route("/admin/realms/openberat/users", axum::routing::get(users))
         .route(
-            "/admin/realms/openberat/users/{sub}/logout",
+            "/admin/realms/openberat/users/{id}/logout",
             axum::routing::post(logout),
         )
-        .with_state(killed.clone());
+        .route(
+            "/admin/realms/openberat/users/{id}/groups",
+            axum::routing::get(user_groups),
+        )
+        .route(
+            "/admin/realms/openberat/users/{id}/credentials",
+            axum::routing::get(credentials),
+        )
+        .route(
+            "/admin/realms/openberat/users/{id}/credentials/{credential}",
+            axum::routing::delete(delete_credential),
+        )
+        .route("/admin/realms/openberat/groups", axum::routing::get(groups))
+        .route(
+            "/admin/realms/openberat/groups/{id}/members",
+            axum::routing::get(members),
+        )
+        .with_state(Realm {
+            killed: killed.clone(),
+            directory: directory.clone(),
+        });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
-    (format!("http://{addr}"), killed)
+    (format!("http://{addr}"), killed, directory)
 }
 
 /// A cookie header carrying a real oauth2-proxy ticket for `id`, plus a marker
@@ -954,7 +1171,7 @@ async fn decide_section(pool: &PgPool) {
         .await
         .expect("connect to REDIS_URL");
     let (upstream, calls, signed_out) = fake_oauth2_proxy(&redis_url).await;
-    let (keycloak_url, killed) = fake_keycloak().await;
+    let (keycloak_url, killed, directory) = fake_keycloak().await;
     let ctx = |oauth2_proxy: &str, pool: PgPool| {
         let (audit, _queue) = audit_channel(1024);
         Arc::new(Ctx {
@@ -1870,6 +2087,18 @@ async fn decide_section(pool: &PgPool) {
             format!("/api/admin/kill/{LABUSER_SUB}"),
             serde_json::json!(null),
         ),
+        // ADR-0036. The list is a read and the reset is not, which is the whole
+        // difference between what the auditor loop below asserts for each.
+        (
+            "GET",
+            "/api/admin/users".to_string(),
+            serde_json::json!(null),
+        ),
+        (
+            "POST",
+            "/api/admin/reset-second-factor".to_string(),
+            serde_json::json!({"username": "labspare"}),
+        ),
     ];
     for (method, path, body) in &plane {
         let response = sneak("OpenBerat-Finance", method, path.clone(), body.clone()).await;
@@ -2006,7 +2235,7 @@ async fn decide_section(pool: &PgPool) {
         before,
         "a refused portal user or auditor still changed something"
     );
-    // The same eight with the admin group, and this is what stops the loop
+    // The same ones with the admin group, and this is what stops the loop
     // above from being vacuous: a mistyped path answers 404 and a wrong method
     // 405, neither of which is the 403 asserted — but a route that quietly
     // stopped existing would still need something to say so. Run last in this
@@ -2620,6 +2849,139 @@ async fn decide_section(pool: &PgPool) {
     );
     index.forget(LABUSER_SUB).await.unwrap();
     while queue.try_recv().is_ok() {}
+
+    // --- resetting a second factor (ADR-0036) ---
+    // The list is a view of Keycloak's directory read live, so a row is what the
+    // IdP says right now and nothing here is stored.
+    let response = send(
+        "GET",
+        "/api/admin/users".to_string(),
+        serde_json::json!(null),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 262144)
+        .await
+        .unwrap();
+    let listed: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+    let row = |username: &str| {
+        listed
+            .iter()
+            .find(|u| u["username"] == username)
+            .unwrap_or_else(|| panic!("{username} is missing from the list"))
+            .clone()
+    };
+    // The flag that disables the button. It has to be right for both management
+    // groups and wrong for nobody else — an ordinary user marked privileged is a
+    // reset the helpdesk cannot do, and the reverse is a button that offers an
+    // escalation the backend then refuses.
+    assert_eq!(row("labadmin")["privileged"], true);
+    assert_eq!(row("labauditor")["privileged"], true);
+    assert_eq!(row("labuser")["privileged"], false);
+    assert_eq!(row("labplain")["privileged"], false);
+    // Keycloak's own `totp`, so the tab can say who a reset would even affect.
+    assert_eq!(row("labplain")["totp"], true);
+    assert_eq!(row("labnofactor")["totp"], false);
+    // A row names a user, not a sub: the reset takes a username, so there is no
+    // reason for this screen to carry Keycloak's user ids around.
+    assert!(row("labuser")["id"].is_null());
+    // The search is Keycloak's own, passed through rather than re-filtered here.
+    let response = send(
+        "GET",
+        "/api/admin/users?search=labadm".to_string(),
+        serde_json::json!(null),
+    )
+    .await;
+    let body = axum::body::to_bytes(response.into_body(), 262144)
+        .await
+        .unwrap();
+    let searched: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+    assert_eq!(searched.len(), 1);
+    assert_eq!(searched[0]["username"], "labadmin");
+
+    let enrolled = |username: &str| {
+        directory
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|a| a.username == username)
+            .unwrap()
+            .otp
+    };
+    let reset = |username: &str| serde_json::json!({ "username": username });
+    let post_reset =
+        |body: serde_json::Value| send("POST", "/api/admin/reset-second-factor".to_string(), body);
+
+    // The three terminal refusals, and each one is an account takeover if it
+    // does not hold. The caller is `labuser` (LABUSER_SUB), so the first is the
+    // self case: an admin resetting themselves gains nothing, while a stolen
+    // admin session would gain a durable authenticator of its own.
+    for (username, why) in [
+        ("labuser", "self"),
+        ("labadmin", "a target in ADMIN_GROUP"),
+        ("labauditor", "a target in AUDITOR_GROUP"),
+    ] {
+        let response = post_reset(reset(username)).await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{why}");
+        assert!(
+            enrolled(username),
+            "{why}: the credential was deleted anyway"
+        );
+    }
+    // A name Keycloak has never seen is told apart from an outage, the same
+    // distinction the kill switch draws (ADR-0019).
+    assert_eq!(
+        post_reset(reset("nosuchuser")).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        post_reset(serde_json::json!({ "username": "" }))
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    // Fail-closed: the groups read is what proves the target is not privileged,
+    // so a reset that cannot make it must not run.
+    assert_eq!(
+        post_reset(reset("labbroken")).await.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert!(
+        enrolled("labbroken"),
+        "a reset ran without reading the groups"
+    );
+
+    // The ordinary case, which is the whole point: the factor goes, and the
+    // next login is an enrolment.
+    let response = post_reset(reset("labplain")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["removed"],
+        1
+    );
+    assert!(!enrolled("labplain"));
+    // Idempotent, because the effect is "the next login enrols" and that is
+    // already true for a user with no credential: a second click and a race with
+    // the user enrolling both have to be safe.
+    let response = post_reset(reset("labplain")).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["removed"],
+        0
+    );
+    assert_eq!(
+        post_reset(reset("labnofactor")).await.status(),
+        StatusCode::OK
+    );
+    // Every /api call above recorded this browser's session (ADR-0019); the
+    // section below counts what is left in the index, so it starts from none.
+    index.forget(LABUSER_SUB).await.unwrap();
 
     // --- logout (docs/02, "Logout") ---
     // The caller's own kill switch, and the one step of the three only the

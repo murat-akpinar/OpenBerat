@@ -123,7 +123,7 @@ function toExplain(sub) {
 
 // --- Tabs --------------------------------------------------------------------
 
-const VIEWS = ['live', 'history', 'explain', 'apps', 'access'];
+const VIEWS = ['live', 'history', 'explain', 'apps', 'access', 'users'];
 
 function show(name) {
   const view = VIEWS.includes(name) ? name : 'live';
@@ -143,6 +143,9 @@ function show(name) {
   // suggestions are the group names that have rules — so any of the three
   // opening loads it.
   if (view === 'apps' || view === 'access' || view === 'explain') apps();
+  // Like Live, a read-through to something this page does not own: the rows are
+  // Keycloak's directory as it is now, not a copy taken when the page loaded.
+  if (view === 'users') users();
 }
 
 for (const name of VIEWS) {
@@ -756,10 +759,123 @@ function removeEntitlement(rule) {
     });
 }
 
+// --- Users -------------------------------------------------------------------
+
+const userRows = document.getElementById('user-rows');
+const userCount = document.getElementById('user-count');
+const userSearch = document.getElementById('us-search');
+const userPrev = document.getElementById('user-prev');
+const userNext = document.getElementById('user-next');
+
+/// The page the backend asks Keycloak for. Written here only to tell a full
+/// page from the last one — the size itself is the backend's (`admin.rs`).
+const USER_PAGE = 50;
+let userPage = 0;
+
+/// Whose account is whose, for the row this admin may not reset. Filled by the
+/// /api/me call at the bottom of this file; if it has not answered yet the row
+/// is drawn enabled and the backend refuses the press, which is the direction
+/// this page always fails in.
+let signedInAs = null;
+
+function userRow(user) {
+  const row = document.createElement('tr');
+
+  const factor = el('td');
+  factor.append(el('span', `tag ${user.totp ? 'is-allow' : 'is-deny'}`,
+    user.totp ? 'enrolled' : 'none'));
+
+  // --- Feature Start ---
+  // The two refusals are on the button with their reason, because a button that
+  // fails when pressed teaches nothing — and neither of these is a mistake the
+  // admin should discover from a 403. They are a convenience and not the
+  // control: the backend reads the target's own groups and refuses again.
+  const refused = user.privileged
+    ? 'A management-plane account. Reset it at the Keycloak console instead (ADR-0036).'
+    : user.username === signedInAs
+      ? 'Your own account. Re-enrol from your account settings instead.'
+      : '';
+  // --- Feature End ---
+  const reset = el('button', 'quiet tiny', 'Reset second factor');
+  reset.type = 'button';
+  if (refused) {
+    reset.disabled = true;
+    reset.title = refused;
+  } else {
+    reset.addEventListener('click', () => resetSecondFactor(user));
+  }
+  const actions = el('td', 'actions');
+  actions.append(reset);
+
+  row.append(el('td', 'mono', user.username), el('td', 'mono-wrap', user.email), factor, actions);
+  return row;
+}
+
+function users() {
+  userCount.textContent = 'Reading…';
+  const query = new URLSearchParams({ page: String(userPage) });
+  const search = userSearch.value.trim();
+  if (search) query.set('search', search);
+  api(`/api/admin/users?${query}`)
+    .then((list) => {
+      notice.hidden = true;
+      userRows.replaceChildren(...list.map(userRow));
+      userPrev.disabled = userPage === 0;
+      // A short page is the end of the directory. There is no total to count
+      // against: this reads through to Keycloak and stores nothing.
+      userNext.disabled = list.length < USER_PAGE;
+      userCount.textContent = list.length === 0
+        ? (userPage === 0 ? 'Keycloak has nobody matching that.' : 'No more users.')
+        : `${list.length} user${list.length === 1 ? '' : 's'} on page ${userPage + 1}`;
+    })
+    .catch((e) => {
+      console.error(e);
+      userRows.replaceChildren();
+      userCount.textContent = '';
+      say(e.message);
+    });
+}
+
+document.getElementById('user-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  userPage = 0;
+  users();
+});
+userPrev.addEventListener('click', () => {
+  userPage = Math.max(0, userPage - 1);
+  users();
+});
+userNext.addEventListener('click', () => {
+  userPage += 1;
+  users();
+});
+
+function resetSecondFactor(user) {
+  const warning = `Clear ${user.username}'s second factor?\n\n`
+    + 'Their next sign-in sends them to enrolment, so whoever signs in as them next '
+    + 'is the one who enrols the authenticator. It ends no session and changes '
+    + 'nothing about what they may reach.';
+  if (!confirm(warning)) return;
+  write('POST', '/api/admin/reset-second-factor', { username: user.username })
+    .then((answer) => {
+      // Zero removed is not a failure: the effect is "the next sign-in enrols",
+      // and for a user with none that was already true.
+      say(answer.removed === 0
+        ? `${user.username} had no second factor enrolled; the next sign-in enrols one anyway.`
+        : `Cleared ${user.username}'s second factor. The next sign-in enrols a new one.`);
+      users();
+    })
+    .catch((e) => {
+      console.error(e);
+      say(e.message);
+    });
+}
+
 // --- The header, shared with the portal --------------------------------------
 
 api('/api/me')
   .then((me) => {
+    signedInAs = me.username;
     document.getElementById('whoami').textContent = `Signed in as ${me.username}`;
   })
   .catch(() => {});
