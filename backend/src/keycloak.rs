@@ -200,6 +200,7 @@ impl Keycloak {
             .filter_map(|user| {
                 let username = user["username"].as_str()?.to_string();
                 Some(User {
+                    sub: user["id"].as_str()?.to_string(),
                     privileged: privileged.contains(&username),
                     username,
                     email: user["email"].as_str().unwrap_or_default().to_string(),
@@ -326,6 +327,10 @@ impl Keycloak {
 /// enrolled", which is why a row costs no call of its own (`docs/07`).
 #[derive(serde::Serialize)]
 pub struct User {
+    /// Keycloak's user id, which is the `sub` the token carries — the value
+    /// `/api/admin/explain` insists on and the one nothing else on this page
+    /// would give an operator for a user who has never signed in.
+    pub sub: String,
     pub username: String,
     pub email: String,
     pub totp: bool,

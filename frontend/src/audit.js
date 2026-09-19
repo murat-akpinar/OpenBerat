@@ -125,8 +125,17 @@ function toExplain(sub) {
 
 const VIEWS = ['live', 'history', 'explain', 'apps', 'access', 'users'];
 
+/// What show() last drew. The hash is written by show() itself, so without
+/// this the resulting hashchange calls it a second time and every tab fetches
+/// twice.
+let shown = null;
+
 function show(name) {
   const view = VIEWS.includes(name) ? name : 'live';
+  shown = view;
+  // A message belongs to the tab that raised it: a 403 from Live reads as a
+  // refusal of whatever the operator is doing three tabs later.
+  notice.hidden = true;
   for (const other of VIEWS) {
     document.getElementById(`view-${other}`).hidden = other !== view;
     document.getElementById(`tab-${other}`).setAttribute('aria-selected', String(other === view));
@@ -148,7 +157,9 @@ function show(name) {
 for (const name of VIEWS) {
   document.getElementById(`tab-${name}`).addEventListener('click', () => show(name));
 }
-window.addEventListener('hashchange', () => show(location.hash.slice(1)));
+window.addEventListener('hashchange', () => {
+  if (location.hash.slice(1) !== shown) show(location.hash.slice(1));
+});
 
 // --- Live --------------------------------------------------------------------
 
@@ -521,12 +532,16 @@ function fillAppSelect() {
   const chosen = select.value;
   const every = el('option', null, 'every application (wildcard)');
   every.value = '';
-  select.replaceChildren(every, ...applications.map((app) => {
+  // Last, and not first: the option the form falls back to on reset is the one
+  // at the top, and a grant nobody chose the scope of must not be the one that
+  // applies everywhere. Only a scope actually chosen is restored, for the same
+  // reason — the empty value reads as the wildcard.
+  select.replaceChildren(...applications.map((app) => {
     const option = el('option', null, app.slug);
     option.value = app.id;
     return option;
-  }));
-  select.value = chosen;
+  }), every);
+  if (chosen) select.value = chosen;
 }
 
 // --- Feature Start ---
@@ -825,7 +840,10 @@ function userRow(user) {
     reset.addEventListener('click', () => resetSecondFactor(user));
   }
   const actions = el('td', 'actions');
-  actions.append(reset);
+  // The directory is the only tab that lists somebody who has never signed in,
+  // and Explain wants a sub — so it is also the only place an operator can ask
+  // about a user before the first request of theirs exists.
+  actions.append(toExplain(user.sub), reset);
 
   row.append(el('td', 'mono', user.username), el('td', 'mono-wrap', user.email), factor, actions);
   return row;
