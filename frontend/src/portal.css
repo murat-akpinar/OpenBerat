@@ -286,6 +286,11 @@ a { color: var(--gold-ink); }
   overflow: hidden;
 }
 
+/* Inside the badge rather than filling it: the gradient is what makes the
+   square read as a tile, and a logo bled to the edges loses it. `contain`
+   because an application's mark is whatever shape its project drew. */
+.icon img { width: 62%; height: 62%; object-fit: contain; }
+
 .app-text { min-width: 0; }
 .app-name { display: block; font-weight: 600; font-size: 1.0625rem; letter-spacing: -0.01em; }
 .app-host { display: block; color: var(--muted); font-size: 0.8125rem; margin-top: 0.1rem; }

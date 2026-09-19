@@ -629,7 +629,11 @@ still serving.
 lower-case, digits and dashes, because it is interpolated into nginx config
 (ADR-0011) and the database refuses anything else. `icon` is one short string
 rendered as text — an emoji or a letter — and defaults to the first letter of
-the name. `upstream_url` is `scheme://host:port` and nothing else: no path, no
+the name. A value beginning with a single `/` is a **path** instead, and the
+portal draws it as an image: put the file anywhere under `frontend/src/`, which
+the nginx image copies to its document root, and pass the path it is served at
+(`"icon": "/jenkins.svg"`). Same-origin only — `//elsewhere/logo.png` is drawn
+as text, and the portal's CSP would refuse to fetch it in any case. `upstream_url` is `scheme://host:port` and nothing else: no path, no
 credentials, no query, and it is refused if it names an infrastructure service
 or port (`postgres`, `redis`, `keycloak`, `backend`, 5432, 6379, 389, 636 …), a
 loopback, link-local or otherwise reserved address, or the portal's own

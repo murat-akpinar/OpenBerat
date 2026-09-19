@@ -59,6 +59,15 @@ To bundle a face instead of `system-ui`: put the `.woff2` in `src/font/`, add an
 already copies the mark. The licence goes in `docs/07`'s licence table, which is
 what CI's licence job and the release bundle read.
 
+**An application's icon.** The `icon` column is one short string the portal
+draws in the badge — a letter or an emoji — unless it begins with a single `/`,
+in which case it is a path and the portal draws an `<img>`. Everything under
+`src/` is copied to the nginx document root (ADR-0020), so a mark dropped in
+here is served at its own path and `"/jenkins.svg"` is all the row needs. The
+single-slash test is the point: `//host/logo.png` is an absolute URL to another
+origin and stays text, because an admin-typed `src` is the one value on this
+page that must not be able to leave it.
+
 `portal.css` and `logo.svg` are served **without `auth_request`**
 (`10-portal.conf`, `docs/02` "Anonymous endpoints"). The outage page comes from
 `location /`'s `error_page`, so a stylesheet fetched through that location

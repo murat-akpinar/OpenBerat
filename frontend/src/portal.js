@@ -37,7 +37,24 @@ function button(app) {
   link.rel = 'noopener';
   const icon = document.createElement('span');
   icon.className = 'icon';
-  icon.textContent = app.icon || app.name.slice(0, 1).toUpperCase();
+  // --- Feature Start ---
+  // An icon that reads as a path is drawn as an image; anything else is text.
+  // The test is a single leading slash and no second one, so the src can only
+  // name a file the nginx image itself serves: `//host/x` is an absolute URL to
+  // somebody else's origin, and an admin-typed src is the one value on this
+  // page that must not be able to leave it. The CSP (`default-src 'self'`)
+  // refuses that anyway; this is the half that does not rely on the browser.
+  if (/^\/[^/]/.test(app.icon || '')) {
+    const image = document.createElement('img');
+    image.src = app.icon;
+    // Decorative: the name is right beside it, so a second reading of it is
+    // noise to a screen reader.
+    image.alt = '';
+    icon.append(image);
+  } else {
+    icon.textContent = app.icon || app.name.slice(0, 1).toUpperCase();
+  }
+  // --- Feature End ---
   const text = document.createElement('span');
   text.className = 'app-text';
   const name = document.createElement('span');
