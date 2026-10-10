@@ -97,7 +97,9 @@ impl Decision {
 // --- Feature End ---
 pub fn normalise(raw_uri: &str) -> Result<String, Deny> {
     let path = raw_uri.split('?').next().unwrap_or_default();
-    if !path.starts_with('/') {
+    // A raw `#` never comes from a browser, and an upstream that cuts the path
+    // there serves something other than what was decided (ADR-0037).
+    if !path.starts_with('/') || path.contains('#') {
         return Err(Deny::MalformedUri);
     }
     let decoded = String::from_utf8(percent_decode(path)?).map_err(|_| Deny::MalformedUri)?;
@@ -118,6 +120,34 @@ pub fn normalise(raw_uri: &str) -> Result<String, Deny> {
     // one, which would decide two different paths are the same path.
     out.make_ascii_lowercase();
     Ok(out)
+}
+
+// --- Feature Start ---
+// Upstreams do not agree on what a path means: some decode before resolving
+// `..` (`/admin/..%2Fpublic/` is `/public/`), some resolve first and decode a
+// segment as data (it is under `/admin/`), Tomcat and Jetty drop `;params` from
+// a segment (`/public/..;/admin/` is `/admin/`). One reading closes the deny
+// side and opens the allow side of another, so the decision is taken under all
+// three and a request passes only if every one of them passes (ADR-0037).
+// --- Feature End ---
+fn readings(raw_uri: &str) -> Result<[String; 3], Deny> {
+    let decoded = normalise(raw_uri)?;
+    let path = raw_uri.split('?').next().unwrap_or_default();
+    let unparametered: Vec<&str> = path
+        .split('/')
+        .map(|segment| segment.split(';').next().unwrap_or_default())
+        .collect();
+    let decode = |resolved: String| {
+        let mut out =
+            String::from_utf8(percent_decode(&resolved)?).map_err(|_| Deny::MalformedUri)?;
+        out.make_ascii_lowercase();
+        Ok(out)
+    };
+    Ok([
+        decoded,
+        decode(resolve(path))?,
+        decode(resolve(&unparametered.join("/")))?,
+    ])
 }
 
 /// One round, and anything that is not a complete `%XX` escape is refused
@@ -168,25 +198,36 @@ fn resolve(path: &str) -> String {
 }
 
 pub fn decide(app_enabled: bool, rules: &[Rule], raw_uri: &str, now: DateTime<Utc>) -> Decision {
-    let path = match normalise(raw_uri) {
-        Ok(p) => p,
+    let paths = match readings(raw_uri) {
+        Ok(paths) => paths,
         Err(reason) => return Decision::Deny(reason),
     };
     if !app_enabled {
         return Decision::Deny(Deny::ApplicationDisabled);
     }
+    let decisions = paths.map(|path| decide_path(rules, &path, now));
+    // An explicit deny under any reading is the answer an admin will look for.
+    decisions
+        .iter()
+        .copied()
+        .find(|d| *d == Decision::Deny(Deny::ExplicitDeny))
+        .or_else(|| decisions.iter().copied().find(|d| *d != Decision::Allow))
+        .unwrap_or(Decision::Allow)
+}
+
+fn decide_path(rules: &[Rule], path: &str, now: DateTime<Utc>) -> Decision {
     let live = |r: &&Rule| r.expires_at.is_none_or(|e| e > now);
     if rules
         .iter()
         .filter(live)
-        .any(|r| r.effect == Effect::Deny && matches(&r.path_pattern, &path))
+        .any(|r| r.effect == Effect::Deny && matches(&r.path_pattern, path))
     {
         return Decision::Deny(Deny::ExplicitDeny);
     }
     if rules
         .iter()
         .filter(live)
-        .any(|r| r.effect == Effect::Allow && matches(&r.path_pattern, &path))
+        .any(|r| r.effect == Effect::Allow && matches(&r.path_pattern, path))
     {
         return Decision::Allow;
     }
@@ -361,6 +402,49 @@ mod tests {
                 Decision::Deny(Deny::ExplicitDeny),
                 "{uri} must reach the /admin/* deny rule"
             );
+        }
+    }
+
+    /// An allow on a subtree must not be escaped by a path that one upstream
+    /// parser reads inside the subtree and another reads outside it (ADR-0037).
+    #[test]
+    fn an_allow_subtree_cannot_be_escaped_by_any_reading() {
+        let public_only = [rule(Effect::Allow, "/public/*")];
+        for uri in [
+            "/admin/..%2Fpublic/x",
+            "/admin/..%2fpublic/x",
+            "/admin/..%5Cpublic/x",
+            "/admin/x\\..\\..\\public/y",
+            "/public/..;/admin/",
+            "/public/..;x/admin/",
+            "/admin/secret#/../../public/",
+        ] {
+            assert!(
+                matches!(decide(true, &public_only, uri, now()), Decision::Deny(_)),
+                "{uri}"
+            );
+        }
+        assert_eq!(
+            decide(true, &public_only, "/public/a;jsessionid=1", now()),
+            Decision::Allow
+        );
+        assert_eq!(
+            decide(
+                true,
+                &[rule(Effect::Allow, "")],
+                "/job/feature%2Ffoo/",
+                now()
+            ),
+            Decision::Allow
+        );
+    }
+
+    /// Tomcat and Jetty drop `;params` from a segment (docs/06, answered by
+    /// ADR-0037): `/admin;x/` is `/admin/` to them, so it is to the deny rule.
+    #[test]
+    fn a_path_parameter_does_not_hide_a_segment_from_a_deny_rule() {
+        for uri in ["/admin;x/users", "/admin;jsessionid=1/", "/ADMIN;/x"] {
+            assert_eq!(decision(uri), Decision::Deny(Deny::ExplicitDeny), "{uri}");
         }
     }
 

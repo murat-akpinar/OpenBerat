@@ -24,19 +24,16 @@ Report lives outside the repo (`~/security-audit-skill/OpenBerat/run-1/`).
 Closed so far: resubscribe cache flush, duplicate session cookie
 (leads 7/11/12), h2c / upstream cookie Domain / `;` on the auth host
 (leads 2/6/9), realm `admin-cli` (lead 3), `upstream_url` host charset
-(lead 8), the hardening notes, and all of it deployed and measured on the lab
+(lead 8), path readings (leads 4/5, ADR-0037), the hardening notes, the
+stale `dist/` bundle (deleted), and all of it deployed and measured on the lab
 (`docs/07`, "Security audit run-1").
 
 - [ ] **Shared `edge` network (lead 1) — confirmed on the lab**: a throwaway
   container on `openberat_edge` reached its neighbour directly with a forged
   `X-Auth-Groups`. Needs an ADR (one network per upstream shared only with
   nginx, generated beside `apps.conf`); `enable_icc=false` would cut nginx off too.
-- [ ] Path normalisation (leads 4, 5): `%2F`, `\`, `#` and `..;` escape an allow
-  subtree. Proposed: decide under every reading (decoded, raw-resolved,
-  `;`-stripped) and deny if any denies. Answers the `docs/06` `;` question → ADR first.
 - [ ] VERIFY lead 10: an AD account expired (`accountExpires`) or locked keeps
   its session up to 10 h? Lab AD test account.
-- [ ] Delete or rebuild the stale `dist/openberat-0.1.0.tar.gz`.
 
 ---
 

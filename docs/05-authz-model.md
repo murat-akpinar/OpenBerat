@@ -352,7 +352,9 @@ without a test is visible as a gap rather than an omission.
 | `//admin/`, `/x/../admin/` | Consecutive slashes collapsed, `.`/`..` resolved | Phase 2 test |
 | `/x\..\admin/` — a Windows upstream reads `\` as a separator | `\` is folded to `/` before the `.`/`..` resolver runs | Phase 2 test |
 | `/admin%2fusers` — an encoded separator the upstream decodes | Decoding happens before resolution, so the segment splits here too | Phase 2 test |
-| `/admin;x/` — Tomcat and Jetty strip path parameters | **Not closed.** Whether `;` needs stripping depends on the upstream framework; open question in `docs/06` | — |
+| `/admin;x/` — Tomcat and Jetty strip path parameters | The path is also read with every segment's `;params` dropped, and a deny under any reading wins ([ADR-0037](adr/0037-decide-under-every-reading-of-a-path.md)) | Unit test |
+| `/admin/..%2Fpublic/x`, `/admin/x\..\..\public/y`, `/public/..;/admin/` — escaping an **allow** subtree through an upstream that reads the path differently | Allowed only if the decoded, the raw-resolved and the `;`-stripped readings all allow (ADR-0037) | Unit test (security audit run-1) |
+| `/admin/secret#/../../public/` — an upstream that cuts at `#` | A raw `#` → DENY `malformed_uri` | Unit test |
 | `/adminx` slipping into a `/admin/*` rule | Matching at a **segment boundary**, not a raw prefix | Phase 2 test |
 | An entitlement whose `expires_at` has passed still granting | `expires_at` is part of the decision, and the cached rule list carries it | Phase 2 test |
 | A portal user calling `/api/admin/*` | `ADMIN_GROUP` check on the handler's first line, **never cached** | Phase 2 test |

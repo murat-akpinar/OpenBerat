@@ -4,6 +4,8 @@
 - **Date:** 2026-09-07
 - **Relates to:** [0009](0009-policy-engine-own-code.md) — the matcher this
   constrains the input of. `policy.rs` is not touched.
+- **See also:** [0037](0037-decide-under-every-reading-of-a-path.md) — what
+  the *request* path is matched as; this ADR is what the *pattern* means.
 
 ## Context
 

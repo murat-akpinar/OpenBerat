@@ -98,6 +98,7 @@ answered and write the decision to `docs/adr/`.
 | MFA for ordinary users | For everyone, at login: the browser flow is password + OTP, both `REQUIRED`, and the role and both conditional sub-flows are deleted. Per application stays F-21 — it reads `acr` and is a rule on an entitlement, not a property of a login | [0035](adr/0035-mfa-for-every-user.md) |
 | Read-only management access | A second group from the environment, `AUDITOR_GROUP` (default `OpenBerat-Auditors`), reaches every `GET`/`HEAD` under `/api/admin/*` and nothing else; `ADMIN_GROUP` stays a superset | [0034](adr/0034-read-only-management-group.md) |
 | Resetting a user's second factor | An `ADMIN_GROUP` member does it from the management plane — a live view of Keycloak's directory (`GET /api/admin/users`) and `POST /api/admin/reset-second-factor`, on the service account that already holds the permission. Refuses self and any `ADMIN_GROUP`/`AUDITOR_GROUP` target, which stay a Keycloak-console job | [0036](adr/0036-reset-second-factor.md) |
+| How a path is read when upstreams disagree | Under three readings — decoded, resolved on the raw bytes, and with `;params` dropped — and allowed only if all three allow; a raw `#` is refused | [0037](adr/0037-decide-under-every-reading-of-a-path.md) |
 | AD group strategy | `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` | `docs/03`, `docs/07` |
 
 ### 🔴 Needs an answer about the target environment
@@ -122,14 +123,6 @@ network and policy. Phase 1 exists partly to establish them.
       wait for it — a self-signed wildcard is enough there, and the lab needs one
       from its first day because the OIDC redirect and the `Secure` cookie do not
       work over plain HTTP.
-- [ ] **Do the protected applications strip path parameters?** Tomcat and Jetty
-      drop `;jsessionid=…` from a segment, so `/admin;x/` reaches the
-      application as `/admin/` while `policy.rs` sees a segment that matches no
-      deny rule. Folding `;` the way `\` is folded (`docs/05`) would close it
-      and would change what a legitimate path containing `;` means, so the
-      answer depends on what runs behind the proxy. Until it is answered, an
-      application on a Java stack should carry its deny rules one segment
-      higher.
 - [ ] Is Kerberos/SPNEGO (passwordless domain SSO) wanted?
 - [ ] Is there more than one AD domain / forest?
 - [ ] Target concurrent user count (N-07), and how many applications, users and
