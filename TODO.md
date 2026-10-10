@@ -24,16 +24,14 @@ Report lives outside the repo (`~/security-audit-skill/OpenBerat/run-1/`).
 Closed so far: resubscribe cache flush, duplicate session cookie
 (leads 7/11/12), h2c / upstream cookie Domain / `;` on the auth host
 (leads 2/6/9), realm `admin-cli` (lead 3), `upstream_url` host charset
-(lead 8), path readings (leads 4/5, ADR-0037), the hardening notes, the
+(lead 8), path readings (leads 4/5, ADR-0037), one network per application
+(lead 1, ADR-0038), AD expiry (lead 10, refuted), the hardening notes, the
 stale `dist/` bundle (deleted), and all of it deployed and measured on the lab
 (`docs/07`, "Security audit run-1").
 
-- [ ] **Shared `edge` network (lead 1) — confirmed on the lab**: a throwaway
-  container on `openberat_edge` reached its neighbour directly with a forged
-  `X-Auth-Groups`. Needs an ADR (one network per upstream shared only with
-  nginx, generated beside `apps.conf`); `enable_icc=false` would cut nginx off too.
-- [ ] VERIFY lead 10: an AD account expired (`accountExpires`) or locked keeps
-  its session up to 10 h? Lab AD test account.
+- [ ] VERIFY: an AD account locked out (`lockoutTime`, bit 2 untouched) keeps
+  its session past `cookie_refresh`? Expiry was refuted on the lab (`docs/07`,
+  lead 10); lockout needs a lab domain lockout threshold first.
 
 ---
 

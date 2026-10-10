@@ -4199,11 +4199,13 @@ needed a live stack. What was run, and what it answered:
 | Lead | How it was measured | Before | After |
 |---|---|---|---|
 | Resubscribe served pre-gap entries | Unit test; lab, `CLIENT KILL TYPE pubsub` | stale hits | 1 miss, then hits |
-| 1. Upstreams share `edge` | Two throwaway containers on `openberat_edge`, `curl` with `X-Auth-Groups` from one to the other | **reached, header intact** — no nginx in the path | open (TODO.md) |
+| 1. Upstreams share `edge` | Two throwaway containers on `openberat_edge`, `curl` with `X-Auth-Groups` from one to the other | **reached, header intact** — no nginx in the path | one network per application (ADR-0038): from `app-sample-ws` the name `obp-a` on `app-sample` does not even resolve (curl exit 6); nginx reaches both |
 | 2. `Upgrade: h2c` | nginx 1.29 fixture, then the lab through a throwaway app `obprobe` | upstream saw `h2c`, `Connection: upgrade`, `HTTP2-Settings` | `upgrade=[]`, `conn=[close]`, `h2s=[]`; `websocket` still passes |
 | 3. Realm `admin-cli` | `POST /token` `grant_type=password` through nginx | `invalid_grant` (client accepted) | `invalid_client`, lab and a fresh 26.3 import |
 | 6. Upstream `Set-Cookie` on the parent domain | `obprobe`'s upstream sets `_oauth2_proxy=PLANTED; Domain=.apps…` | `Domain=.apps.example.local` | `Domain=obprobe.apps.example.local` |
 | 7/11/12. Decoy session cookie | `_oauth2_proxy_1=x; _oauth2_proxy=<valid>` and a duplicated name, through `obprobe` and `/api/me` | 200, real cookie upstream | 302 to `/denied` (`ambiguous_session`), `/api/me` 503 |
+| 4/5. Escaping an allow subtree | User granted `/public/*` only on `obprobe`, `curl --path-as-is` | (unit) `/admin/..%2Fpublic/x`, `/admin/x\..\..\public/y`, `/public/..;/admin/`, `/admin/secret#/../../public/` allowed | all four 302 to `/denied`; `/public/x` and `/public/a;jsessionid=1` still 200 (ADR-0037) |
+| 10. AD account expired, session still open | Throwaway AD user `labexp` signed in, `samba-tool user setexpiry --days=0`, `/api/me` polled every 15 s | — | **refuted for expiry:** 200 until 286 s, 302 at 301 s — the first `cookie_refresh` (session age 5m10s), where Keycloak refused the refresh. Lockout (`lockoutTime`) not tested |
 | 8. `upstream_url` metacharacters | Unit test | `$http_x_up` accepted | refused |
 | 9. `login-actions;x/` | Keycloak 26.3: same 400 as the real path (unknown paths 404); lab through nginx | unlimited location | 404 |
 
