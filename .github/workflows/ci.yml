@@ -10,6 +10,10 @@
 # pass.
 name: ci
 
+# No job publishes anything or holds a secret; read is all any of them needs.
+permissions:
+  contents: read
+
 on:
   pull_request:
   push:

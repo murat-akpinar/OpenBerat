@@ -11,7 +11,9 @@ WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY migrations ./migrations
 COPY src ./src
-RUN cargo build --release
+# --locked: a Cargo.toml the lock file does not match fails the build rather
+# than re-resolving dependencies nobody reviewed.
+RUN cargo build --release --locked
 
 FROM alpine:3.22
 RUN apk upgrade --no-cache && apk add --no-cache ca-certificates

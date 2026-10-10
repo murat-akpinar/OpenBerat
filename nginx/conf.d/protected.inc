@@ -53,6 +53,15 @@ proxy_set_header X-Auth-Request-Preferred-Username "";
 proxy_set_header X-Auth-Request-Email "";
 proxy_set_header X-Auth-Request-Groups "";
 proxy_set_header X-Auth-Request-Redirect "";
+# Other spellings of an identity that some upstream can be configured to read
+# (oauth2-proxy's own, and the generic one). ADR-0021's contract is X-Auth-*,
+# so nothing legitimate arrives under these; a client's copy must not either.
+proxy_set_header X-Forwarded-User "";
+proxy_set_header X-Forwarded-Email "";
+proxy_set_header X-Forwarded-Groups "";
+proxy_set_header X-Forwarded-Preferred-Username "";
+proxy_set_header X-Auth-Request-Access-Token "";
+proxy_set_header Remote-User "";
 
 # The session cookie never reaches the upstream (README rule 16); the
 # application's own cookies do.
@@ -101,6 +110,11 @@ proxy_set_header Connection $connection_upgrade;
 # active WebSocket is outside the N-03 guarantee and this does not change that
 # (ADR-0016, measured in docs/07 — README rule 11).
 proxy_read_timeout 300s;
+
+# An upstream does not steer nginx: X-Accel-Redirect could send the response to
+# any internal location of this server. Nothing reachable there is harmful
+# today; this keeps the next internal location from becoming reachable.
+proxy_ignore_headers X-Accel-Redirect X-Accel-Expires X-Accel-Limit-Rate X-Accel-Buffering X-Accel-Charset;
 
 # ponytail: nginx defaults client_max_body_size to 1m, so an application that
 # accepts uploads answers 413. Raise it per application when one does.
