@@ -4205,7 +4205,7 @@ needed a live stack. What was run, and what it answered:
 | 6. Upstream `Set-Cookie` on the parent domain | `obprobe`'s upstream sets `_oauth2_proxy=PLANTED; Domain=.apps…` | `Domain=.apps.example.local` | `Domain=obprobe.apps.example.local` |
 | 7/11/12. Decoy session cookie | `_oauth2_proxy_1=x; _oauth2_proxy=<valid>` and a duplicated name, through `obprobe` and `/api/me` | 200, real cookie upstream | 302 to `/denied` (`ambiguous_session`), `/api/me` 503 |
 | 4/5. Escaping an allow subtree | User granted `/public/*` only on `obprobe`, `curl --path-as-is` | (unit) `/admin/..%2Fpublic/x`, `/admin/x\..\..\public/y`, `/public/..;/admin/`, `/admin/secret#/../../public/` allowed | all four 302 to `/denied`; `/public/x` and `/public/a;jsessionid=1` still 200 (ADR-0037) |
-| 10. AD account expired, session still open | Throwaway AD user `labexp` signed in, `samba-tool user setexpiry --days=0`, `/api/me` polled every 15 s | — | **Void, not refuted.** 200 until 286 s, 302 at 301 s, the first `cookie_refresh`; but at the time *every* session ended there (the nonce regression below), so the run cannot tell expiry from nothing. Re-run open (`TODO.md`), lockout with it |
+| 10. AD account expired, session still open | Throwaway AD user `labexp` signed in, `samba-tool user setexpiry --days=0`, `/api/me` polled every 15 s | — | **Confirmed, expiry and lockout alike** (re-run below). The first run's 302 at 301 s was the nonce regression, not the expiry |
 | 8. `upstream_url` metacharacters | Unit test | `$http_x_up` accepted | refused |
 | 9. `login-actions;x/` | Keycloak 26.3: same 400 as the real path (unknown paths 404); lab through nginx | unlimited location | 404 |
 
@@ -4226,7 +4226,29 @@ it. Same unlocked, unexpired AD account (`lablock`), `/api/me` every 15 s:
 So every session ended at minute five, which also voided lead 10 above and the
 first lockout run (`lockoutTime` set, computed UAC 16, a good-password bind
 refused: 302 at 305 s, exactly like the unlocked control). Back at v7's default;
-state, the CSRF cookie and PKCE still bind the callback. The login was a throwaway **local** Keycloak user enrolling its own
+state, the CSRF cookie and PKCE still bind the callback.
+
+**Lead 10 re-run, with a control (2026-10-10, nonce check back off).** Three
+throwaway AD users in `OU=Users` signed in together, then, on the DC: `labexp2`
+`samba-tool user setexpiry --days=0`; `lablock` three wrong LDAPS simple binds
+at a domain lockout threshold of 3 (`lockoutTime` set, computed UAC 16, the
+right password refused afterwards); `labctl` left alone. `/api/me` every 15 s
+per session:
+
+| Account | 291 s | ~307 s, first `cookie_refresh` | 352 s | A fresh login |
+|---|---|---|---|---|
+| `labctl` (control) | 200 | 200, new `Set-Cookie` | 200 | — |
+| `labexp2`, expired | 200 | **200, new `Set-Cookie`** | **200** | refused, `invalid_user_credentials` |
+| `lablock`, locked out | 200 | **200, new `Set-Cookie`** | **200** | refused, `invalid_user_credentials` |
+
+A refresh does not bind to AD, and nothing Keycloak reads on it carries expiry
+or lockout: the provider's filter excludes only `userAccountControl` bit 2, and
+Keycloak 26.3's `MSADUserAccountControlStorageMapper` reads only
+`ACCOUNTDISABLE` too (source, `isEnabled`). So an account that expires or
+locks after sign-in keeps every application it is entitled to until
+`cookie_expire` / `ssoSessionMaxLifespan`, 10 h. Disabling the account
+(bit 2) and removing a group are the deprovisioning paths N-03 measured, and
+they are unaffected. The threshold is back at 0 and the users are deleted. The login was a throwaway **local** Keycloak user enrolling its own
 authenticator inside the run (`/root/oblogin.py`, stdlib only), because the old
 harnesses and the lab users' TOTP files are gone; user, application row and
 upstream container were removed afterwards.

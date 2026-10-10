@@ -25,18 +25,20 @@ Closed so far: resubscribe cache flush, duplicate session cookie
 (leads 7/11/12), h2c / upstream cookie Domain / `;` on the auth host
 (leads 2/6/9), realm `admin-cli` (lead 3), `upstream_url` host charset
 (lead 8), path readings (leads 4/5, ADR-0037), one network per application
-(lead 1, ADR-0038), part of the hardening notes (`5514dfa`), the nonce check
+(lead 1, ADR-0038), AD expiry and lockout (lead 10, confirmed and measured,
+decision below), part of the hardening notes (`5514dfa`), the nonce check
 (`23cea56`, reverted: it signed every user out at the first `cookie_refresh`,
 `docs/07`), the stale `dist/` bundle (deleted), and all of it deployed and
 measured on the lab (`docs/07`, "Security audit run-1").
 
-- [ ] Lead 10 again: AD expiry's run is void (`docs/07`), since every session
-  ended at the first refresh then. Re-run it with an unexpired control.
-- [ ] VERIFY: an AD account locked out (`lockoutTime`) keeps its session past
-  `cookie_refresh`? Run once 2026-10-10 (threshold 3, `lockoutTime` set,
-  computed UAC 16, a good-password bind refused): 302 at 305 s, but the
-  unlocked control died the same way, so it is void. Re-run with a control;
-  `lablock` stays in the lab AD for it, the threshold is back at 0.
+- [ ] **Decide (ADR): is AD expiry or lockout a deprovisioning signal?**
+  Measured (`docs/07`, lead 10 re-run): an account that expires or locks out
+  after sign-in keeps its session for up to 10 h; only disable (bit 2) and group
+  removal revoke. Keycloak cannot see either state on a refresh. Options:
+  write it down as the contract (deprovision = disable, and an AD scheduled
+  task `Search-ADAccount -AccountExpired | Disable-ADAccount` for installs that
+  rely on expiry, not yet tried); shorten `cookie_expire` / `ssoSessionMaxLifespan`; or read
+  AD state ourselves, which the architecture has no component for.
 
 The hardening notes that were not applied, triaged 2026-10-10. Each was checked
 against `main` and still holds. The ones below touch a security boundary;
