@@ -156,7 +156,8 @@ The full sequence, the failure modes and the decision cache are in
 | Active Directory | 636 (LDAPS) | External, outbound only |
 
 Every container except nginx publishes nothing, and the internal side is split
-into **two networks**: protected applications sit on `edge` with nginx alone,
+into networks: **each protected application sits on its own network with nginx
+alone** ([ADR-0038](docs/adr/0038-one-network-per-protected-application.md)),
 while the backend, oauth2-proxy, Keycloak, Postgres and Redis sit on `core` — so
 a compromised application cannot reach the decision chain or the session store
 directly. That isolation is not a deployment preference: an application behind
@@ -295,7 +296,7 @@ row is exercised against a running lab, and the measurements are in
 | [docs/07-references.md](docs/07-references.md) | **Sources** — the basis for the technical claims, verified defaults |
 | [docs/08-breakglass.md](docs/08-breakglass.md) | The rehearsed way back when the proxy is the outage (ADR-0017) |
 | [docs/09-history.md](docs/09-history.md) | **Build log** — how phases 0–7 and the roadmap backlog closed, and what each of the 156 boxes actually cost |
-| [docs/adr/](docs/adr/) | **Decisions taken** — 37 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity, audit retention, versioning, no frontend framework, live sessions, what a path pattern means, break-glass from the same table, the decision cache with more than one instance, the management screen in two steps — reading, then writing — a read-only group for it, a second factor on every login, resetting a user's second factor from the management plane, and deciding a path under every reading an upstream might give it |
+| [docs/adr/](docs/adr/) | **Decisions taken** — 38 ADRs: scope, PEP, OIDC, language, name, licence, differentiator, revocation targets, application identity, audit retention, versioning, no frontend framework, live sessions, what a path pattern means, break-glass from the same table, the decision cache with more than one instance, the management screen in two steps — reading, then writing — a read-only group for it, a second factor on every login, resetting a user's second factor from the management plane, deciding a path under every reading an upstream might give it, and one network per protected application |
 | [SECURITY.md](SECURITY.md) | Reporting a vulnerability — channels, response times, scope, accepted limitations |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute — DCO sign-off, conventions, what gets rejected |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |

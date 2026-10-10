@@ -8,10 +8,11 @@
 # an ordinary `docker compose up` starts a release and not a domain controller
 # (ADR-0010, ADR-0023). The lab runs `docker compose --profile lab up -d`.
 #
-# Two networks (docs/02 "Deployment"); nginx is the only member of both:
-#   edge: nginx + the protected sample applications. Nothing else — an upstream
-#         that can reach backend:8081, redis or postgres can skip nginx entirely,
-#         and `internal;` on /decide only constrains nginx's own routing.
+# Networks (docs/02 "Deployment", ADR-0038); nginx is the only member of all:
+#   app-*: one per protected application, holding that application and nginx.
+#         Nothing else — an upstream that can reach backend:8081, redis or
+#         postgres can skip nginx entirely, and one that can reach another
+#         upstream can hand it forged X-Auth-* headers (measured, docs/07).
 #   core: nginx + backend + oauth2-proxy + keycloak + postgres + redis + samba-ad.
 # No service publishes ports except nginx :443.
 # The frontend is not a service: its files are baked into the nginx image (ADR-0020).
@@ -68,7 +69,10 @@ services:
       # backend and nginx share.
       - apps_conf:/etc/nginx/conf.d/generated
     networks:
-      edge:
+      # One line per protected application (ADR-0038); an installation adds its
+      # own in docker-compose.override.yml (INSTALL.md §7).
+      app-sample:
+      app-sample-ws:
       core:
         # oauth2-proxy validates the token's `iss` against the URL the browser
         # used, so it has to reach Keycloak by that same name — through nginx,
@@ -147,10 +151,10 @@ services:
       # failing at the one moment it is used. This is a file, not a network
       # path, and it was written before the incident: the rule below stands.
       - apps_conf:/etc/nginx/conf.d/generated:ro
-    # `edge` only. It has no business reaching the backend, Redis or Postgres —
-    # it is not making decisions, and an incident is the wrong moment to widen
-    # what a container can talk to.
-    networks: [edge]
+    # The application networks only. It has no business reaching the backend,
+    # Redis or Postgres — it is not making decisions, and an incident is the
+    # wrong moment to widen what a container can talk to.
+    networks: [app-sample, app-sample-ws]
 
   oauth2-proxy:
     restart: unless-stopped
@@ -258,21 +262,22 @@ services:
         aliases: [dc01.example.local]
 
   # The two protected sample applications (lab): one plain HTTP, one WebSocket.
-  # On edge only — all they can reach is nginx.
+  # Each on its own network — all it can reach is nginx, not the other one.
   sample-app:
     profiles: [lab]
     restart: unless-stopped
     image: traefik/whoami:v1.11
-    networks: [edge]
+    networks: [app-sample]
 
   sample-ws:
     profiles: [lab]
     restart: unless-stopped
     image: jmalloc/echo-server:v0.3.7
-    networks: [edge]
+    networks: [app-sample-ws]
 
 networks:
-  edge:
+  app-sample:
+  app-sample-ws:
   core:
 
 volumes:

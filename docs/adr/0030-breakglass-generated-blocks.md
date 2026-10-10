@@ -59,7 +59,7 @@ one property that matters being that no generated break-glass block may contain
   server and loses its two hand-written blocks; otherwise they collide with the
   generated blocks for the same hostnames.
 - `nginx-breakglass` mounts the `apps_conf` volume **read-only**. ADR-0017's
-  `edge`-only network rule stands untouched: this is a file, not a network path,
+  network rule (the application networks only — ADR-0038 since) stands untouched: this is a file, not a network path,
   and the file is derived state written before the incident rather than during
   it.
 - The rehearsal in `docs/08` now proves something. It did not before: it

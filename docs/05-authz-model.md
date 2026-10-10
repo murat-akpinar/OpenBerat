@@ -326,8 +326,9 @@ Phase 3).
 
 **The uncovered side:** the upstream application cannot distinguish a request
 that **bypassed** nginx from the incoming headers. In v1 the basis is network
-isolation (upstream containers only on the `edge` network with nginx — never on
-`core` with the backend, Redis and Postgres — and no `ports`; `docs/02`,
+isolation (each upstream container on its own network with nginx alone — never
+on `core` with the backend, Redis and Postgres, never beside another upstream —
+and no `ports`; ADR-0038, `docs/02`,
 "Deployment"). The answer
 that stands up to an audit is issuing a short-lived **signed identity JWT**;
 tracked under the security open questions in `docs/06`.
@@ -379,7 +380,7 @@ without a test is visible as a gap rather than an omission.
 | Flooding `/api/*` to exhaust the one backend every application's authorisation depends on | `limit_req`, the `decisions` zone. The decision cache does not cover this path — the portal never goes through `/decide` (`nginx/conf.d/README.md` rule 23) | Phase 7 |
 | An `allow /reports` granting the whole `/reports/**` subtree while the admin reads back one path | A non-empty `path_pattern` must be written `…/*`; the spelling that reads as an exact path is refused rather than served ([ADR-0029](adr/0029-path-pattern-is-a-subtree.md)) | Phase 7 test |
 | Break-glass being pulled and answering 404 for every real application, because its host list was hand-written | The blocks are generated from the same `application` table and the same validators ([ADR-0030](adr/0030-breakglass-generated-blocks.md)) | Measured, Phase 7 |
-| Reaching an upstream while bypassing nginx entirely | v1: two networks — upstreams on `edge` with nginx only, never on `core` (`docs/02`); no published `ports`. **Not fully closed** — the signed identity JWT is the answer that survives an audit | Open question, `docs/06` |
+| Reaching an upstream while bypassing nginx entirely | v1: one network per upstream, shared with nginx only — never `core`, never another upstream (ADR-0038, `docs/02`); no published `ports`. **Not fully closed** — the signed identity JWT is the answer that survives an audit | Open question, `docs/06` |
 | A deleted AD group recreated with the same name inheriting its entitlements | **Not closed.** Accepted debt, mitigated by the `OpenBerat-` prefix and change control (ADR-0008) | — |
 | An AD group *named* `Payroll,OpenBerat-Admins` — one group that arrives as two, the second being `ADMIN_GROUP` | **Not closed here, and cannot be.** oauth2-proxy flattens the claim array into one comma-joined header, so the boundary is gone before the request arrives. The control is the Keycloak group filter, which never lets the name into the claim (ADR-0008) | Measured, `docs/07` |
 | The same name **carrying the prefix** — `OpenBerat-Payroll,OpenBerat-Admins` | The filter's prefix clause selects it rather than rejecting it, so the row above was closed by a filter that only covered the spelling it was tested with. `(!(cn=*,*))` is the clause that closes the comma; the prefix bounds what the claim may name and says nothing about injection (ADR-0008, INSTALL.md §4) | Measured, `docs/07` |

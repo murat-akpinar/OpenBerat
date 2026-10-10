@@ -108,7 +108,7 @@ docker compose logs nginx-breakglass | grep BREAKGLASS | wc -l
   made. The nginx `BREAKGLASS` log lines are the only record of who reached
   what, and they have no identity in them — there is none to have.
 - The portal and the Keycloak host are **not served** at all. Break-glass runs
-  on `edge` only and knows nothing about them.
+  on the application networks only and knows nothing about them.
 - `X-Auth-*` headers are still stripped from incoming requests. That is not
   belt-and-braces: an upstream that trusts those headers cannot tell the PEP has
   been bypassed, and leaving them alone would turn "no authorisation" into

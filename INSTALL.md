@@ -805,10 +805,36 @@ contact with the proxy, was served as an administrator (`docs/07`). Denying
 anonymous access on the application side does not help — the forged request is
 not anonymous.
 
-- **Same machine:** do not publish the application's port at all. Put the
-  container on the network nginx is on and let nginx reach it by name. This is
-  what the compose file does for the sample application, and it is the reason
-  `docker compose ps` shows no port for it.
+- **Same machine:** do not publish the application's port at all, and give it
+  **a network of its own that only nginx shares**
+  ([ADR-0038](docs/adr/0038-one-network-per-protected-application.md)). One
+  network for every application would let any of them hand the others a forged
+  header — measured in the lab. This is what the compose file does for the two
+  sample applications. For your own, create the network once:
+
+  ```sh
+  docker network create openberat-app-jenkins
+  ```
+
+  attach the application to it — and to nothing nginx is not on — and add it to
+  both proxies in `docker-compose.override.yml` next to `docker-compose.yml`
+  (compose merges the file in by itself; break-glass serves the same
+  applications, so it needs the same network):
+
+  ```yaml
+  services:
+    nginx:
+      networks: [app-jenkins]
+    nginx-breakglass:
+      networks: [app-jenkins]
+  networks:
+    app-jenkins:
+      external: true
+      name: openberat-app-jenkins
+  ```
+
+  then `docker compose up -d nginx`. The application's `upstream_url` names it
+  by its container name on that network.
 - **Another machine:** allow the proxy's address and nothing else. For a
   published Docker port a host firewall rule has to sit in `DOCKER-USER`, because
   the `INPUT` chain never sees forwarded traffic:
@@ -825,6 +851,9 @@ curl -H 'X-Auth-Username: someone' -H 'X-Auth-Groups: OpenBerat-Admins' \
 ```
 
 A dropped or refused connection is the answer you want. A page is a finding.
+On the same machine, run it **from another application's container** too —
+`docker run --rm --network openberat-app-<other> curlimages/curl …` against this
+one's name. A name that does not resolve is the answer you want.
 Repeat it **from the proxy's own address** as well: the same request has to
 succeed there, or you have not tested the filter, you have broken the
 application. And make the rule survive a reboot — `netfilter-persistent` on

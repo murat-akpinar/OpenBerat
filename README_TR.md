@@ -154,8 +154,9 @@ Tam akış, arıza modları ve karar cache'i:
 | Redis | 6379 | Hayır |
 | Active Directory | 636 (LDAPS) | Dışarıda, yalnızca giden bağlantı |
 
-nginx dışındaki hiçbir konteyner port yayımlamaz; iç taraf da **iki ağa**
-bölünür: korunan uygulamalar yalnızca nginx'le birlikte `edge` ağında; backend,
+nginx dışındaki hiçbir konteyner port yayımlamaz; iç taraf da ağlara bölünür:
+**her korunan uygulama yalnızca nginx'le paylaştığı kendi ağında**
+([ADR-0038](docs/adr/0038-one-network-per-protected-application.md)); backend,
 oauth2-proxy, Keycloak, Postgres ve Redis ise `core` ağında durur — ele geçirilen
 bir uygulama karar zincirine veya oturum deposuna doğrudan erişemez. Bu
 izolasyon bir dağıtım tercihi değil: bu proxy'nin arkasındaki uygulama
@@ -296,7 +297,7 @@ her satır çalışan bir laboratuvara karşı deneniyor, ölçümler
 | [docs/07-references.md](docs/07-references.md) | **Kaynaklar** — teknik iddiaların dayanağı, doğrulanmış varsayılanlar |
 | [docs/08-breakglass.md](docs/08-breakglass.md) | Proxy'nin kendisi kesinti olduğunda prova edilmiş dönüş yolu (ADR-0017) |
 | [docs/09-history.md](docs/09-history.md) | **Yapım kaydı** — 0–7. fazlar ve yol haritası backlog'u nasıl kapandı, 156 kutunun her biri neye mal oldu |
-| [docs/adr/](docs/adr/) | **Alınan kararlar** — 37 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği, denetim saklama süresi, sürümleme, frontend'de çatı yok, canlı oturumlar, bir path deseninin anlamı, break-glass aynı tablodan, birden fazla instance'ta karar cache'i, yönetim ekranı iki adımda — önce okuma, sonra yazma — onun için salt okunur bir grup, her girişte ikinci faktör yönetim düzleminden bir kullanıcının ikinci faktörünü sıfırlama ve bir path'i upstream'in verebileceği her okumayla karara sokma |
+| [docs/adr/](docs/adr/) | **Alınan kararlar** — 38 ADR: kapsam, PEP, OIDC, dil, ad, lisans, farklılaştırıcı, kesme hedefleri, uygulama kimliği, denetim saklama süresi, sürümleme, frontend'de çatı yok, canlı oturumlar, bir path deseninin anlamı, break-glass aynı tablodan, birden fazla instance'ta karar cache'i, yönetim ekranı iki adımda — önce okuma, sonra yazma — onun için salt okunur bir grup, her girişte ikinci faktör, yönetim düzleminden bir kullanıcının ikinci faktörünü sıfırlama, bir path'i upstream'in verebileceği her okumayla karara sokma ve her korunan uygulamaya ayrı ağ |
 | [SECURITY.md](SECURITY.md) | Güvenlik açığı bildirimi — kanallar, cevap süreleri, kapsam, kabul edilmiş sınırlar |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Nasıl katkı verilir — DCO imzası, konvansiyonlar, neler reddedilir |
 | [LICENSE](LICENSE) | GPL-3.0-or-later |

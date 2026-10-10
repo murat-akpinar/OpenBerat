@@ -3,6 +3,10 @@
 - **Status:** Accepted
 - **Date:** 2026-09-06
 
+*Amended 2026-10-10:* the isolation this ADR requires held against the core
+only — upstreams shared one `edge` network and could reach each other.
+[ADR-0038](0038-one-network-per-protected-application.md) gives each its own.
+
 ## Context
 
 The portal lists an application, the click reaches it and no second OpenBerat

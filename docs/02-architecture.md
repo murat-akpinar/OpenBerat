@@ -546,7 +546,7 @@ is the rehearsed break-glass below, not a promise of uptime.
 | Decision cache is instance-local; a second instance gets **broadcast invalidation**, not a shared cache | **Built and measured** — [ADR-0031](adr/0031-decision-cache-multi-instance.md), `docs/07`. Only step 3 of the kill switch is process-local, so without it the switch degrades from 0.085 s to a 30 s TTL on every instance that did not handle the call; with it, 0.11–0.14 s to refused on both. Moving the cache into Redis was measured and rejected: 0.039–0.167 ms per round trip against 11–29 µs for the whole decision |
 | An instance with no live invalidation subscription serves **no cache hits** | **Yes** — the half that makes a local cache safe on two instances. A lost subscription turns every request into a miss (N-02 latency) and never into a stale ALLOW, and the subscription is proved by a `PING` on the subscribed connection itself: a Redis that is reachable but answers nothing was otherwise undetectable and served stale ALLOWs indefinitely (measured, `docs/07`) |
 | Postgres unreachable → DENY; cached decisions survive for their TTL | **Yes** |
-| **Break-glass:** a second nginx config in the same image, via `docker compose --profile breakglass` — written down and **rehearsed**. Its application blocks are generated from the `application` table like the running proxy's, and it mounts that shared volume **read-only** ([ADR-0030](adr/0030-breakglass-generated-blocks.md)); the `edge`-only network rule is untouched, since a file is not a network path | **Yes**, Phase 3 exit criterion |
+| **Break-glass:** a second nginx config in the same image, via `docker compose --profile breakglass` — written down and **rehearsed**. Its application blocks are generated from the `application` table like the running proxy's, and it mounts that shared volume **read-only** ([ADR-0030](adr/0030-breakglass-generated-blocks.md)); its application networks are the running proxy's and nothing else, since a file is not a network path | **Yes**, Phase 3 exit criterion |
 | Timeout budget decreasing outward-in (`/decide` 2s → oauth2-proxy 1s → sqlx 500ms) | **Yes**, a design constraint |
 | `error_page 500 502 503 504` → local static maintenance page (no bare nginx 500) | **Yes** |
 | Monitoring: decision latency, error rate, cache hit rate, audit loss | **Yes**, `GET /metrics` — the four counters the fail-closed rule otherwise hides |
@@ -587,10 +587,12 @@ constrains nginx's own routing, not who can reach the backend's port.
 
 | Network | Members | Purpose |
 |---|---|---|
-| `edge` | nginx + the protected applications | The only thing an upstream can reach is nginx |
+| `app-<slug>`, one per application | nginx + that one application | The only thing an upstream can reach is nginx — not the decision chain, and not another upstream it could hand forged `X-Auth-*` ([ADR-0038](adr/0038-one-network-per-protected-application.md)) |
 | `core` | nginx + backend + oauth2-proxy + Keycloak + Postgres + Redis | The decision chain; no protected application is on it |
 
-nginx is the only member of both. This isolation is v1's answer to the
+nginx is the only member of all of them. Until ADR-0038 the applications shared
+one `edge` network, which kept them from the core but not from each other —
+measured on the lab, a neighbour received a forged `X-Auth-Groups` intact. This isolation is v1's answer to the
 upstream-bypass question (`docs/06`). Keycloak's `:8080` is reached by the
 browser *through* nginx, not directly; it needs TLS and a stable public hostname
 for the OIDC redirect to work at all.

@@ -99,6 +99,7 @@ answered and write the decision to `docs/adr/`.
 | Read-only management access | A second group from the environment, `AUDITOR_GROUP` (default `OpenBerat-Auditors`), reaches every `GET`/`HEAD` under `/api/admin/*` and nothing else; `ADMIN_GROUP` stays a superset | [0034](adr/0034-read-only-management-group.md) |
 | Resetting a user's second factor | An `ADMIN_GROUP` member does it from the management plane — a live view of Keycloak's directory (`GET /api/admin/users`) and `POST /api/admin/reset-second-factor`, on the service account that already holds the permission. Refuses self and any `ADMIN_GROUP`/`AUDITOR_GROUP` target, which stay a Keycloak-console job | [0036](adr/0036-reset-second-factor.md) |
 | How a path is read when upstreams disagree | Under three readings — decoded, resolved on the raw bytes, and with `;params` dropped — and allowed only if all three allow; a raw `#` is refused | [0037](adr/0037-decide-under-every-reading-of-a-path.md) |
+| How protected applications are kept from each other | One Docker network per application, shared with nginx only; `edge` is gone | [0038](adr/0038-one-network-per-protected-application.md) |
 | AD group strategy | `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` | `docs/03`, `docs/07` |
 
 ### 🔴 Needs an answer about the target environment
