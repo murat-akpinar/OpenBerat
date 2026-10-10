@@ -221,7 +221,15 @@ The rules below apply to all of them.
    token` is oauth2-proxy redeeming a code from **one** container address, so a
    limit above it would cap the whole deployment's logins at the zone's rate —
    and it is not a guessing oracle anyway, both realm clients being confidential
-   with `directAccessGrantsEnabled: false`. `/resources/` is left free: one
+   with `directAccessGrantsEnabled: false`. *That was half true:* Keycloak
+   creates a public `admin-cli` in **every** realm, with password grants on,
+   and the export did not mention it, so `/token` in this realm answered a
+   password grant from the internet with no limit in front of it (measured on
+   the lab, security audit run-1). The export now declares it disabled.
+   And a path with `;` in it is refused on this host: Keycloak drops `;` path
+   parameters before routing and nginx does not, so
+   `/login-actions;x/authenticate` reached the password check through the
+   unlimited location (measured against Keycloak 26.3). `/resources/` is left free: one
    login page pulls a dozen assets, and a burst wide enough for them is wide
    enough for a run of guesses. The per-user second layer is the realm's own
    brute-force lockout (`keycloak/README.md`), which is off in Keycloak by
@@ -260,3 +268,15 @@ The rules below apply to all of them.
    `map` is nginx's only http-level constant. Two comments claimed the lab
    domain lived in three files; it is five, and both now name all five. CI
    refuses a `https?://` in an include that is not followed by a variable.
+26. **Pass WebSocket upgrades on, and no other protocol.** `Upgrade` was
+   forwarded as the client wrote it, so `Upgrade: h2c` reached the upstream; one
+   that answers 101 turns the connection into an HTTP/2 tunnel, and every
+   request inside it skips `/decide` and the `X-Auth-*` rewrite. A map in
+   `00-auth.conf` lets `websocket` through and empties anything else, and
+   `HTTP2-Settings` is cleared (measured with nginx 1.29, security audit run-1).
+27. **An upstream's cookies stop at its own host.** Every application lives
+   under the session cookie's domain (ADR-0015), so a `Set-Cookie` with
+   `Domain=.apps.<domain>` could overwrite somebody's session with another or
+   delete it everywhere. `proxy_cookie_domain ~.+ $host` narrows every Domain to
+   the application's host; a host-only `_oauth2_proxy` planted there only makes
+   that application's own requests `ambiguous_session`.

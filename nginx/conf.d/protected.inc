@@ -57,6 +57,13 @@ proxy_set_header X-Auth-Request-Redirect "";
 # The session cookie never reaches the upstream (README rule 16); the
 # application's own cookies do.
 proxy_set_header Cookie $upstream_cookie;
+# And the other direction: an upstream's Set-Cookie with
+# `Domain=.apps.<domain>` would land on every host, the session cookie's own
+# scope included — overwrite it with somebody else's session, or delete it and
+# sign everyone out of everything (ADR-0015). Every Domain is narrowed to this
+# application's host. An application that shared cookies across sibling hosts
+# loses that; it was sharing them with every other application too.
+proxy_cookie_domain ~.+ $host;
 
 # --- Feature Start ---
 # The same rule as the strip above, applied to the family nobody strips: nginx
@@ -85,7 +92,8 @@ proxy_set_header X-Rewrite-URL      "";
 
 # WebSocket and SSE. Authorised once, at the upgrade — see below.
 proxy_http_version 1.1;
-proxy_set_header Upgrade    $http_upgrade;
+proxy_set_header Upgrade    $upstream_upgrade;
+proxy_set_header HTTP2-Settings "";
 proxy_set_header Connection $connection_upgrade;
 
 # An *idle* timeout: nginx resets it on every read from the upstream, so it

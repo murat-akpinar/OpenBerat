@@ -40,6 +40,7 @@ proxy_set_header X-Forwarded-Prefix "";
 proxy_set_header X-Original-URL     "";
 proxy_set_header X-Rewrite-URL      "";
 proxy_http_version 1.1;
-proxy_set_header Upgrade    $http_upgrade;
+proxy_set_header Upgrade    $upstream_upgrade;
+proxy_set_header HTTP2-Settings "";
 proxy_set_header Connection $connection_upgrade;
 proxy_read_timeout 300s;

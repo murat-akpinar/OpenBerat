@@ -249,6 +249,14 @@ server {
     http2 on;
     server_name auth.${APPS_DOMAIN};
 
+    # Keycloak drops `;` path parameters before routing and nginx does not, so
+    # `/login-actions;x/authenticate` reached the password check through the
+    # location below with no rate limit (measured, security audit run-1).
+    # Keycloak's own URLs never carry one.
+    if ($request_uri ~ "^[^?]*;") {
+        return 404;
+    }
+
     # --- Feature Start ---
     # The password form's own POST target, and the only location on this host
     # that carries a rate limit. `@signin` and `/oauth2/` already have the login

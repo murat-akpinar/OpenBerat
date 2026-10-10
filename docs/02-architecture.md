@@ -249,7 +249,10 @@ sit behind the login flow.
   password on a guessable endpoint (`nginx/conf.d/README.md` rule 22,
   measured in `docs/07`). The one path where a password is actually checked,
   `/realms/openberat/login-actions/`, is rate-limited; the realm's own
-  brute-force lockout is the second, per-user layer.
+  brute-force lockout is the second, per-user layer. A path carrying `;` is
+  refused on this host, since Keycloak would route `login-actions;x/` past
+  that limit, and the realm's own `admin-cli` is declared disabled so `/token`
+  takes no password grant at all (rule 22).
 - **The portal host (`portal.apps.<domain>`, ADR-0015) is open to every
   authenticated user.** Not through policy, but through a separate `location` in
   `00-auth.conf`. Otherwise an unauthorised user is redirected to `/denied`,
