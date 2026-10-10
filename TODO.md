@@ -25,25 +25,17 @@ Closed so far: resubscribe cache flush, duplicate session cookie
 (leads 7/11/12), h2c / upstream cookie Domain / `;` on the auth host
 (leads 2/6/9), realm `admin-cli` (lead 3), `upstream_url` host charset
 (lead 8), path readings (leads 4/5, ADR-0037), one network per application
-(lead 1, ADR-0038), part of the hardening notes (`5514dfa`, nonce), the stale
-`dist/` bundle (deleted), and all of it deployed and measured on the lab
-(`docs/07`, "Security audit run-1").
+(lead 1, ADR-0038), part of the hardening notes (`5514dfa`), the nonce check
+(`23cea56`, reverted: it signed every user out at the first `cookie_refresh`,
+`docs/07`), the stale `dist/` bundle (deleted), and all of it deployed and
+measured on the lab (`docs/07`, "Security audit run-1").
 
-- [ ] **Every session dies at its first `cookie_refresh`.** Measured on the lab
-  2026-10-10 with an unlocked, unexpired AD account (`lablock`) as the control:
-  `/api/me` 200 until 300 s, 302 to Keycloak at 315 s; oauth2-proxy logs
-  `error refreshing access token … session is invalid, removing session` and
-  Keycloak logs no refresh error. Suspect `23cea56`
-  (`insecure_oidc_skip_nonce = false`), not yet proven: the A/B run with the
-  nonce check off on the lab was not made. Find the cause, fix it, and measure
-  that a control session survives the refresh.
-- [ ] Lead 10 again: `docs/07` says AD expiry is **refuted** because the session
-  ended at the first refresh, but every session ends there (box above), so the
-  run proves nothing. Re-run expiry after the fix and correct `docs/07`.
+- [ ] Lead 10 again: AD expiry's run is void (`docs/07`), since every session
+  ended at the first refresh then. Re-run it with an unexpired control.
 - [ ] VERIFY: an AD account locked out (`lockoutTime`) keeps its session past
   `cookie_refresh`? Run once 2026-10-10 (threshold 3, `lockoutTime` set,
   computed UAC 16, a good-password bind refused): 302 at 305 s, but the
-  unlocked control died the same way, so it is void. Re-run after the fix;
+  unlocked control died the same way, so it is void. Re-run with a control;
   `lablock` stays in the lab AD for it, the threshold is back at 0.
 
 The hardening notes that were not applied, triaged 2026-10-10. Each was checked

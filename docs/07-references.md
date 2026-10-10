@@ -4205,14 +4205,28 @@ needed a live stack. What was run, and what it answered:
 | 6. Upstream `Set-Cookie` on the parent domain | `obprobe`'s upstream sets `_oauth2_proxy=PLANTED; Domain=.apps…` | `Domain=.apps.example.local` | `Domain=obprobe.apps.example.local` |
 | 7/11/12. Decoy session cookie | `_oauth2_proxy_1=x; _oauth2_proxy=<valid>` and a duplicated name, through `obprobe` and `/api/me` | 200, real cookie upstream | 302 to `/denied` (`ambiguous_session`), `/api/me` 503 |
 | 4/5. Escaping an allow subtree | User granted `/public/*` only on `obprobe`, `curl --path-as-is` | (unit) `/admin/..%2Fpublic/x`, `/admin/x\..\..\public/y`, `/public/..;/admin/`, `/admin/secret#/../../public/` allowed | all four 302 to `/denied`; `/public/x` and `/public/a;jsessionid=1` still 200 (ADR-0037) |
-| 10. AD account expired, session still open | Throwaway AD user `labexp` signed in, `samba-tool user setexpiry --days=0`, `/api/me` polled every 15 s | — | **refuted for expiry:** 200 until 286 s, 302 at 301 s — the first `cookie_refresh` (session age 5m10s), where Keycloak refused the refresh. Lockout (`lockoutTime`) not tested |
+| 10. AD account expired, session still open | Throwaway AD user `labexp` signed in, `samba-tool user setexpiry --days=0`, `/api/me` polled every 15 s | — | **Void, not refuted.** 200 until 286 s, 302 at 301 s, the first `cookie_refresh`; but at the time *every* session ended there (the nonce regression below), so the run cannot tell expiry from nothing. Re-run open (`TODO.md`), lockout with it |
 | 8. `upstream_url` metacharacters | Unit test | `$http_x_up` accepted | refused |
 | 9. `login-actions;x/` | Keycloak 26.3: same 400 as the real path (unknown paths 404); lab through nginx | unlimited location | 404 |
 
-Also confirmed on the lab with the same login: `insecure_oidc_skip_nonce =
-false` — the authorization request carries a `nonce` and a full password + TOTP
-login still ends at `/api/me` 200 — and a spoofed `X-Forwarded-User` arrives
-empty. The login was a throwaway **local** Keycloak user enrolling its own
+Also confirmed on the lab with the same login: a spoofed `X-Forwarded-User`
+arrives empty.
+
+**`insecure_oidc_skip_nonce = false` was reverted, measured (2026-10-10).** The
+login check above was right and not enough: it never lived past five minutes.
+With the nonce check on, oauth2-proxy 7.8.2 runs it again in `ValidateSession`
+after each `cookie_refresh`, and Keycloak 26.3.5's refreshed ID token fails
+it. Same unlocked, unexpired AD account (`lablock`), `/api/me` every 15 s:
+
+| `insecure_oidc_skip_nonce` | 300 s | 315 s (first refresh) | 330 s | oauth2-proxy |
+|---|---|---|---|---|
+| `false` | 200 | **302 to Keycloak** | — | `nonce verification failed: id_token nonce claim does not match the session nonce` |
+| `true` | 200 | 200, new `Set-Cookie` | 200 | refresh logged, no error |
+
+So every session ended at minute five, which also voided lead 10 above and the
+first lockout run (`lockoutTime` set, computed UAC 16, a good-password bind
+refused: 302 at 305 s, exactly like the unlocked control). Back at v7's default;
+state, the CSRF cookie and PKCE still bind the callback. The login was a throwaway **local** Keycloak user enrolling its own
 authenticator inside the run (`/root/oblogin.py`, stdlib only), because the old
 harnesses and the lab users' TOTP files are gone; user, application row and
 upstream container were removed afterwards.
