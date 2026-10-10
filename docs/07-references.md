@@ -2539,11 +2539,17 @@ the portal, `portal.css` and the Jenkins vhost all answer 200.
 
 ## Unverified, to be tested
 
-**None open: every claim here has been tried.** The list is kept as a record
+**One open** (the Windows expiry task, ADR-0039); every other claim here has
+been tried. The list is kept as a record
 of what was assumed and what the lab said, because four of the answers were
 the opposite of the assumption and one of those (`Set-Cookie` on
 `/oauth2/auth`) is load-bearing for ADR-0006. A new claim goes in unticked and
 leaves ticked.
+
+- [ ] Does `Search-ADAccount -AccountExpired -UsersOnly | Where-Object Enabled |
+      Disable-ADAccount` on a Windows DC disable exactly what `INSTALL.md` §8's
+      LDAP filter finds? The filter is measured on Samba (ADR-0039); the lab has
+      no Windows DC.
 
 - [x] **Answered: both, and they were the same mistake.** How long is a session
       in the *shipped* configuration, and does `GET /api/admin/sessions` count
@@ -4248,7 +4254,17 @@ Keycloak 26.3's `MSADUserAccountControlStorageMapper` reads only
 locks after sign-in keeps every application it is entitled to until
 `cookie_expire` / `ssoSessionMaxLifespan`, 10 h. Disabling the account
 (bit 2) and removing a group are the deprovisioning paths N-03 measured, and
-they are unaffected. The threshold is back at 0 and the users are deleted. The login was a throwaway **local** Keycloak user enrolling its own
+they are unaffected. The threshold is back at 0 and the users are deleted.
+
+**The answer, measured end to end (ADR-0039).** `INSTALL.md` §8's task on the
+Samba DC, right after `labexp3` was expired: the filter found `labexp3` and
+nothing else (not the never-expiring control, not the lab's own users) and
+`samba-tool user disable` set UAC 514. Then:
+
+| Account | 285 s | 300 s, first `cookie_refresh` | 330 s |
+|---|---|---|---|
+| `labexp3`, expired, disabled by the task | 200 | **302 to Keycloak**; oauth2-proxy `invalid_grant "Session not active"`, Keycloak `REFRESH_TOKEN_ERROR` | — |
+| `labctl2` (control) | 200 | 200, refreshed at 315 s | 200 | The login was a throwaway **local** Keycloak user enrolling its own
 authenticator inside the run (`/root/oblogin.py`, stdlib only), because the old
 harnesses and the lab users' TOTP files are gone; user, application row and
 upstream container were removed afterwards.

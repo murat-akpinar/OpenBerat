@@ -25,6 +25,10 @@ with margin, and being explicit about what it does **not** cover.
 | Logout initiated by the user | **≤ 5 seconds** | The same steps, with the browser in hand (`docs/02`, "Logout") |
 | WebSocket/SSE connection already upgraded, idle or active | **Excluded from the guarantee** | See below |
 
+An account that *expires* or is *locked out* is neither disabled nor out of a
+group, and keeps its session:
+[ADR-0039](0039-deprovisioning-is-disable-not-expiry.md).
+
 Six minutes is the product's promise for the ordinary path: an account disabled
 in AD loses access within six minutes without anyone intervening. That is
 already better than the VPN it replaces, and the kill switch exists for when

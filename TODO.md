@@ -25,20 +25,11 @@ Closed so far: resubscribe cache flush, duplicate session cookie
 (leads 7/11/12), h2c / upstream cookie Domain / `;` on the auth host
 (leads 2/6/9), realm `admin-cli` (lead 3), `upstream_url` host charset
 (lead 8), path readings (leads 4/5, ADR-0037), one network per application
-(lead 1, ADR-0038), AD expiry and lockout (lead 10, confirmed and measured,
-decision below), part of the hardening notes (`5514dfa`), the nonce check
+(lead 1, ADR-0038), AD expiry and lockout (lead 10, confirmed; ADR-0039),
+part of the hardening notes (`5514dfa`), the nonce check
 (`23cea56`, reverted: it signed every user out at the first `cookie_refresh`,
 `docs/07`), the stale `dist/` bundle (deleted), and all of it deployed and
 measured on the lab (`docs/07`, "Security audit run-1").
-
-- [ ] **Decide (ADR): is AD expiry or lockout a deprovisioning signal?**
-  Measured (`docs/07`, lead 10 re-run): an account that expires or locks out
-  after sign-in keeps its session for up to 10 h; only disable (bit 2) and group
-  removal revoke. Keycloak cannot see either state on a refresh. Options:
-  write it down as the contract (deprovision = disable, and an AD scheduled
-  task `Search-ADAccount -AccountExpired | Disable-ADAccount` for installs that
-  rely on expiry, not yet tried); shorten `cookie_expire` / `ssoSessionMaxLifespan`; or read
-  AD state ourselves, which the architecture has no component for.
 
 The hardening notes that were not applied, triaged 2026-10-10. Each was checked
 against `main` and still holds. The ones below touch a security boundary;
@@ -86,6 +77,9 @@ the rest are under `Later` or `Read and refused`.
   rather than the archived `$ref`, records mutable tags rather than digests,
   and ships no `SHA256SUMS`. CI's actions are pinned by tag, not SHA, and
   checkout keeps its credentials.
+- [ ] VERIFY, last because the lab cannot: the Windows form of `INSTALL.md`
+  §8's expiry task disables exactly what the LDAP filter finds (`docs/07`,
+  Unverified). Needs a Windows DC.
 
 ---
 

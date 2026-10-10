@@ -892,6 +892,41 @@ be published over a long-lived connection behind this proxy. Nothing in the
 configuration changes this — it is what "authorise the request" means when there
 is only ever one request.
 
+### Expired and locked-out accounts
+
+The six minutes are for an account **disabled** in AD or removed from a group.
+An account that **expires** (`accountExpires`) or is **locked out** after signing
+in keeps its open session for up to 10 hours: a refresh does not bind to AD, and
+Keycloak reads only the disable bit (measured, `docs/07`;
+[ADR-0039](docs/adr/0039-deprovisioning-is-disable-not-expiry.md)). A fresh
+login is refused either way.
+
+If your offboarding relies on end dates, run a task on the DC that disables what
+has expired, as often as you need the promise to hold. The LDAP filter, with
+`NOW` as the current time in Windows FILETIME (100 ns since 1601):
+
+```
+(&(objectCategory=person)(objectClass=user)(accountExpires>=1)(accountExpires<=NOW)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))
+```
+
+On a Samba DC (the form tested on the lab):
+
+```sh
+NOW=$(( ($(date +%s) + 11644473600) * 10000000 ))
+ldbsearch -H /var/lib/samba/private/sam.ldb "(&(objectCategory=person)(objectClass=user)(accountExpires>=1)(accountExpires<=$NOW)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))" sAMAccountName \
+  | sed -n 's/^sAMAccountName: //p' | while read -r u; do samba-tool user disable "$u"; done
+```
+
+On Windows (not tested here; `docs/07`, Unverified):
+
+```powershell
+Search-ADAccount -AccountExpired -UsersOnly | Where-Object Enabled | Disable-ADAccount
+```
+
+A locked-out account is not disabled by anything: lockout stops guessing, and
+the session it would end was opened before the guessing. Use the kill switch
+when a session has to end now.
+
 ## 9. Backup and restore
 
 Three things on this host cannot be re-derived, and only one of them is in a

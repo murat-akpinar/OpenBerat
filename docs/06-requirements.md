@@ -100,6 +100,7 @@ answered and write the decision to `docs/adr/`.
 | Resetting a user's second factor | An `ADMIN_GROUP` member does it from the management plane — a live view of Keycloak's directory (`GET /api/admin/users`) and `POST /api/admin/reset-second-factor`, on the service account that already holds the permission. Refuses self and any `ADMIN_GROUP`/`AUDITOR_GROUP` target, which stay a Keycloak-console job | [0036](adr/0036-reset-second-factor.md) |
 | How a path is read when upstreams disagree | Under three readings — decoded, resolved on the raw bytes, and with `;params` dropped — and allowed only if all three allow; a raw `#` is refused | [0037](adr/0037-decide-under-every-reading-of-a-path.md) |
 | How protected applications are kept from each other | One Docker network per application, shared with nginx only; `edge` is gone | [0038](adr/0038-one-network-per-protected-application.md) |
+| What deprovisions an AD account | Disabling it or removing the group. Expiry and lockout do not end an open session (up to 10 h, measured); installations that rely on end dates run a task that disables expired accounts (`INSTALL.md` §8) | [0039](adr/0039-deprovisioning-is-disable-not-expiry.md) |
 | AD group strategy | `GET_GROUPS_FROM_USER_MEMBEROF_ATTRIBUTE` | `docs/03`, `docs/07` |
 
 ### 🔴 Needs an answer about the target environment
