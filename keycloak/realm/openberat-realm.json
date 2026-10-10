@@ -83,6 +83,16 @@
   ],
   "clients": [
     {
+      "clientId": "admin-cli",
+      "enabled": false,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "protocol": "openid-connect"
+    },
+    {
       "clientId": "openberat-proxy",
       "name": "OpenBerat oauth2-proxy",
       "enabled": true,
