@@ -73,6 +73,10 @@ which has a 5 s budget and spends 0.085 s of it.
   every request into a miss — an oauth2-proxy hop and a query, N-02 latency —
   and never into a stale ALLOW. It is one flag read in `get`, and it is the
   fail-closed direction the rest of the product already runs in.
+  *Amended 2026-10-10:* the flag alone was not enough. Redis does not replay a
+  message to a subscriber that was away, so entries from before the gap came
+  back with the subscription and outlived a kill sent inside it. Regaining the
+  subscription now empties the cache first (`docs/07`, "after resubscribing").
 - `PUBLISH` returns how many subscribers it delivered to. **That is not an
   acknowledgement from an instance's cache and is not treated as one.** With the
   rule above it is enough: an instance either holds a live subscription and was

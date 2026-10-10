@@ -4001,6 +4001,16 @@ subscription buys N-02 latency, never a stale ALLOW. Detection is immediate (the
 stream ends) and the subscription is back in **1.0 s**, the `RESUBSCRIBE`
 constant.
 
+**The "after resubscribing" row no longer holds as written** (2026-10-10, run-1
+of the security audit). Those six hits were entries from *before* the gap, and
+Redis pub/sub does not replay what was published while a subscriber was away —
+a kill sent inside that second was lost and the old ALLOW came back with the
+subscription. Regaining it now empties the cache first (`Cache::set_subscribed`,
+summaries still written), so the first request per key after the gap is a miss
+and the rest hit. Proved by the unit test
+`a_regained_subscription_does_not_serve_entries_from_before_the_gap`; not
+re-measured on the lab.
+
 **The residual gap ADR-0031 named was real, and is now closed.** The ADR left
 one case open — a connection alive at TCP level while nothing is delivered — and
 said the HA box either adds a heartbeat or writes the gap down. It was measured

@@ -202,9 +202,13 @@ impl Cache {
     // answering ALLOW from its own copy for a full TTL — 30 s against
     // ADR-0016's 5 s — and nothing outside would say so. Losing it costs an
     // oauth2-proxy hop and a query per request, which is N-02 latency; the
-    // other direction costs the revocation guarantee.
+    // other direction costs the revocation guarantee. Regaining it empties the
+    // cache first: Redis does not replay what was published in the gap.
     // --- Feature End ---
     pub fn set_subscribed(&self, live: bool) {
+        if live && !self.subscribed() {
+            self.flush_all();
+        }
         if self.subscribed.swap(live, Ordering::Release) == live {
             return;
         }
@@ -536,6 +540,7 @@ mod tests {
             "a process that has not subscribed yet has no hits to serve"
         );
         cache.set_subscribed(true);
+        cache.insert(k.clone(), "sub-labuser".to_string(), cached());
         assert!(cache.get(&k).is_some());
         cache.set_subscribed(false);
         assert!(
@@ -547,6 +552,29 @@ mod tests {
         assert!(cache.count(&k, Decision::Allow, "/a", None, None));
         cache.flush_all();
         assert_eq!(queue.try_recv().unwrap().count, 1);
+    }
+
+    /// Redis pub/sub does not replay what was published while an instance was
+    /// unsubscribed, so a kill sent in the gap is lost for good. Coming back
+    /// must therefore not bring back the hits from before it.
+    #[test]
+    fn a_regained_subscription_does_not_serve_entries_from_before_the_gap() {
+        let (audit, mut queue) = audit_channel(16);
+        let cache = armed(audit);
+        let k = key("_oauth2_proxy=abc", "finance");
+        cache.insert(k.clone(), "sub-labuser".to_string(), cached());
+        assert!(cache.count(&k, Decision::Allow, "/a", None, None));
+        cache.set_subscribed(false);
+        cache.set_subscribed(true);
+        assert!(
+            cache.get(&k).is_none(),
+            "a kill published during the gap would be served as ALLOW"
+        );
+        assert_eq!(
+            queue.try_recv().unwrap().count,
+            1,
+            "the summary still leaves"
+        );
     }
 
     // --- exit roads ---
