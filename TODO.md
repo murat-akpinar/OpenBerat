@@ -25,13 +25,73 @@ Closed so far: resubscribe cache flush, duplicate session cookie
 (leads 7/11/12), h2c / upstream cookie Domain / `;` on the auth host
 (leads 2/6/9), realm `admin-cli` (lead 3), `upstream_url` host charset
 (lead 8), path readings (leads 4/5, ADR-0037), one network per application
-(lead 1, ADR-0038), AD expiry (lead 10, refuted), the hardening notes, the
-stale `dist/` bundle (deleted), and all of it deployed and measured on the lab
+(lead 1, ADR-0038), part of the hardening notes (`5514dfa`, nonce), the stale
+`dist/` bundle (deleted), and all of it deployed and measured on the lab
 (`docs/07`, "Security audit run-1").
 
-- [ ] VERIFY: an AD account locked out (`lockoutTime`, bit 2 untouched) keeps
-  its session past `cookie_refresh`? Expiry was refuted on the lab (`docs/07`,
-  lead 10); lockout needs a lab domain lockout threshold first.
+- [ ] **Every session dies at its first `cookie_refresh`.** Measured on the lab
+  2026-10-10 with an unlocked, unexpired AD account (`lablock`) as the control:
+  `/api/me` 200 until 300 s, 302 to Keycloak at 315 s; oauth2-proxy logs
+  `error refreshing access token … session is invalid, removing session` and
+  Keycloak logs no refresh error. Suspect `23cea56`
+  (`insecure_oidc_skip_nonce = false`), not yet proven: the A/B run with the
+  nonce check off on the lab was not made. Find the cause, fix it, and measure
+  that a control session survives the refresh.
+- [ ] Lead 10 again: `docs/07` says AD expiry is **refuted** because the session
+  ended at the first refresh, but every session ends there (box above), so the
+  run proves nothing. Re-run expiry after the fix and correct `docs/07`.
+- [ ] VERIFY: an AD account locked out (`lockoutTime`) keeps its session past
+  `cookie_refresh`? Run once 2026-10-10 (threshold 3, `lockoutTime` set,
+  computed UAC 16, a good-password bind refused): 302 at 305 s, but the
+  unlocked control died the same way, so it is void. Re-run after the fix;
+  `lablock` stays in the lab AD for it, the threshold is back at 0.
+
+The hardening notes that were not applied, triaged 2026-10-10. Each was checked
+against `main` and still holds. The ones below touch a security boundary;
+the rest are under `Later` or `Read and refused`.
+
+- [ ] The second-factor reset's privileged-target refusal reads
+  `users/{id}/groups` with no `max` (`keycloak.rs`), so it trusts Keycloak's
+  paging default to show every group. Ask with an explicit bound, or check
+  `ADMIN_GROUP`/`AUDITOR_GROUP` membership directly; a test where the
+  privileged group is past the first page.
+- [ ] The backend takes `X-Auth-*` from any peer that reaches `backend:8081`
+  (`main.rs` binds `0.0.0.0`). The repo's `samba-ad` is on `core`, and `docs/02`
+  tells operators to attach Prometheus there; either can forge an admin. Needs
+  an ADR first: a secret header only nginx sets, or Prometheus and the DC off
+  `core`.
+- [ ] Keycloak's service account holds `manage-users`, which is more than the
+  four calls the backend makes, and the realm export defines **local** groups
+  `OpenBerat-Admins` / `OpenBerat-Auditors`: the backend secret plus a
+  route to the Admin API could add a local user to `ADMIN_GROUP`. Decide
+  between fine-grained admin permissions (v2) and dropping the local group
+  definitions; ADR-0036's "cannot set a password" holds only because the LDAP
+  provider is `READ_ONLY`, and has to say so (`docs/07` Unverified).
+- [ ] ADR-0006 asks for a configuration test and none exists: `cookie_refresh`
+  set, `NO_CACHE` on the LDAP provider, and `accessTokenLifespan` ≤
+  `cookie_refresh` — the refusal measured for lead 10 rests on all three. A CI
+  grep or a Rust test that reads the realm export and `oauth2-proxy.cfg`.
+- [ ] The auth host forwards every path under `/realms/openberat/`, including
+  `clients-registrations/` and `broker/`; anonymous client registration then
+  depends on Keycloak's import defaults. Narrow it to what the login flow uses,
+  and refuse `%25` in the path as `;` already is.
+- [ ] Pin the OTP policy in the realm export (`otpPolicyType`, algorithm,
+  digits, look-ahead, `CodeReusable`) so a Keycloak upgrade cannot change the
+  second factor's strength silently.
+- [ ] `nginx.rs` `stage()` writes every publication through one fixed
+  `{name}.writing` path: two concurrent admin writes fail one of them (the
+  audit measured 50 of 50) and an older snapshot can be staged last. A unique
+  temp name, publications serialised under `pg_advisory_xact_lock`, and a
+  test with two interleaved calls. `publish_status` also answers `staged`
+  when `NGINX_CONF_DIR` is unset.
+- [ ] Refuse the literal `change-me` values from `.env.example` at startup;
+  the backend client secret guards a `/token` endpoint the internet can reach.
+- [ ] `/api/admin/explain` trims whitespace around group names and `/decide`
+  does not, so the two can disagree; one shared split, tested.
+- [ ] Before the first tag: `release.sh` builds images from the working tree
+  rather than the archived `$ref`, records mutable tags rather than digests,
+  and ships no `SHA256SUMS`. CI's actions are pinned by tag, not SHA, and
+  checkout keeps its credentials.
 
 ---
 
@@ -106,6 +166,29 @@ somebody else's architecture document expects it to arrive in.
   keeps HA outside v1, and what `INSTALL.md`'s closing note points here for. The
   obstacle is the lab, not the code: `vaultscan` runs the load generator on the
   machine under test.
+- **Security audit run-1, the smaller notes.** None reaches past a boundary
+  today; each narrows something already bounded.
+  - A `killed:{sub}` tombstone checked on the miss path: closes the in-flight
+    miss accepted in `admin.rs` and a brand-new session indexed between the
+    kill's `SMEMBERS` and `DEL`, which lives until `cookie_refresh`.
+  - Entitlement delete, application delete/disable and slug reuse publish on
+    `openberat:invalidate` instead of waiting out the 30 s TTL.
+  - `validate_upstream` is an exact-name denylist: container names, core IPs on
+    unlisted ports and a public name resolving to `127.0.0.1` pass it. An
+    allowlist of application networks would bound it; and the `upstream_url`
+    CHECK in a new migration could match the API's host charset.
+  - The 16-shard fill lock is taken before oauth2-proxy has authenticated the
+    cookie, so junk cookies compete with real refills; `Index::record` has no
+    client-side timeout and holds a shard on a wedged Redis.
+  - Application networks are not `internal`: a compromised upstream has egress.
+  - The per-flow `_oauth2_proxy_<id>_csrf` cookies still reach Keycloak and the
+    upstreams for their 15 min.
+  - A WebSocket tunnel is outside per-request path authorisation as well as
+    revocation; ADR-0016 says only the latter.
+  - Cosmetic: `members()` without `max` caps the Users tab's `privileged` flag
+    at 100; the entitlement audit line logs the untrimmed subject; a missing
+    `application_id` answers 503 rather than 400; `logredact.inc` redacts only
+    the last `code=`; `logo.svg`'s location carries no CSP.
 
 ---
 
@@ -123,3 +206,17 @@ re-litigated every time somebody reads that document.
 | 7.3 | `APP_*_ACCESS` AD group naming | The naming is the operator's. [ADR-0008](docs/adr/0008-group-identity-name.md) fixes only what this product must fix — matching by name, an `OpenBerat-` prefix, and `ADMIN_GROUP`. |
 | 20.4, 21, 22 | Approvals, the responsibility matrix, the phase plan | Somebody's project management. Real work, not this repo's. |
 | 24 | Login performance "within the target time" | Already measured and tighter than the roadmap asks: N-01 **11–29 µs** mean, N-02 under 10 ms on 31 of 31 concurrent first visits (`docs/07`). |
+
+Security audit run-1's notes that are decided or accepted by design, kept for
+the same reason.
+
+| Note | Why not |
+|---|---|
+| Refuse any path holding `#`, `\` or `%2F` | ADR-0037 chose evaluating every reading over refusing them; legitimate `/job/feature%2Ffoo/` keeps working. |
+| Compose runs Keycloak `start-dev` | The lab default; the production form is INSTALL.md §5. |
+| `validate_icon` accepts `javascript:` | Its one sink is `img.src` behind a `^/[^/]` check and the CSP; an `img` does not run script. |
+| Trust-on-first-use second-factor enrolment | Accepted in ADR-0035/0036. |
+| `/oauth2/sign_out` by cross-site GET | Logout CSRF signs the user out; no identity is gained. |
+| A narrower-`Path` session cookie set by a compromised application | Two session cookies is `ambiguous_session` and refused (`4a339b7`). |
+| `$upstream_http_set_cookie` relays one value | The Redis session store emits one cookie. |
+| `Entry.counters` per source IP has no cap | Bounded by the TTL and the per-address rate; marked `ponytail:` in `cache.rs`. |
