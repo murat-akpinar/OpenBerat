@@ -772,7 +772,7 @@ async fn fake_oauth2_proxy(
         // an assertion about the stand-in and not about the kill switch.
         // --- Feature End ---
         if cookie.contains("revocable")
-            && let Some(value) = openberat::cache::session_cookie(Some(&cookie))
+            && let Ok(Some(value)) = openberat::cache::session_cookie(Some(&cookie))
             && let Some(key) = openberat::session::session_key(value, openberat::cache::COOKIE_NAME)
         {
             let live: bool = redis::cmd("EXISTS")
@@ -1255,6 +1255,20 @@ async fn decide_section(pool: &PgPool) {
     .await;
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     assert!(response.headers().get("x-auth-subject").is_none());
+
+    // A decoy session cookie in front of a valid one, as an application on the
+    // shared domain can plant: refused before oauth2-proxy is asked, since
+    // nobody can say which of the two it would have read.
+    let hits = calls.load(Ordering::SeqCst);
+    let decoy = format!("_oauth2_proxy_1=x; {}", session("one", "valid"));
+    let response = ask(ctx(&upstream, pool.clone()), full("/", &decoy)).await;
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert_eq!(reason(&response).as_deref(), Some("ambiguous_session"));
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        hits,
+        "oauth2-proxy was not asked"
+    );
 
     // The happy path, and the two things nginx lifts off it.
     let response = ask(

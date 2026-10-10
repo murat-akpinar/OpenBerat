@@ -19,9 +19,11 @@
 # it: an application that loses its own session cookie is broken, not secured.
 # --- Feature End ---
 #
-# One pass, four positions. ponytail: a chunked session (`_oauth2_proxy_0`…)
-# would need one pass per chunk, and the measured cookie is a fixed 192 bytes
-# that never chunks (docs/07). If that ever changes, chain a second map.
+# One pass, four positions, and one pass is enough because `/decide` refuses a
+# request that carries two session cookies (`ambiguous_session`) — nothing with
+# a second one reaches a protected upstream. ponytail: a chunked session
+# (`_oauth2_proxy_0`…) is refused by the same rule; the measured cookie is a
+# fixed 192 bytes that never chunks (docs/07).
 map $http_cookie $upstream_cookie {
     default                                                                  $http_cookie;
     "~^_oauth2_proxy(?:_\d+)?=[^;]*$"                                        "";

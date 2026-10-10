@@ -187,8 +187,10 @@ async fn indexed(State(ctx): State<Arc<Ctx>>, request: Request, next: Next) -> R
         return next.run(request).await;
     };
     let cookie = headers.get("cookie").and_then(|v| v.to_str().ok());
-    let Some(key) =
-        cache::session_cookie(cookie).and_then(|v| session::session_key(v, cache::COOKIE_NAME))
+    let Some(key) = cache::session_cookie(cookie)
+        .ok()
+        .flatten()
+        .and_then(|v| session::session_key(v, cache::COOKIE_NAME))
     else {
         tracing::error!("no session key could be derived from an authenticated /api request");
         return StatusCode::SERVICE_UNAVAILABLE.into_response();

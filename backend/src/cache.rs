@@ -40,16 +40,43 @@ const CAPACITY: usize = 10_000;
 /// survivable rather than fatal — see `Key::new`.
 pub const COOKIE_NAME: &str = "_oauth2_proxy";
 
-/// The session cookie's value, for deriving the oauth2-proxy session key
-/// (ADR-0019). A **chunked** session returns None: the measured cookie is a
-/// fixed 192 bytes and never chunks (docs/07), so a chunked one means something
-/// changed underneath us, and guessing how to reassemble a ticket would produce
-/// a key the kill switch cannot use.
-pub fn session_cookie(cookie_header: Option<&str>) -> Option<&str> {
-    cookie_header?.split(';').find_map(|cookie| {
-        let (name, value) = cookie.split_once('=')?;
-        (name.trim() == COOKIE_NAME).then_some(value)
-    })
+/// More than one cookie in the session family (`_oauth2_proxy`, or a chunk of
+/// it, `_oauth2_proxy_<digits>`).
+#[derive(Debug, PartialEq, Eq)]
+pub struct Ambiguous;
+
+/// The session cookie's value, for the cache key and the oauth2-proxy session key
+/// (ADR-0019). Every application on .apps.<domain> can set a cookie by this name
+/// (ADR-0015), and with two of them nginx's strip, oauth2-proxy's Go parser and
+/// this function each pick one by their own rules — a decoy in front of the
+/// real one kept the real session out of the kill-switch index, reached the
+/// upstream unstripped, and minted a fresh cache key per request. So two is not
+/// a session at all. A lone chunk (`_0`) is None: the measured cookie is a fixed
+/// 192 bytes and never chunks (docs/07), and guessing how to reassemble a ticket
+/// would produce a key the kill switch cannot use.
+pub fn session_cookie(cookie_header: Option<&str>) -> Result<Option<&str>, Ambiguous> {
+    let mut found = None;
+    let mut seen = 0;
+    for cookie in cookie_header.unwrap_or_default().split(';') {
+        let Some((name, value)) = cookie.split_once('=') else {
+            continue;
+        };
+        let name = name.trim();
+        let chunk = name
+            .strip_prefix(COOKIE_NAME)
+            .and_then(|rest| rest.strip_prefix('_'))
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
+        if name == COOKIE_NAME || chunk {
+            seen += 1;
+            if name == COOKIE_NAME {
+                found = Some(value);
+            }
+        }
+    }
+    if seen > 1 {
+        return Err(Ambiguous);
+    }
+    Ok(found)
 }
 
 const FILL_SHARDS: usize = 16;
@@ -85,37 +112,9 @@ impl Key {
     // request; the alternative costs the product.
     // --- Feature End ---
     pub fn new(cookie_header: Option<&str>, slug: &str) -> Option<Key> {
-        let mut hasher = Sha256::new();
-        let mut found = false;
-        for cookie in cookie_header?.split(';') {
-            let Some((name, value)) = cookie.split_once('=') else {
-                continue;
-            };
-            let name = name.trim();
-            // oauth2-proxy splits an oversized session cookie into `_0`, `_1`…
-            // The suffix has to be digits: a client can set any cookie it likes
-            // on the shared domain (ADR-0015), and `_oauth2_proxy_anything`
-            // would otherwise let it move its own cache key on every request.
-            let chunk = name
-                .strip_prefix(COOKIE_NAME)
-                .and_then(|rest| rest.strip_prefix('_'))
-                .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()));
-            if name == COOKIE_NAME || chunk {
-                // Length-prefixed, because the parts are joined into one hash
-                // and the client writes both: name+value run together make
-                // `_0=X; _1=Y` and `_0=X_oauth2_proxy_1Y` the same byte stream,
-                // and a cache key names an entry holding a verified identity.
-                // Reaching that today would mean already holding the session it
-                // encodes, so this removes the reasoning rather than a way in.
-                hasher.update((name.len() as u64).to_le_bytes());
-                hasher.update(name.as_bytes());
-                hasher.update((value.len() as u64).to_le_bytes());
-                hasher.update(value.as_bytes());
-                found = true;
-            }
-        }
-        found.then(|| Key {
-            cookie: hasher.finalize().into(),
+        let value = session_cookie(cookie_header).ok()??;
+        Some(Key {
+            cookie: Sha256::digest(value.as_bytes()).into(),
             slug: slug.to_string(),
         })
     }
@@ -448,17 +447,6 @@ mod tests {
     use crate::policy::{Deny, Effect};
     use crate::store::audit_channel;
 
-    // The key is a hash of client-controlled bytes, so how the parts are joined
-    // is part of the key. Feeding name and value in with nothing between them
-    // makes two different cookie sets the same byte stream, and the entry a
-    // cache key names holds a verified identity.
-    #[test]
-    fn two_cookie_sets_cannot_share_one_key() {
-        let split = Key::new(Some("_oauth2_proxy_0=X; _oauth2_proxy_1=Y"), "wiki").unwrap();
-        let joined = Key::new(Some("_oauth2_proxy_0=X_oauth2_proxy_1Y"), "wiki").unwrap();
-        assert_ne!(split, joined);
-    }
-
     fn identity(sub: &str) -> Arc<Identity> {
         Arc::new(Identity {
             sub: HeaderValue::from_str(sub).unwrap(),
@@ -518,8 +506,24 @@ mod tests {
         assert!(Key::new(Some(""), "finance").is_none());
         assert!(Key::new(Some("app_pref=dark; other=1"), "finance").is_none());
         assert!(Key::new(Some("_oauth2_proxy_lookalike=abc"), "finance").is_none());
-        // A chunked session cookie is still the session cookie.
-        assert!(Key::new(Some("_oauth2_proxy_0=a; _oauth2_proxy_1=b"), "finance").is_some());
+    }
+
+    /// Any app on the shared domain can plant a second session cookie
+    /// (ADR-0015). Which one each of nginx, oauth2-proxy and this backend then
+    /// reads is three parsers' opinion, so the request is not read at all.
+    #[test]
+    fn two_session_cookies_are_no_session() {
+        for header in [
+            "_oauth2_proxy=V; _oauth2_proxy_1=r",
+            "_oauth2_proxy_1=x; _oauth2_proxy=V",
+            "_oauth2_proxy=decoy; _oauth2_proxy=V",
+            "a=1; _oauth2_proxy=V; b=2; _oauth2_proxy_0=r",
+        ] {
+            assert_eq!(session_cookie(Some(header)), Err(Ambiguous), "{header}");
+            assert!(Key::new(Some(header), "finance").is_none(), "{header}");
+        }
+        assert_eq!(session_cookie(Some("a=1; _oauth2_proxy=V")), Ok(Some("V")));
+        assert_eq!(session_cookie(Some("a=1")), Ok(None));
     }
 
     // --- the subscription that makes a local cache safe on two instances ---

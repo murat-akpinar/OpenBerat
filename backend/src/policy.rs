@@ -34,6 +34,7 @@ pub enum Deny {
     ExplicitDeny,
     NoMatchingGrant,
     MissingContext,
+    AmbiguousSession,
     StoreUnavailable,
     AuthUnavailable,
 }
@@ -44,12 +45,13 @@ impl Deny {
     /// this list being seen; the counter indexes by discriminant and falls back
     /// to no series rather than out of bounds, so forgetting it loses a number
     /// and never a request (`metrics.rs`).
-    pub const ALL: [Deny; 7] = [
+    pub const ALL: [Deny; 8] = [
         Deny::MalformedUri,
         Deny::ApplicationDisabled,
         Deny::ExplicitDeny,
         Deny::NoMatchingGrant,
         Deny::MissingContext,
+        Deny::AmbiguousSession,
         Deny::StoreUnavailable,
         Deny::AuthUnavailable,
     ];
@@ -61,6 +63,7 @@ impl Deny {
             Deny::ExplicitDeny => "explicit_deny",
             Deny::NoMatchingGrant => "no_matching_grant",
             Deny::MissingContext => "missing_context",
+            Deny::AmbiguousSession => "ambiguous_session",
             Deny::StoreUnavailable => "store_unavailable",
             Deny::AuthUnavailable => "auth_unavailable",
         }

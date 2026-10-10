@@ -66,6 +66,9 @@ async fn decided(ctx: &Ctx, headers: HeaderMap) -> Response {
         return refuse(Deny::MissingContext);
     }
     let cookie = headers.get("cookie");
+    if cache::session_cookie(cookie.and_then(|v| v.to_str().ok())).is_err() {
+        return refuse(Deny::AmbiguousSession);
+    }
     let request = Subrequest {
         key: Key::new(cookie.and_then(|v| v.to_str().ok()), slug),
         slug: slug.to_string(),
@@ -132,6 +135,8 @@ async fn decided(ctx: &Ctx, headers: HeaderMap) -> Response {
     // --- Feature End ---
     let sub = identity.sub.to_str().unwrap_or_default().to_string();
     let Some(session) = cache::session_cookie(cookie.and_then(|v| v.to_str().ok()))
+        .ok()
+        .flatten()
         .and_then(|value| session::session_key(value, cache::COOKIE_NAME))
     else {
         tracing::error!("no session key could be derived from an authenticated cookie");

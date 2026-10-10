@@ -54,6 +54,8 @@ pub(crate) async fn logout(State(ctx): State<Arc<Ctx>>, headers: HeaderMap) -> R
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let Some(key) = cache::session_cookie(cookie.to_str().ok())
+        .ok()
+        .flatten()
         .and_then(|v| session::session_key(v, cache::COOKIE_NAME))
     else {
         return StatusCode::SERVICE_UNAVAILABLE.into_response();

@@ -414,6 +414,7 @@ buys nothing.
 
 ```
 0. Required header missing or URI unparseable → DENY  missing_context / malformed_uri
+0b. More than one session cookie               → DENY  ambiguous_session
 1. Not authenticated                          → 401   (nginx redirects to login)
 1b. A dependency did not answer               → DENY  auth_unavailable / store_unavailable
 2. Application missing or enabled=false       → DENY  application_disabled
