@@ -4269,3 +4269,29 @@ authenticator inside the run (`/root/oblogin.py`, stdlib only), because the old
 harnesses and the lab users' TOTP files are gone; user, application row and
 upstream container were removed afterwards.
 
+### The reset reads every group or refuses
+
+The audit's note: the privileged-target refusal read `users/{id}/groups` with
+no `max`, trusting Keycloak's paging default to show every group. Measured on
+Keycloak **26.3.5** with a throwaway local user joined to generated groups,
+read through the Admin API:
+
+| groups held | no `max` | `max=1000` / `max=5000` | `first=100&max=100` | `groups/count` |
+|---|---|---|---|---|
+| 105 | 105 | 105 | 5 | 105 |
+| 1050 | **1050** | 1050 | 100 | 1050 |
+
+So 26.3.5 has no default page on this endpoint and the note was not live. It
+was a default an upgrade can change, though, so `Keycloak::target` now asks for
+`max=1000` and compares the list against `groups/count`; a read short of the
+count is an error, which the reset answers with **503** and no delete. The
+integration test's stand-in plays a Keycloak that pages at 100 by default and
+holds `labburied`, `OpenBerat-Admins` listed after 1000 other groups: the old
+read reset it (**200**, the factor gone), the new one refuses.
+
+Live, through the proxy with a throwaway admin session: a target in 1001 groups
+answered **503** *"Keycloak listed 1000 of the target's groups and counted
+1001; reset this user at the Keycloak console"* and kept its `otp` credential;
+an ordinary target answered **200 `removed: 1`**. Users and groups were deleted
+afterwards. A thousand is far past what a session carries anyway ("A user in
+many groups" above), so the ceiling refuses no one who could sign in.

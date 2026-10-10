@@ -265,16 +265,36 @@ impl Keycloak {
         // Admin API path, with the service account's rights behind it.
         let id = Uuid::parse_str(id)
             .map_err(|_| "Keycloak named a user whose id is not a UUID".to_string())?;
-        let groups = self.get(&token, &format!("users/{id}/groups"), &[]).await?;
-        Ok(Some(Target {
-            id,
-            groups: groups
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|g| g["name"].as_str().map(str::to_owned))
-                .collect(),
-        }))
+        // --- Feature Start ---
+        // The privileged-target refusal judges this list, so a page of it is no
+        // answer. 26.3.5 sends every group when `max` is absent (`docs/07`), but
+        // that is a default an upgrade may change; the bound is asked for, and a
+        // read short of Keycloak's own count refuses rather than clears.
+        let groups: Vec<String> = self
+            .get(
+                &token,
+                &format!("users/{id}/groups"),
+                &[("max", GROUPS_READ)],
+            )
+            .await?
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|g| g["name"].as_str().map(str::to_owned))
+            .collect();
+        let count = self
+            .get(&token, &format!("users/{id}/groups/count"), &[])
+            .await?["count"]
+            .take();
+        if count.as_u64() != Some(groups.len() as u64) {
+            return Err(format!(
+                "Keycloak listed {} of the target's groups and counted {count}; \
+                 reset this user at the Keycloak console",
+                groups.len()
+            ));
+        }
+        // --- Feature End ---
+        Ok(Some(Target { id, groups }))
     }
 
     // --- Feature Start ---
@@ -321,6 +341,11 @@ impl Keycloak {
         Ok(otp.len())
     }
 }
+
+/// The most groups a reset target may hold. A thousand is past what a session
+/// can carry at all (`docs/07`, "A user in many groups"), so a user above it
+/// is refused here and reset at the console.
+const GROUPS_READ: &str = "1000";
 
 /// One row of `GET /api/admin/users`: a projection of Keycloak's own user, not
 /// a stored directory. `totp` is Keycloak's own flag for "an OTP credential is

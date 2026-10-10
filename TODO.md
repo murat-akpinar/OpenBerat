@@ -26,6 +26,8 @@ Closed so far: resubscribe cache flush, duplicate session cookie
 (leads 2/6/9), realm `admin-cli` (lead 3), `upstream_url` host charset
 (lead 8), path readings (leads 4/5, ADR-0037), one network per application
 (lead 1, ADR-0038), AD expiry and lockout (lead 10, confirmed; ADR-0039),
+the second-factor reset's paged groups read (not live on 26.3.5, bounded and
+counted now),
 part of the hardening notes (`5514dfa`), the nonce check
 (`23cea56`, reverted: it signed every user out at the first `cookie_refresh`,
 `docs/07`), the stale `dist/` bundle (deleted), and all of it deployed and
@@ -35,11 +37,6 @@ The hardening notes that were not applied, triaged 2026-10-10. Each was checked
 against `main` and still holds. The ones below touch a security boundary;
 the rest are under `Later` or `Read and refused`.
 
-- [ ] The second-factor reset's privileged-target refusal reads
-  `users/{id}/groups` with no `max` (`keycloak.rs`), so it trusts Keycloak's
-  paging default to show every group. Ask with an explicit bound, or check
-  `ADMIN_GROUP`/`AUDITOR_GROUP` membership directly; a test where the
-  privileged group is past the first page.
 - [ ] The backend takes `X-Auth-*` from any peer that reaches `backend:8081`
   (`main.rs` binds `0.0.0.0`). The repo's `samba-ad` is on `core`, and `docs/02`
   tells operators to attach Prometheus there; either can forge an admin. Needs

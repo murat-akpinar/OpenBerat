@@ -978,7 +978,14 @@ async fn fake_keycloak() -> (String, Arc<std::sync::Mutex<Vec<String>>>, Directo
         axum::Json(listed).into_response()
     }
 
-    async fn user_groups(State(realm): State<Realm>, Path(id): Path<String>) -> Response {
+    /// Keycloak 26.3.5 answers every group when `max` is absent (measured,
+    /// `docs/07`); the stand-in plays a version that pages by default instead,
+    /// which is the upgrade the backend must not trust its luck through.
+    async fn user_groups(
+        State(realm): State<Realm>,
+        Path(id): Path<String>,
+        Query(q): Query<HashMap<String, String>>,
+    ) -> Response {
         let directory = realm.directory.lock().unwrap();
         let Some(account) = directory.iter().find(|a| a.id == id) else {
             return StatusCode::NOT_FOUND.into_response();
@@ -992,9 +999,19 @@ async fn fake_keycloak() -> (String, Arc<std::sync::Mutex<Vec<String>>>, Directo
         let listed: Vec<serde_json::Value> = account
             .groups
             .iter()
+            .skip(q.get("first").and_then(|v| v.parse().ok()).unwrap_or(0))
+            .take(q.get("max").and_then(|v| v.parse().ok()).unwrap_or(100))
             .map(|name| serde_json::json!({ "name": name, "path": format!("/{name}") }))
             .collect();
         axum::Json(listed).into_response()
+    }
+
+    async fn user_groups_count(State(realm): State<Realm>, Path(id): Path<String>) -> Response {
+        let directory = realm.directory.lock().unwrap();
+        let Some(account) = directory.iter().find(|a| a.id == id) else {
+            return StatusCode::NOT_FOUND.into_response();
+        };
+        axum::Json(serde_json::json!({ "count": account.groups.len() })).into_response()
     }
 
     async fn credentials(State(realm): State<Realm>, Path(id): Path<String>) -> Response {
@@ -1072,6 +1089,18 @@ async fn fake_keycloak() -> (String, Arc<std::sync::Mutex<Vec<String>>>, Directo
             &[],
             "0a000000-0000-0000-0000-000000000006",
         ),
+        // An admin whose management group is listed after a thousand others:
+        // a groups read that stops at a page proves nothing about it.
+        account(
+            "aaaaaaaa-0000-4000-8000-000000000008",
+            "labburied",
+            (0..1000)
+                .map(|i| &*format!("Payroll-{i:04}").leak())
+                .chain(["OpenBerat-Admins"])
+                .collect::<Vec<_>>()
+                .leak(),
+            "0a000000-0000-0000-0000-000000000008",
+        ),
         // Reset for real by the admin pass over the route list, which is why
         // nothing else may name it: that pass asserts the call lands.
         account(
@@ -1094,6 +1123,10 @@ async fn fake_keycloak() -> (String, Arc<std::sync::Mutex<Vec<String>>>, Directo
         .route(
             "/admin/realms/openberat/users/{id}/groups",
             axum::routing::get(user_groups),
+        )
+        .route(
+            "/admin/realms/openberat/users/{id}/groups/count",
+            axum::routing::get(user_groups_count),
         )
         .route(
             "/admin/realms/openberat/users/{id}/credentials",
@@ -3117,6 +3150,13 @@ async fn decide_section(pool: &PgPool) {
         enrolled("labbroken"),
         "a reset ran without reading the groups"
     );
+    // Every group or no reset: a read that came back short of the target's
+    // group count cannot clear it, wherever the management group sits.
+    assert_eq!(
+        post_reset(reset("labburied")).await.status(),
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert!(enrolled("labburied"), "a reset ran on a page of the groups");
 
     // The ordinary case, which is the whole point: the factor goes, and the
     // next login is an enrolment.

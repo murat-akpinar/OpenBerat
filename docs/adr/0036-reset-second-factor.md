@@ -98,7 +98,10 @@ revocation had none ([ADR-0024](0024-no-admin-ui-in-v1.md)):
   terminal call made at the Keycloak console under `KC_ADMIN_PASSWORD` — which
   is exactly the set ADR-0032's answer was sized for. The target's groups are
   read from `/users/{id}/groups` and matched against `ADMIN_GROUP` and
-  `AUDITOR_GROUP` by exact name, the same comparison the guard uses.
+  `AUDITOR_GROUP` by exact name, the same comparison the guard uses. All of
+  them, not a page: the read asks for up to 1000 and is checked against
+  `/users/{id}/groups/count`, and a read short of the count refuses
+  (`docs/07`, "The reset reads every group or refuses").
 - **A read the backend cannot make.** If resolving the username, reading the
   groups, or listing the credentials does not answer, the call refuses rather
   than proceeds — a reset that cannot first prove the target is not privileged
