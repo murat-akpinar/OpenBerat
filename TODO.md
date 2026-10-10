@@ -23,7 +23,9 @@ Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
 Report lives outside the repo (`~/security-audit-skill/OpenBerat/run-1/`).
 Closed so far: resubscribe cache flush, duplicate session cookie
 (leads 7/11/12), h2c / upstream cookie Domain / `;` on the auth host
-(leads 2/6/9), realm `admin-cli` (lead 3), `upstream_url` host charset (lead 8).
+(leads 2/6/9), realm `admin-cli` (lead 3), `upstream_url` host charset
+(lead 8), the hardening notes, and all of it deployed and measured on the lab
+(`docs/07`, "Security audit run-1").
 
 - [ ] **Shared `edge` network (lead 1) — confirmed on the lab**: a throwaway
   container on `openberat_edge` reached its neighbour directly with a forged
@@ -34,13 +36,6 @@ Closed so far: resubscribe cache flush, duplicate session cookie
   `;`-stripped) and deny if any denies. Answers the `docs/06` `;` question → ADR first.
 - [ ] VERIFY lead 10: an AD account expired (`accountExpires`) or locked keeps
   its session up to 10 h? Lab AD test account.
-- [ ] Deploy to the lab and re-measure: nginx changes, backend (resubscribe,
-  `ambiguous_session`). Lab's `admin-cli` already disabled by hand.
-- [ ] Hardening batch: `cargo update -p rustls` (RUSTSEC-2026-0285),
-  `cargo build --locked`, CI `permissions: contents: read`, `.gitignore`
-  `.env.*`/`*.key`/`*.pem`, `security.inc` + `X-Auth-Request-Redirect` in
-  breakglass `upstream.inc`, `proxy_ignore_headers X-Accel-*`, blank
-  `X-Forwarded-User`-family, `insecure_oidc_skip_nonce = false` (lab-verify).
 - [ ] Delete or rebuild the stale `dist/openberat-0.1.0.tar.gz`.
 
 ---

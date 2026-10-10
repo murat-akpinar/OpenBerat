@@ -4008,8 +4008,10 @@ a kill sent inside that second was lost and the old ALLOW came back with the
 subscription. Regaining it now empties the cache first (`Cache::set_subscribed`,
 summaries still written), so the first request per key after the gap is a miss
 and the rest hit. Proved by the unit test
-`a_regained_subscription_does_not_serve_entries_from_before_the_gap`; not
-re-measured on the lab.
+`a_regained_subscription_does_not_serve_entries_from_before_the_gap`, and on
+the lab (2026-10-10, `redis-cli CLIENT KILL TYPE pubsub`, then two requests on
+one warm key): the subscription back in 1.0 s, then **1 miss and 1 hit** where
+the old code served 2 hits.
 
 **The residual gap ADR-0031 named was real, and is now closed.** The ADR left
 one case open — a connection alive at TCP level while nothing is delivered — and
@@ -4187,3 +4189,29 @@ in an earlier session and never copied over, so a per-file `scp` of what *this*
 change touched left the tree half a feature behind. The deploy is an `rsync` of
 `backend/src/` and `frontend/src/` wholesale; copying the files a session edited
 is what hides drift that is already there.
+
+## Security audit run-1 (2026-10-10), measured
+
+An outside audit (Cloudflare's security-audit skill, "standard" profile, 61
+agents, against `2c53263`) confirmed one finding and left twelve leads that
+needed a live stack. What was run, and what it answered:
+
+| Lead | How it was measured | Before | After |
+|---|---|---|---|
+| Resubscribe served pre-gap entries | Unit test; lab, `CLIENT KILL TYPE pubsub` | stale hits | 1 miss, then hits |
+| 1. Upstreams share `edge` | Two throwaway containers on `openberat_edge`, `curl` with `X-Auth-Groups` from one to the other | **reached, header intact** — no nginx in the path | open (TODO.md) |
+| 2. `Upgrade: h2c` | nginx 1.29 fixture, then the lab through a throwaway app `obprobe` | upstream saw `h2c`, `Connection: upgrade`, `HTTP2-Settings` | `upgrade=[]`, `conn=[close]`, `h2s=[]`; `websocket` still passes |
+| 3. Realm `admin-cli` | `POST /token` `grant_type=password` through nginx | `invalid_grant` (client accepted) | `invalid_client`, lab and a fresh 26.3 import |
+| 6. Upstream `Set-Cookie` on the parent domain | `obprobe`'s upstream sets `_oauth2_proxy=PLANTED; Domain=.apps…` | `Domain=.apps.example.local` | `Domain=obprobe.apps.example.local` |
+| 7/11/12. Decoy session cookie | `_oauth2_proxy_1=x; _oauth2_proxy=<valid>` and a duplicated name, through `obprobe` and `/api/me` | 200, real cookie upstream | 302 to `/denied` (`ambiguous_session`), `/api/me` 503 |
+| 8. `upstream_url` metacharacters | Unit test | `$http_x_up` accepted | refused |
+| 9. `login-actions;x/` | Keycloak 26.3: same 400 as the real path (unknown paths 404); lab through nginx | unlimited location | 404 |
+
+Also confirmed on the lab with the same login: `insecure_oidc_skip_nonce =
+false` — the authorization request carries a `nonce` and a full password + TOTP
+login still ends at `/api/me` 200 — and a spoofed `X-Forwarded-User` arrives
+empty. The login was a throwaway **local** Keycloak user enrolling its own
+authenticator inside the run (`/root/oblogin.py`, stdlib only), because the old
+harnesses and the lab users' TOTP files are gone; user, application row and
+upstream container were removed afterwards.
+
