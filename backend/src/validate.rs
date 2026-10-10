@@ -89,6 +89,11 @@ pub fn validate_upstream(raw: &str) -> Result<(), String> {
     match url.host().ok_or("upstream_url has no host".to_string())? {
         Host::Domain(name) => {
             let name = name.to_ascii_lowercase();
+            // Written into nginx config unescaped (ADR-0011), so `$`, `;` and
+            // `{` would be syntax there; a trailing dot slipped the list below.
+            if !labelled(&name, &['.', '-']) {
+                return Err("upstream_url host may hold only letters, digits, '.' and '-'".into());
+            }
             if [
                 "localhost",
                 "postgres",
@@ -361,6 +366,21 @@ mod tests {
         ] {
             assert!(validate_upstream(bad).is_err(), "{bad} should be refused");
         }
+    }
+
+    #[test]
+    fn an_upstream_host_carries_no_nginx_syntax() {
+        // The host is written into generated config unescaped (ADR-0011):
+        // `$http_x_up` would let the client pick the upstream per request.
+        for raw in [
+            "http://$http_x_up:80",
+            "http://a;b:80",
+            "http://a{b:80",
+            "http://postgres.:5432",
+        ] {
+            assert!(validate_upstream(raw).is_err(), "{raw}");
+        }
+        assert!(validate_upstream("http://jenkins-1.lab:8080").is_ok());
     }
 
     #[test]

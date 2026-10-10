@@ -1,6 +1,6 @@
 # TODO
 
-Status: **no box is open**, and nothing is tagged. Every phase and every box is
+Status: **the security audit run-1 boxes below are open**; nothing is tagged. Every phase and every box is
 closed; what closed each one — the measurement, the thing that turned out to be
 wrong, the ADR it forced — is in
 [`docs/09-history.md`](docs/09-history.md), 157 boxes of it: phases 0–7, the
@@ -15,6 +15,33 @@ kept underneath it so the refusals are not re-litigated every time that roadmap
 is read again.
 
 Decisions: `docs/adr/` · Open questions: `docs/06-requirements.md`
+
+---
+
+## Open — security audit run-1 (2026-10-10)
+
+Report lives outside the repo (`~/security-audit-skill/OpenBerat/run-1/`).
+Closed so far: resubscribe cache flush, duplicate session cookie
+(leads 7/11/12), h2c / upstream cookie Domain / `;` on the auth host
+(leads 2/6/9), realm `admin-cli` (lead 3), `upstream_url` host charset (lead 8).
+
+- [ ] **Shared `edge` network (lead 1) — confirmed on the lab**: a throwaway
+  container on `openberat_edge` reached its neighbour directly with a forged
+  `X-Auth-Groups`. Needs an ADR (one network per upstream shared only with
+  nginx, generated beside `apps.conf`); `enable_icc=false` would cut nginx off too.
+- [ ] Path normalisation (leads 4, 5): `%2F`, `\`, `#` and `..;` escape an allow
+  subtree. Proposed: decide under every reading (decoded, raw-resolved,
+  `;`-stripped) and deny if any denies. Answers the `docs/06` `;` question → ADR first.
+- [ ] VERIFY lead 10: an AD account expired (`accountExpires`) or locked keeps
+  its session up to 10 h? Lab AD test account.
+- [ ] Deploy to the lab and re-measure: nginx changes, backend (resubscribe,
+  `ambiguous_session`). Lab's `admin-cli` already disabled by hand.
+- [ ] Hardening batch: `cargo update -p rustls` (RUSTSEC-2026-0285),
+  `cargo build --locked`, CI `permissions: contents: read`, `.gitignore`
+  `.env.*`/`*.key`/`*.pem`, `security.inc` + `X-Auth-Request-Redirect` in
+  breakglass `upstream.inc`, `proxy_ignore_headers X-Accel-*`, blank
+  `X-Forwarded-User`-family, `insecure_oidc_skip_nonce = false` (lab-verify).
+- [ ] Delete or rebuild the stale `dist/openberat-0.1.0.tar.gz`.
 
 ---
 
