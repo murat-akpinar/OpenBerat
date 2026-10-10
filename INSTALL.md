@@ -507,6 +507,22 @@ fresh import of `keycloak/realm/` would not. And Keycloak's database joins the
 list in §9 that cannot be re-derived — it holds the `sub`s your audit log names
 and the OTP credentials your admins enrolled.
 
+**An installation whose realm was imported before 2026-10-10** still has the
+realm's own `admin-cli` client enabled with password grants on — the export
+did not declare it then, and the import is skipped now. Turn it off by hand;
+nothing in OpenBerat uses it:
+
+```sh
+docker compose exec -T keycloak /opt/keycloak/bin/kcadm.sh config credentials \
+  --server http://localhost:8080 --realm master --user "$KC_BOOTSTRAP_ADMIN_USERNAME"
+ID=$(docker compose exec -T keycloak /opt/keycloak/bin/kcadm.sh get clients \
+  -r openberat -q clientId=admin-cli --fields id --format csv --noquotes)
+docker compose exec -T keycloak /opt/keycloak/bin/kcadm.sh update "clients/$ID" \
+  -r openberat -s enabled=false -s directAccessGrantsEnabled=false
+```
+
+`keycloak/realm-drift.sh` reports it until you do.
+
 **Lab: the directory has to have something in it.** Keycloak holds no local
 users — `labuser` and everyone else come from AD through the LDAP provider, so
 a lab needs the fixture before anyone can log in:
